@@ -163,8 +163,8 @@ model AdminUser {
   updatedVendorTypeCountry       VendorTypeCountry[]    @relation("VendorTypeCountryUpdatedBy")
   createdDocumentType            DocumentTypeConfig[]   @relation("DocumentTypeUpdatedBy")
   updatedDocumentType            DocumentTypeConfig[]   @relation("DocumentTypeCreatedBy")
-  reviewedOutletDocument         OutletDocument[]       @relation("OutletDocumentReviewedBy)
- 
+  reviewedOutletDocuments        OutletDocument[]       @relation("OutletDocumentReviewedBy") 
+  outletAdminLogs                OutletAdminActivityLog[] 
 
   createdAt                      DateTime             @default(now())
 }
@@ -351,7 +351,7 @@ model ServiceArea {
   city              City        @relation(fields: [cityId], references: [id], onDelete: Cascade)
   cityId            String
   name              String
-  boundaries        Bytes       @db.Geography
+  boundaries        Json
   status            GeoStatus   @default(ACTIVE)
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -417,6 +417,7 @@ model DocumentTypeConfig {
   sampleUrl           String?
   vendorDocuments     VendorDocument[]
   storeDocuments      OutletDocument[]
+  storeInheritances   StoreDocumentInheritance[]
   status              DocumentTypeStatus @default(ACTIVE)
   createdByAdminId    String?
   updatedByAdminId    String?
@@ -552,6 +553,7 @@ model VendorType {
   status              VendorTypeStatus    @default(ACTIVE)
   deletedAt           DateTime?
   countries           VendorTypeCountry[]
+  documentTypeConfigs DocumentTypeVendorType[]
   vendorApplications  VendorApplication[]
   createdBy           AdminUser?          @relation("VendorTypeCreatedBy", fields: [createdByAdminId], references: [id])
   updatedBy           AdminUser?          @relation("VendorTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
@@ -739,6 +741,7 @@ model CountryPayoutType {
   updatedByAdminId  String?
   createdByAdmin    AdminUser?  @relation("CountryPayoutTypeCreatedBy", fields: [createdByAdminId], references: [id])
   updatedByAdmin    AdminUser?  @relation("CountryPayoutTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
+  vendorPayoutAccounts VendorPayoutAccount[]
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
@@ -814,15 +817,17 @@ model Outlet {
   phone          String?
   email          String?
   isMainStore    Boolean            @default(false)
-  cuisines       OutletCuisine[]
-  mealIds        Int[]
-  mealPlanIds    Int[]
+  meals          Meal[] 
+  mealPlans      MealPlan[]
+  cuisines       OutletCuisine[] 
   ratings        Float                 @default(0)
   totalReviews   Int                   @default(0)
   isFeatured     Boolean               @default(false)
   operatingHours OutletOperatingHours[]
   documents      OutletDocument[]
   serviceAreas   OutletServiceArea[]
+  inheritedVendorDocuments StoreDocumentInheritance[]
+  adminActivityLogs    OutletAdminActivityLog[]
 
   //* ---------------- ADMIN AUTHORITY ----------------
   adminStatus         OutletAdminStatus      @default(ACTIVE)
@@ -896,6 +901,7 @@ model OutletAdminActionReason {
   label       String
   description String?
   appliesTo   OutletAdminActionType[]
+   logs        OutletAdminActivityLog[]
   isActive    Boolean  @default(true)
 
   createdAt  DateTime @default(now())

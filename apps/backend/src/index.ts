@@ -1,0 +1,83 @@
+import express, { ErrorRequestHandler } from "express"
+import dotenv from "dotenv"
+import helmet from "helmet"
+import cors from "cors"
+import morgan from "morgan"
+import { rateLimit, ipKeyGenerator } from "express-rate-limit"
+import cookieParser from "cookie-parser"
+import router from "./routes"
+
+dotenv.config()
+
+const app = express()
+
+const port = process.env.PORT || 8000
+
+const whitelist = ["http://localhost:3000","http://localhost:3001","http://localhost:3002"]
+
+const corsOptions = {
+    origin: (origin:any, callback:any) => {
+        if(whitelist.indexOf(origin) !== -1){
+            callback(null, true)
+        } else {
+            callback(new Error('Not allowed by CORS'))
+        }
+    },
+    optionsSuccessStatus: 200
+}
+app.use(cors(corsOptions))
+app.use(helmet())
+app.use(morgan("dev"))
+app.use(express.json({ limit: "100mb" }))
+app.use(express.urlencoded({ limit: "100mb", extended: true }))
+app.use(cookieParser())
+
+
+
+//* Rate Limiting
+
+export const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many authentication attempts. Try again later." },
+  standardHeaders: true,
+  legacyHeaders: true,
+  keyGenerator: (req: any) => ipKeyGenerator(req),
+  skip: (req) =>
+    req.path === "/server-health" ||
+    req.path.startsWith("/internal") ||
+    req.path.startsWith("/webhooks"),
+})
+
+export const publicRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: (req: any) =>
+    req.headers["x-is-authenticated"] === "true" ? 1000 : 100,  //! for authenticated users
+  message: { error: "Too many requests" },
+  standardHeaders: true,
+  legacyHeaders: true,
+  keyGenerator: (req: any) => ipKeyGenerator(req),
+  skip: (req) =>
+    req.path === "/server-health" ||
+    req.path.startsWith("/internal") ||
+    req.path.startsWith("/webhooks"),
+})
+
+app.use(publicRateLimiter)
+
+app.use('/api', router)
+
+
+const errorHandler: ErrorRequestHandler = (err, req, res,next) => {
+  console.error(err.stack);
+
+  return res.status(500).json({
+    message: err.message ?? "Internal Server Error",
+  })
+}
+
+app.use(errorHandler)
+
+app.listen(port, () => {
+  console.log(`Backend is running at port ${port}`);
+})

@@ -123,11 +123,19 @@ model VendorUser {
   clerkId   String   @unique
   email     String   @unique
 
-  vendorAccount VendorAccount?
   applications  VendorApplication[]
+  vendorAccount VendorAccount?
+
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clerkId])
+  @@index([email])
 }
+
 
 model ConsumerAccount {
   id        String   @id @default(uuid())

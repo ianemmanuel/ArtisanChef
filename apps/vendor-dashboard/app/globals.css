@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* Import each file from the UI package */
+@import "@repo/ui/styles/tokens.css";
+@import "@repo/ui/styles/base.css";
+@import "@repo/ui/styles/utilities.css";
+
+/* App-specific overrides */
+@import "../styles/theme.css";

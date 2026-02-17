@@ -1,56 +1,42 @@
 import { Request, Response, NextFunction } from "express"
-import { prisma, VendorApplicationStatus } from "@repo/db"
-import { getVendorUser } from "../../../../helpers/auth/vendorAuth"
-import { ClerkVendorStateService } from "../../../../services/clerk"
-import { DocumentValidationService } from "../../../../services/documents/document.validation.service"
+import { prisma, VendorApplicationStatus, DocumentStatus } from "@repo/db"
+import { getVendorUser } from "@/helpers/auth/vendorAuth"
+import { ClerkVendorStateService } from "@/services/clerk"
+import { DocumentRequirementService } from "@/services/documents"
+import { ApiError } from "@/middleware/error"
+import { sendSuccess } from "@/helpers/api-response/response"
 
-//* GET vendor application
-export const getApplication = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+
+//* GET vendor Application
+
+export const getApplication = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorUser(req)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
-    }
+    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const application = await prisma.vendorApplication.findFirst({
-      where: {
-        userId: auth.vendorUser.id,
-      },
+      where: { userId: auth.vendorUser.id },
       include: {
         country: true,
         vendorType: true,
-        documents: {
-          where: { status: { not: "WITHDRAWN" } },
-          orderBy: { createdAt: "desc" },
-        },
+        documents: { where: { status: { not: "WITHDRAWN" } }, orderBy: { createdAt: "desc" } },
       },
     })
 
-    if (!application) {
-      return res.status(404).json({ message: "No application found" })
-    }
+    if (!application) throw new ApiError(404, "No application found")
 
-    return res.json({ application })
+    return sendSuccess(res, application, "Application fetched successfully")
   } catch (err) {
     next(err)
   }
 }
 
 //* CREATE or UPDATE vendor application
-export const upsertApplication = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const upsertApplication = async (req: Request, res: Response, next: NextFunction) => {
   try {
+
     const auth = await getVendorUser(req)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
-    }
+    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const userId = auth.vendorUser.id!
     const clerkUserId = auth.vendorUser.clerkId!
@@ -58,196 +44,163 @@ export const upsertApplication = async (
     const {
       countryId,
       vendorTypeId,
-      otherVendorType,
+      otherVendorType, 
       legalBusinessName,
-      registrationNumber,
-      taxId,
-      businessEmail,
+      registrationNumber, 
+      taxId, 
+      businessEmail, 
       businessPhone,
-      ownerFirstName,
-      ownerLastName,
-      ownerPhone,
+      ownerFirstName, 
+      ownerLastName, 
+      ownerPhone, 
       ownerEmail,
-      businessAddress,
-      addressLine2,
+      businessAddress, 
+      addressLine2, 
       postalCode,
     } = req.body
 
-    if (
-      !countryId ||
-      !vendorTypeId ||
-      !legalBusinessName ||
-      !businessEmail ||
-      !ownerFirstName ||
-      !ownerLastName ||
-      !businessAddress
-    ) {
-      return res.status(400).json({
-        message: "Missing required fields",
-      })
+    if (!countryId || !vendorTypeId || !legalBusinessName || !businessEmail || !ownerFirstName || !ownerLastName || !businessAddress) {
+      throw new ApiError(400, "Missing required fields")
     }
 
-    const existing = await prisma.vendorApplication.findUnique({
-      where: { userId },
-    })
+    const existing = await prisma.vendorApplication.findUnique({ where: { userId } })
 
     if (!existing) {
       const application = await prisma.vendorApplication.create({
         data: {
-          userId,
-          countryId,
-          vendorTypeId,
+          userId, 
+          countryId, 
+          vendorTypeId, 
           otherVendorType,
-          legalBusinessName,
-          registrationNumber,
+          legalBusinessName, 
+          registrationNumber, 
           taxId,
-          businessEmail,
-          businessPhone,
-          ownerFirstName,
+          businessEmail, 
+          businessPhone, 
+          ownerFirstName, 
           ownerLastName,
-          ownerPhone,
-          ownerEmail,
-          businessAddress,
-          addressLine2,
+          ownerPhone, 
+          ownerEmail, 
+          businessAddress, 
+          addressLine2, 
           postalCode,
           status: VendorApplicationStatus.DRAFT,
         },
       })
 
-      await ClerkVendorStateService.setVendorApplicationStatus(
-        clerkUserId,
-        VendorApplicationStatus.DRAFT
-      )
+      await ClerkVendorStateService.setVendorApplicationStatus(clerkUserId, VendorApplicationStatus.DRAFT)
 
-      return res.status(201).json({
-        message: "Application created",
-        application,
-      })
+      return sendSuccess(res, application, "Application created", 201)
     }
 
-    if (
-      existing.status !== VendorApplicationStatus.DRAFT &&
-      existing.status !== VendorApplicationStatus.REJECTED
-    ) {
-      return res.status(403).json({
-        message: `Application cannot be edited while ${existing.status}`,
-      })
+    if (existing.status !== VendorApplicationStatus.DRAFT && existing.status !== VendorApplicationStatus.REJECTED) {
+      throw new ApiError(403, `Application cannot be edited while ${existing.status}`)
     }
 
-    if (existing.countryId !== countryId) {
-      return res.status(400).json({
-        message: "Country cannot be changed once application is created",
-      })
-    }
+    if (existing.countryId !== countryId) throw new ApiError(400, "Country cannot be changed once application is created")
 
     const updated = await prisma.vendorApplication.update({
       where: { id: existing.id },
       data: {
-        vendorTypeId,
-        otherVendorType,
-        legalBusinessName,
-        registrationNumber,
+        vendorTypeId, 
+        otherVendorType, 
+        legalBusinessName, 
+        registrationNumber, 
         taxId,
-        businessEmail,
-        businessPhone,
-        ownerFirstName,
-        ownerLastName,
-        ownerPhone,
+        businessEmail, 
+        businessPhone, 
+        ownerFirstName, 
+        ownerLastName, 
+        ownerPhone, 
         ownerEmail,
-        businessAddress,
-        addressLine2,
+        businessAddress, 
+        addressLine2, 
         postalCode,
-        status:
-          existing.status === VendorApplicationStatus.REJECTED
-            ? VendorApplicationStatus.DRAFT
-            : existing.status,
-        rejectionReason: null,
-        revisionNotes: null,
-        reviewedAt: null,
+        status: existing.status === VendorApplicationStatus.REJECTED ? VendorApplicationStatus.DRAFT : existing.status,
+        rejectionReason: null, 
+        revisionNotes: null, 
+        reviewedAt: null, 
         reviewedBy: null,
       },
     })
 
-    await ClerkVendorStateService.setVendorApplicationStatus(
-      clerkUserId,
-      VendorApplicationStatus.DRAFT
-    )
+    await ClerkVendorStateService.setVendorApplicationStatus(clerkUserId, VendorApplicationStatus.DRAFT)
 
-    return res.json({
-      message:
-        existing.status === VendorApplicationStatus.REJECTED
-          ? "Application revised and awaiting approval"
-          : "Application updated",
-      application: updated,
+    return sendSuccess(res, updated,
+      existing.status === VendorApplicationStatus.REJECTED
+        ? "Application revised and awaiting approval"
+        : "Application updated"
+    )
+  } catch (err) {
+    next(err)
+  }
+}
+
+//* PREVIEW vendor application
+export const previewApplication = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await getVendorUser(req)
+    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
+
+    const vendorUserId = auth.vendorUser.id
+    const { id } = req.params
+
+    const application = await prisma.vendorApplication.findUnique({
+      where: { id },
+      include: {
+        country: true,
+        vendorType: true,
+        documents: { where: { supersededAt: null, status: { not: DocumentStatus.WITHDRAWN } }, include: { documentType: true } },
+      },
     })
+
+    if (!application || application.userId !== vendorUserId) throw new ApiError(404, "Application not found")
+
+    const requirements = await DocumentRequirementService.getRequirementsWithStatus(application)
+
+    const progress = await DocumentRequirementService.getUploadProgress(application)
+
+    const missingRequired = requirements.filter((r) => r.isRequired && !r.uploaded).map((r) => r.documentTypeId)
+
+    const canSubmit = progress.percentage === 100 && (application.status === VendorApplicationStatus.DRAFT || application.status === VendorApplicationStatus.REJECTED)
+
+    return sendSuccess(res, { application, requirements, progress, missingRequired, canSubmit }, "Preview fetched successfully")
   } catch (err) {
     next(err)
   }
 }
 
 //* SUBMIT vendor application
-export const submitApplication = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const submitApplication = async (req: Request, res: Response, next: NextFunction) => {
   try {
+
     const auth = await getVendorUser(req)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
-    }
+    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const vendorUserId = auth.vendorUser.id
-    const clerkUserId = auth.vendorUser.clerkId
+    const { id } = req.params
 
-    const application = await prisma.vendorApplication.findUnique({
-      where: { userId: vendorUserId },
-      include: {
-        country: true,
-        vendorType: true,
-      },
-    })
+    const application = await prisma.vendorApplication.findUnique({ where: { id } })
 
-    if (!application) {
-      return res.status(404).json({
-        message: "No application found",
-      })
+    if (!application || application.userId !== vendorUserId) throw new ApiError(404, "Application not found")
+
+    if (application.status !== VendorApplicationStatus.DRAFT && application.status !== VendorApplicationStatus.REJECTED){
+      throw new ApiError(403, "Application locked and cannot be submitted")
     }
 
-    if (application.status !== VendorApplicationStatus.DRAFT) {
-      return res.status(403).json({
-        message: "Only draft applications can be submitted",
-      })
+    const progress = await DocumentRequirementService.getUploadProgress(application)
+
+    if (progress.percentage < 100){ 
+      return sendSuccess(res, null, "All required documents must be uploaded before submission", 400)
     }
 
-    const validation =
-      await DocumentValidationService.validateApplication(application)
-
-    if (!validation.ok) {
-      return res.status(400).json({
-        message: validation.message,
-        missingDocuments: validation.missingDocuments,
-      })
-    }
-
-    const submitted = await prisma.vendorApplication.update({
-      where: { id: application.id },
-      data: {
-        status: VendorApplicationStatus.SUBMITTED,
-        submittedAt: new Date(),
-      },
+    const updatedApplication = await prisma.vendorApplication.update({
+      where: { id },
+      data: { status: VendorApplicationStatus.SUBMITTED, submittedAt: new Date() },
     })
 
-    await ClerkVendorStateService.setVendorApplicationStatus(
-      clerkUserId,
-      VendorApplicationStatus.SUBMITTED
-    )
+    return sendSuccess(res, { id: updatedApplication.id, status: updatedApplication.status }, "Application submitted successfully")
 
-    return res.json({
-      message:
-        "Application submitted successfully. Review will be completed within 48 hours.",
-      application: submitted,
-    })
   } catch (err) {
     next(err)
   }

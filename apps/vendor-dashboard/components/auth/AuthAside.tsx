@@ -77,10 +77,6 @@ export default function AuthAside() {
         <div className="mt-12 pt-8 border-t border-latte-100/10">
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-caramel-300">500+</div>
-              <div className="text-xs text-latte-200/70">Vendors</div>
-            </div>
-            <div className="text-center">
               <div className="text-2xl font-bold text-caramel-300">100%</div>
               <div className="text-xs text-latte-200/70">Satisfaction</div>
             </div>

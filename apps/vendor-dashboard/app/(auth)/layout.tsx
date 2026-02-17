@@ -1,6 +1,7 @@
 import AuthAside from "@/components/auth/AuthAside"
 import AuthNavbar from "@/components/auth/AuthNavbar"
 import AuthFooter from "@/components/auth/AuthFooter"
+import Link from "next/link"
 
 export default function AuthLayout({
   children,
@@ -9,7 +10,6 @@ export default function AuthLayout({
 }) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Navbar */}
       <AuthNavbar />
 
       {/* Main content */}
@@ -28,7 +28,7 @@ export default function AuthLayout({
                 Welcome back
               </h1>
               <p className="text-base text-muted-foreground">
-                Sign in to manage your bakery dashboard
+                Sign in to manage your dashboard
               </p>
             </div>
 
@@ -37,23 +37,20 @@ export default function AuthLayout({
               {children}
             </div>
 
-            {/* Help text - minimal */}
             <div className="mt-8 text-center">
               <p className="text-sm text-muted-foreground">
                 Need help?{' '}
-                <a 
+                <Link 
                   href="mailto:support@breadbowl.com" 
                   className="text-foreground hover:text-peach-600 dark:hover:text-peach-400 transition-colors font-medium"
                 >
                   Contact support
-                </a>
+                </Link>
               </p>
             </div>
           </div>
         </div>
       </main>
-
-      {/* Footer */}
       <AuthFooter />
     </div>
   )

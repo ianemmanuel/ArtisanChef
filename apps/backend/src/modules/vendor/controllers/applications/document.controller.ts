@@ -1,156 +1,206 @@
 import { Request, Response, NextFunction } from "express"
 import { prisma, VendorApplicationStatus, DocumentStatus } from "@repo/db"
-import { getVendorUser } from "../../../../helpers/auth/vendorAuth"
+import { getVendorUser } from "@/helpers/auth/vendorAuth"
+import { DocumentRequirementService } from "@/services/documents/document.validation.service"
+import { R2Service } from "@/services/r2/r2.service"
+import { ApiError } from "@/middleware/error/error.middleware"
+import path from "path"
+import { sendSuccess } from "@/helpers/api-response/response"
 
-export const upsertDocument = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+const ensureEditable = (status: VendorApplicationStatus) => {
+  if (status !== VendorApplicationStatus.DRAFT && status !== VendorApplicationStatus.REJECTED) {
+    throw new ApiError(403, "Documents cannot be modified at this stage", "APPLICATION_LOCKED")
+  }
+}
+
+//* UPSERT DOCUMENT
+export const upsertDocument = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorUser(req)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
-    }
+    if (!auth.ok) throw new ApiError(auth.status, auth.message)
 
     const vendorUserId = auth.vendorUser.id
-
-    const {
-      applicationId,
-      documentTypeId,
-      storageKey,
-      documentName,
-      fileSize,
-      mimeType,
-      documentNumber,
-      issueDate,
-      expiryDate,
+    const { 
+      applicationId, 
+      documentTypeId, 
+      storageKey, 
+      documentName, 
+      fileSize, 
+      mimeType, 
+      documentNumber, 
+      issueDate, 
+      expiryDate 
     } = req.body
 
-    if (!applicationId || !documentTypeId || !storageKey) {
-      return res.status(400).json({
-        message: "Missing required document fields",
-      })
+    if (!applicationId || !documentTypeId || !storageKey){ 
+      throw new ApiError(400, "Missing required document fields")
     }
 
-    const application = await prisma.vendorApplication.findUnique({
-      where: { id: applicationId },
-      include: { documents: true },
-    })
+    const application = await prisma.vendorApplication.findUnique({ where: { id: applicationId } })
 
     if (!application || application.userId !== vendorUserId) {
-      return res.status(404).json({ message: "Application not found" })
+      throw new ApiError(404, "Application not found")
     }
 
-    if (
-      application.status !== VendorApplicationStatus.DRAFT &&
-      application.status !== VendorApplicationStatus.REJECTED
-    ) {
-      return res.status(403).json({
-        message: "Documents cannot be modified at this stage",
-      })
-    }
+    ensureEditable(application.status)
 
-    const existingDoc = application.documents.find(
-      doc =>
-        doc.documentTypeId === documentTypeId &&
-        doc.status !== DocumentStatus.WITHDRAWN &&
-        doc.supersededAt === null
-    )
+    const validation = await DocumentRequirementService.validateDocumentTypeForUpload(application, documentTypeId)
+    
+    if (!validation.ok) throw new ApiError(400, validation.message)
 
-    if (existingDoc) {
-      const updated = await prisma.vendorDocument.update({
-        where: { id: existingDoc.id },
-        data: {
-          storageKey,
-          documentName,
-          fileSize,
-          mimeType,
-          documentNumber,
-          issueDate,
-          expiryDate,
-          status: DocumentStatus.PENDING,
-          reviewedAt: null,
-          approvedAt: null,
-          rejectedAt: null,
-          rejectionReason: null,
-          revisionNotes: null,
-        },
-      })
-
-      return res.json({
-        message: "Document replaced successfully",
-        document: updated,
-      })
-    }
-
-    const created = await prisma.vendorDocument.create({
-      data: {
-        applicationId: application.id,
-        documentTypeId,
-        storageKey,
-        documentName,
-        fileSize,
-        mimeType,
-        documentNumber,
-        issueDate,
-        expiryDate,
-        status: DocumentStatus.PENDING,
+    const existingDoc = await prisma.vendorDocument.findFirst({
+      where: { 
+        applicationId, 
+        documentTypeId, 
+        supersededAt: null, 
+        status: { not: DocumentStatus.WITHDRAWN } 
       },
     })
 
-    return res.status(201).json({
-      message: "Document uploaded successfully",
-      document: created,
-    })
+    let document
+    if (existingDoc) {
+      document = await prisma.vendorDocument.update({
+        where: { id: existingDoc.id },
+        data: {
+          storageKey, 
+          documentName, 
+          fileSize, 
+          mimeType, 
+          documentNumber, 
+          issueDate, 
+          expiryDate,
+          status: DocumentStatus.PENDING, 
+          reviewedAt: null, 
+          approvedAt: null, 
+          rejectedAt: null, 
+          rejectionReason: null, 
+          revisionNotes: null,
+        },
+      })
+    } else {
+      document = await prisma.vendorDocument.create({
+        data: { 
+          applicationId, 
+          documentTypeId, 
+          storageKey, 
+          documentName, 
+          fileSize, 
+          mimeType, 
+          documentNumber, 
+          issueDate, 
+          expiryDate, 
+          status: DocumentStatus.PENDING 
+        },
+      })
+    }
+
+    const progress = await DocumentRequirementService.getUploadProgress(application)
+    return sendSuccess(
+      res, 
+      { document, progress }, 
+      existingDoc ? "Document replaced successfully" : "Document uploaded successfully", existingDoc ? 200 : 201
+    )
   } catch (err) {
     next(err)
   }
 }
 
-export const deleteDocument = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+//* GET DOCUMENT REQUIREMENTS
+export const getApplicationDocuments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorUser(req)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
-    }
+    if (!auth.ok) throw new ApiError(auth.status, auth.message)
 
-    const vendorUserId = auth.vendorUser.id
+    const { applicationId } = req.params
+
+    const application = await prisma.vendorApplication.findUnique({ where: { id: applicationId } })
+
+    if (!application || application.userId !== auth.vendorUser.id) throw new ApiError(404, "Application not found")
+
+    const requirements = await DocumentRequirementService.getRequirementsWithStatus(application)
+    const progress = await DocumentRequirementService.getUploadProgress(application)
+
+    return sendSuccess(
+      res, 
+      { application: { 
+        id: application.id, 
+        status: application.status, 
+        countryId: application.countryId, 
+        vendorTypeId: application.vendorTypeId 
+        }, 
+        requirements, progress 
+      }, 
+      "Document requirements fetched successfully")
+  } catch (err) {
+    next(err)
+  }
+}
+
+//* DELETE DOCUMENT
+export const deleteDocument = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await getVendorUser(req)
+    if (!auth.ok) throw new ApiError(auth.status, auth.message)
+
     const { id } = req.params
 
-    const document = await prisma.vendorDocument.findUnique({
-      where: { id },
-      include: { application: true },
-    })
+    const document = await prisma.vendorDocument.findUnique({ where: { id }, include: { application: true } })
+    if (!document || !document.application) throw new ApiError(404, "Document not found")
 
-    if (!document || !document.application) {
-      return res.status(404).json({ message: "Document not found" })
-    }
+    if (document.application.userId !== auth.vendorUser.id) throw new ApiError(403, "Unauthorized")
 
-    if (document.application.userId !== vendorUserId) {
-      return res.status(403).json({ message: "Unauthorized" })
-    }
+    ensureEditable(document.application.status)
 
-    if (
-      document.application.status !== VendorApplicationStatus.DRAFT &&
-      document.application.status !== VendorApplicationStatus.REJECTED
-    ) {
-      return res.status(403).json({
-        message: "Documents cannot be modified at this stage",
-      })
-    }
+    await R2Service.deleteObject(document.storageKey)
 
-    await prisma.vendorDocument.delete({
-      where: { id },
-    })
+    await prisma.vendorDocument.delete({ where: { id } })
 
-    return res.json({
-      message: "Document deleted successfully",
-    })
+    const progress = await DocumentRequirementService.getUploadProgress(document.application)
+
+    return sendSuccess(res, { progress }, "Document deleted successfully")
+  } catch (err) {
+    next(err)
+  }
+}
+
+//* PRESIGN UPLOAD
+export const presignUpload = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await getVendorUser(req)
+    if (!auth.ok) throw new ApiError(auth.status, auth.message)
+
+    const { fileName, fileType, applicationId, documentTypeId } = req.body
+    if (!fileName || !fileType || !applicationId || !documentTypeId) throw new ApiError(400, "Missing required fields")
+
+    const extension = path.extname(fileName).replace(".", "")
+
+    const storageKey = R2Service.generateStorageKey(applicationId, documentTypeId, extension)
+
+    const uploadUrl = await R2Service.generateUploadUrl(storageKey, fileType)
+
+    return sendSuccess(res, { uploadUrl, storageKey }, "Presign upload generated successfully")
+  } catch (err) {
+    next(err)
+  }
+}
+
+//* PREVIEW DOCUMENT
+export const previewDocument = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await getVendorUser(req)
+    if (!auth.ok) throw new ApiError(auth.status, auth.message)
+
+    const { id } = req.params
+
+    const document = await prisma.vendorDocument.findUnique({ where: { id }, include: { application: true } })
+
+    if (!document || !document.application) throw new ApiError(404, "Document not found")
+
+    if (document.application.userId !== auth.vendorUser.id) throw new ApiError(403, "Unauthorized")
+
+    const signedUrl = await R2Service.generateViewUrl(document.storageKey)
+
+    return sendSuccess(res, { url: signedUrl }, "Document preview generated successfully")
   } catch (err) {
     next(err)
   }

@@ -19,7 +19,7 @@ export default function AuthFooter() {
 
         {/* Center */}
         <p className="text-sm text-muted-foreground text-center">
-          © {currentYear} ArtisanChef Vendor Dashboard
+          © {currentYear} Daily Bread Vendor Dashboard
         </p>
 
         {/* Right */}

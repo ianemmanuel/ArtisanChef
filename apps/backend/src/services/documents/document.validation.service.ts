@@ -1,7 +1,11 @@
-import { prisma, DocumentTypeStatus, DocumentStatus } from "@repo/db"
+import {
+  prisma,
+  DocumentTypeStatus,
+  DocumentStatus,
+} from "@repo/db"
 
-export const DocumentValidationService = {
-  async getRequiredDocumentTypes(application: {
+export const DocumentRequirementService = {
+  async getAllowedTypes(application: {
     countryId: string
     vendorTypeId: string
   }) {
@@ -13,64 +17,86 @@ export const DocumentValidationService = {
         vendorTypeConfigs: {
           some: {
             vendorTypeId: application.vendorTypeId,
+          },
+        },
+      },
+      include: {
+        vendorTypeConfigs: {
+          where: {
+            vendorTypeId: application.vendorTypeId,
+          },
+          select: {
             isRequired: true,
           },
         },
       },
-      select: {
-        id: true,
-        name: true,
-      },
     })
   },
 
-  async getAllowedDocumentTypes(application: {
+  async validateDocumentTypeForUpload(application: {
+    id: string
     countryId: string
     vendorTypeId: string
-  }) {
-    return prisma.documentTypeConfig.findMany({
-      where: {
-        countryId: application.countryId,
-        scope: "VENDOR",
-        status: DocumentTypeStatus.ACTIVE,
-        vendorTypeConfigs: {
-          some: {
-            vendorTypeId: application.vendorTypeId,
-          },
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-      },
-    })
+  }, documentTypeId: string) {
+    const allowed = await this.getAllowedTypes(application)
+
+    const match = allowed.find(type => type.id === documentTypeId)
+
+    if (!match) {
+      return {
+        ok: false as const,
+        message: "Invalid document type for this application",
+      }
+    }
+
+    return { ok: true as const }
   },
 
-  async validateApplication(application: {
+  async getRequirementsWithStatus(application: {
     id: string
     countryId: string
     vendorTypeId: string
   }) {
-    const requiredTypes = await this.getRequiredDocumentTypes(application)
-
-    const uploadedDocs = await prisma.vendorDocument.findMany({
-      where: {
-        applicationId: application.id,
-        status: {
-          in: [DocumentStatus.PENDING, DocumentStatus.APPROVED],
+    const [allowedTypes, uploadedDocs] = await Promise.all([
+      this.getAllowedTypes(application),
+      prisma.vendorDocument.findMany({
+        where: {
+          applicationId: application.id,
+          status: {
+            in: [DocumentStatus.PENDING, DocumentStatus.APPROVED],
+          },
         },
-      },
-      select: {
-        documentTypeId: true,
-      },
-    })
+      }),
+    ])
 
-    const uploadedTypeIds = new Set(
-      uploadedDocs.map(d => d.documentTypeId)
+    const uploadedMap = new Map(
+      uploadedDocs.map(doc => [doc.documentTypeId, doc])
     )
 
-    const missing = requiredTypes.filter(
-      type => !uploadedTypeIds.has(type.id)
+    return allowedTypes.map(type => {
+      const config = type.vendorTypeConfigs[0]
+
+      const uploaded = uploadedMap.get(type.id)
+
+      return {
+        documentTypeId: type.id,
+        name: type.name,
+        isRequired: config?.isRequired ?? false,
+        uploaded: !!uploaded,
+        uploadedDocument: uploaded ?? null,
+      }
+    })
+  },
+
+  async validateApplicationSubmission(application: {
+    id: string
+    countryId: string
+    vendorTypeId: string
+  }) {
+    const requirements = await this.getRequirementsWithStatus(application)
+
+    const missing = requirements.filter(
+      r => r.isRequired && !r.uploaded
     )
 
     if (missing.length > 0) {
@@ -89,33 +115,15 @@ export const DocumentValidationService = {
     countryId: string
     vendorTypeId: string
   }) {
-    const [required, allowed, uploaded] = await Promise.all([
-      this.getRequiredDocumentTypes(application),
-      this.getAllowedDocumentTypes(application),
-      prisma.vendorDocument.findMany({
-        where: {
-          applicationId: application.id,
-          status: {
-            in: [DocumentStatus.PENDING, DocumentStatus.APPROVED],
-          },
-        },
-        select: { documentTypeId: true },
-      }),
-    ])
+    const requirements = await this.getRequirementsWithStatus(application)
 
-    const uploadedTypeIds = new Set(
-      uploaded.map(d => d.documentTypeId)
-    )
-
-    const uploadedRequired = required.filter(r =>
-      uploadedTypeIds.has(r.id)
-    )
+    const required = requirements.filter(r => r.isRequired)
+    const uploadedRequired = required.filter(r => r.uploaded)
 
     return {
       requiredTotal: required.length,
       uploadedRequired: uploadedRequired.length,
-      optionalTotal: Math.max(allowed.length - required.length, 0),
-      uploadedTotal: uploaded.length,
+      uploadedTotal: requirements.filter(r => r.uploaded).length,
       isComplete: uploadedRequired.length === required.length,
       percentage:
         required.length === 0

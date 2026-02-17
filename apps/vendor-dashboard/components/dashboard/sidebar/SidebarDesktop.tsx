@@ -19,12 +19,12 @@ export function SidebarDesktop() {
       <div className="flex h-16 items-center border-b border-border px-4 shrink-0">
         <div className="flex items-center gap-2.5 w-full min-w-0 justify-center">
           {/* Peach gradient icon */}
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-peach-400 to-peach-600 shadow-sm shrink-0">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-linear-to-br from-peach-400 to-peach-600 shadow-sm shrink-0">
             <Cake className="h-5 w-5 text-white" />
           </div>
           {!isCollapsed && (
             <span className="text-xl font-semibold tracking-tight text-foreground truncate">
-              Bread & Bowl
+              Artisan Chef
             </span>
           )}
         </div>

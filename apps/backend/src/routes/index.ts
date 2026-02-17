@@ -4,9 +4,9 @@ import vendorRoutes from '../modules/vendor/routes'
 const router: Router = Router()
 
 
-router.use('/vendors', vendorRoutes)
+router.use('/vendor', vendorRoutes)
 // router.use('/admin', adminRoutes)
-// router.use('/customers', customerRoutes)
+// router.use('/customer', customerRoutes)
 
 
 router.get('/', (req, res) => {
@@ -16,8 +16,8 @@ router.get('/', (req, res) => {
     versions: ['v1'],
     modules: {
       vendor: '/vendors',
-      // admin: '/admin',
-      // customer: '/customers'
+      admin: '/admin',
+      customer: '/customers'
     },
     health: '/health',
     info: '/info'
@@ -33,7 +33,7 @@ router.get('/health', (req, res) => {
   })
 })
 
-// Service info
+//* Service info
 router.get('/info', (req, res) => {
   res.json({
     service: 'backend-service',

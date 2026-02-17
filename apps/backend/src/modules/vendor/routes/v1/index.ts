@@ -1,12 +1,13 @@
 import { Request, Response, Router } from "express"
 import applicationRouter from './application.routes'
 import documentRouter from './documents.routes'
+import storageBucketRouter from "./storage-bucket.routes"
 
 const v1Router: Router = Router()
 
-// Mount vendor routes
 v1Router.use('/applications', applicationRouter)
 v1Router.use('/documents', documentRouter)
+v1Router.use('/storage-bucket',storageBucketRouter)
 
 // Vendor module info endpoint (optional)
 v1Router.get('/', (req: Request, res: Response) => {

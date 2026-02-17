@@ -679,7 +679,7 @@ model VendorApplication {
   country               Country       @relation(fields: [countryId], references: [id])
   countryId             String
   vendorType            VendorType    @relation(fields: [vendorTypeId], references: [id])
-  vendorTypeId String
+  vendorTypeId          String
   otherVendorType       String?
   legalBusinessName     String
   registrationNumber    String?

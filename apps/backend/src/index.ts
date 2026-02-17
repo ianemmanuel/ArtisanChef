@@ -6,6 +6,7 @@ import morgan from "morgan"
 import { rateLimit, ipKeyGenerator } from "express-rate-limit"
 import cookieParser from "cookie-parser"
 import router from "./routes"
+import { errorHandler } from "./middleware/error/error.middleware"
 
 dotenv.config()
 
@@ -68,15 +69,8 @@ app.use(publicRateLimiter)
 app.use('/api', router)
 
 
-const errorHandler: ErrorRequestHandler = (err, req, res,next) => {
-  console.error(err.stack);
-
-  return res.status(500).json({
-    message: err.message ?? "Internal Server Error",
-  })
-}
-
 app.use(errorHandler)
+
 
 app.listen(port, () => {
   console.log(`Backend is running at port ${port}`);

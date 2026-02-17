@@ -4,7 +4,8 @@ import { Sidebar } from '@/components/dashboard/sidebar/Sidebar'
 import { Navbar } from '@/components/dashboard/navbar/Navbar'
 import { DashboardFooter } from '@/components/dashboard/layout'
 import { useSidebarStore } from '@/lib/state/sidebar-store'
-import { cn } from '@repo/ui/lib/utils';
+import { cn } from '@repo/ui/lib/utils'
+import { ThemeProviders } from "@repo/ui/components/theme-provider"
 
 export default function DashboardLayout({
   children,
@@ -14,10 +15,10 @@ export default function DashboardLayout({
   const { isCollapsed } = useSidebarStore()
 
   return (
+    <ThemeProviders>
       <div className="min-h-screen bg-background">
         <Sidebar />
-        
-        {/* Main Content Area */}
+
         <div
           className={cn(
             'min-h-screen transition-all duration-200',
@@ -27,12 +28,13 @@ export default function DashboardLayout({
           <Navbar />
           
           {/* Consistent main wrapper for all pages */}
-          <main className="p-4 sm:p-6 space-y-6 max-w-[1920px] mx-auto">
+          <main className="p-4 sm:p-6 space-y-6 max-w-480 mx-auto">
             {children}
           </main>
           
           <DashboardFooter />
         </div>
       </div>
+    </ThemeProviders>
   );
 }

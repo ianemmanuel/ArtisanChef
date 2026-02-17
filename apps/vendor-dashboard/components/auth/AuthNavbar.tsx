@@ -8,11 +8,11 @@ export default function AuthNavbar() {
         {/* Logo */}
         <Link href="/" className="group flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-espresso-600 to-espresso-700 shadow-sm transition-all group-hover:shadow-md group-hover:scale-105">
-            <Coffee className="h-5 w-5 text-white" />
+            <Coffee className="h-5 w-5 text-dark" />
           </div>
           <div>
             <div className="text-lg font-bold text-foreground tracking-tight">
-              ArtisanChef
+              Daily Bread
             </div>
             <div className="text-xs text-muted-foreground font-medium">
               Vendor Portal

@@ -1,2 +1,2 @@
-export * from './clerkMetadata.service'
+export * from './clerkMetadata'
 export * from './verifyClerkJwt'

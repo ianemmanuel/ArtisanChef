@@ -1,23 +1,38 @@
 import OnboardingNavbar from "@/components/onboarding/OnboardingNavbar"
 import OnboardingFooter from "@/components/onboarding/OnboardingFooter"
 import WizardLayout from "@/components/onboarding/WizardLayout"
+import { redirect } from "next/navigation"
+import { auth } from "@clerk/nextjs/server"
 
 export default async function OnboardingPage() {
-  const [countriesRes, vendorTypesRes, applicationRes] = await Promise.all([
-    fetch(`${process.env.BACKEND_API_URL}/vendor/countries`, {
-      cache: "force-cache",
+  const { userId, getToken } = await auth()
+
+  if (!userId) {
+    redirect("/sign-in")
+  }
+
+  const token = await getToken()
+
+  const backendUrl = process.env.BACKEND_API_URL!
+
+  const [countriesRes, applicationRes] = await Promise.all([
+    fetch(`${backendUrl}/meta/v1/countries/`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
       next: { revalidate: 60 * 60 * 24 },
-    }),
-    fetch(`${process.env.BACKEND_API_URL}/vendor/vendor-types`, {
-      cache: "force-cache",
-      next: { revalidate: 60 * 60 * 24 },
-    }),
-    fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/vendor/application`, {
+    }), 
+    fetch(`${backendUrl}/vendor/v1/application`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
       cache: "no-store",
     }),
   ])
 
-  if (!countriesRes.ok || !vendorTypesRes.ok) {
+  if (!countriesRes.ok) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-muted-foreground">
@@ -28,7 +43,6 @@ export default async function OnboardingPage() {
   }
 
   const countries = await countriesRes.json()
-  const vendorTypes = await vendorTypesRes.json()
 
   let initialApplication = null
   if (applicationRes.ok) {
@@ -53,7 +67,6 @@ export default async function OnboardingPage() {
 
           <WizardLayout
             countries={countries}
-            vendorTypes={vendorTypes}
             initialApplication={initialApplication}
           />
         </div>

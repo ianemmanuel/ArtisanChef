@@ -2,12 +2,10 @@ import { Request } from "express"
 import { prisma } from "@repo/db"
 
 export async function getVendorUser(req: Request) {
+  //* requireApp middleware guarantees auth + vendor app context,
+
   if (!req.auth) {
     return { ok: false as const, status: 401, message: "Unauthorized" }
-  }
-
-  if (req.auth.app !== "vendor") {
-    return { ok: false as const, status: 403, message: "Invalid app context" }
   }
 
   const vendorUser = await prisma.vendorUser.findUnique({

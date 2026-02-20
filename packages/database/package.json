@@ -4,14 +4,19 @@
     "type": "module",
     "scripts": {
         "db:generate": "prisma generate",
-        "db:migrate": "prisma migrate dev --skip-generate",
-        "db:deploy": "prisma migrate deploy"
+        "db:migrate": "prisma migrate dev",
+        "db:deploy": "prisma migrate deploy",
+        "seed:countries": "tsx src/seed/countries.seed.ts",
+        "seed:vendortypes": "tsx src/seed/vendorTypes.seed.ts",
+        "seed:vendortypecountry": "tsx src/seed/vendorTypeCountry.seed.ts",
+        "seed:documenttypeconfig": "tsx src/seed/documentTypeConfig.seed.ts"
     },
     "devDependencies": {
         "@repo/typescript-config": "workspace:*",
         "@types/node": "^22.19.3",
         "dotenv": "^17.2.3",
-        "prisma": "^7.2.0"
+        "prisma": "^7.2.0",
+        "tsx": "^4.21.0"
     },
     "dependencies": {
         "@prisma/adapter-pg": "^7.3.0",

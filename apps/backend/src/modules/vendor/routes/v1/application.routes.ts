@@ -8,7 +8,7 @@ import {
 const applicationRouter: Router = Router()
 
 //* /api/vendors/v1/applications
-applicationRouter.get("/get-application", getApplication)
+applicationRouter.get("/", getApplication)
 applicationRouter.post("/upsert-application", upsertApplication)
 applicationRouter.post("/submit", submitApplication)
 

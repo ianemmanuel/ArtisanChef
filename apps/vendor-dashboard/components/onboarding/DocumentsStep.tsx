@@ -63,7 +63,6 @@ import { Badge } from "@repo/ui/components/badge"
 interface DocumentsFormProps {
   onNext: () => void
   onBack: () => void
-  onSuccess: () => void
 }
 
 interface DocumentType {
@@ -76,7 +75,6 @@ interface DocumentType {
 export default function DocumentsStep({
   onNext,
   onBack,
-  onSuccess,
 }: DocumentsFormProps) {
   const { application, updateApplicationDocuments } = useOnboardingStore()
 

@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const backendUrl = process.env.BACKEND_API_URL!
 
-    const response = await fetch(`${backendUrl}/vendor/application/submit`, {
+    const response = await fetch(`${backendUrl}/vendor/v1/application/submit`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,

@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express"
 import { prisma, VendorApplicationStatus, DocumentStatus } from "@repo/db"
 import { getVendorUser } from "@/helpers/auth/vendorAuth"
-import { ClerkVendorStateService } from "@/services/clerk"
-import { DocumentRequirementService } from "@/services/documents"
+import { ClerkVendorStateService } from "@/lib/clerk"
+import { DocumentRequirementService } from "@/modules/vendor/services/documents"
 import { ApiError } from "@/middleware/error"
 import { sendSuccess } from "@/helpers/api-response/response"
 

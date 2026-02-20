@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
     const backendUrl = process.env.BACKEND_API_URL!
 
-    const response = await fetch(`${backendUrl}/vendor/application`, 
+    const response = await fetch(`${backendUrl}/vendor/v1/application`, 
     {       
       method:'GET',
       headers: {
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     const backendUrl = process.env.BACKEND_API_URL!
 
-    const response = await fetch(`${backendUrl}/vendor/application`, {
+    const response = await fetch(`${backendUrl}/vendor/v1/application/upsert-application`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,

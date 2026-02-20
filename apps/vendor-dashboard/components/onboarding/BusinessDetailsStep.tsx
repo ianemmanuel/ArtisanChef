@@ -31,16 +31,17 @@ import { upsertApplication } from "@/lib/api/onboarding"
 
 interface BusinessDetailsStepProps {
   countries: any[]
-  vendorTypes: any[]
   onSuccess: () => void
 }
 
 export default function BusinessDetailsStep({
   countries,
-  vendorTypes,
   onSuccess,
 }: BusinessDetailsStepProps) {
   const { application, setApplication } = useOnboardingStore()
+
+  const [vendorTypes, setVendorTypes] = useState<any[]>([])
+  const [isLoadingVendorTypes, setIsLoadingVendorTypes] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showOtherVendorType, setShowOtherVendorType] = useState(false)
 
@@ -90,10 +91,63 @@ export default function BusinessDetailsStep({
     })
   }, [application, form])
 
-  //* Toggle "Other vendor type" field
-
+  /**
+   * Watch country + vendor type
+   */
+  const countryId = form.watch("countryId")
   const vendorTypeId = form.watch("vendorTypeId")
 
+  /**
+   * Fetch vendor types when country changes
+   */
+  useEffect(() => {
+    if (!countryId) {
+      setVendorTypes([])
+      form.setValue("vendorTypeId", "")
+      return
+    }
+
+    const fetchVendorTypes = async () => {
+      try {
+        setIsLoadingVendorTypes(true)
+
+        const res = await fetch(
+          `/api/onboarding/vendor-types?countryId=${countryId}`
+        )
+
+        if (!res.ok) {
+          throw new Error("Failed to load vendor types")
+        }
+
+        const json = await res.json()
+        setVendorTypes(json.data.vendorTypes)
+      } catch (error) {
+        console.error(error)
+        toast.error("Failed to load vendor types")
+        setVendorTypes([])
+      } finally {
+        setIsLoadingVendorTypes(false)
+      }
+    }
+
+    fetchVendorTypes()
+  }, [countryId, form])
+
+  /**
+   * Reset vendor type when country changes (if editing)
+   */
+  useEffect(() => {
+    if (!application?.countryId) return
+
+    if (application.countryId !== countryId) {
+      form.setValue("vendorTypeId", "")
+      setVendorTypes([])
+    }
+  }, [countryId, application?.countryId, form])
+
+  /**
+   * Toggle "Other vendor type"
+   */
   useEffect(() => {
     const selected = vendorTypes.find((t) => t.id === vendorTypeId)
     setShowOtherVendorType(
@@ -101,8 +155,9 @@ export default function BusinessDetailsStep({
     )
   }, [vendorTypeId, vendorTypes])
 
-  //**Submit handler
-
+  /**
+   * Submit handler
+   */
   const onSubmit = async (data: BusinessDetailsFormData) => {
     setIsSubmitting(true)
 
@@ -131,6 +186,7 @@ export default function BusinessDetailsStep({
       >
         {/* -------- Business Info -------- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Country */}
           <FormField
             control={form.control}
             name="countryId"
@@ -138,7 +194,9 @@ export default function BusinessDetailsStep({
               <FormItem>
                 <FormLabel>Country *</FormLabel>
                 <Select
-                  onValueChange={field.onChange}
+                  onValueChange={(value) => {
+                    field.onChange(value)
+                  }}
                   value={field.value}
                   disabled={!!application?.id}
                 >
@@ -158,6 +216,7 @@ export default function BusinessDetailsStep({
             )}
           />
 
+          {/* Vendor Type */}
           <FormField
             control={form.control}
             name="vendorTypeId"
@@ -167,9 +226,18 @@ export default function BusinessDetailsStep({
                 <Select
                   onValueChange={field.onChange}
                   value={field.value}
+                  disabled={!countryId || isLoadingVendorTypes}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select vendor type" />
+                    <SelectValue
+                      placeholder={
+                        !countryId
+                          ? "Select country first"
+                          : isLoadingVendorTypes
+                          ? "Loading vendor types..."
+                          : "Select vendor type"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {vendorTypes.map((t) => (
@@ -185,6 +253,7 @@ export default function BusinessDetailsStep({
           />
         </div>
 
+        {/* Other Vendor Type */}
         {showOtherVendorType && (
           <FormField
             control={form.control}
@@ -204,6 +273,7 @@ export default function BusinessDetailsStep({
           />
         )}
 
+        {/* Legal Name */}
         <FormField
           control={form.control}
           name="legalBusinessName"
@@ -221,7 +291,7 @@ export default function BusinessDetailsStep({
           )}
         />
 
-        {/* -------- Submit -------- */}
+        {/* Submit */}
         <div className="flex justify-end pt-6 border-t">
           <Button
             type="submit"

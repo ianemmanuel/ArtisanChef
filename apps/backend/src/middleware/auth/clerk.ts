@@ -1,6 +1,6 @@
 
 import { Request, Response, NextFunction } from "express"
-import { verifyClerkJwt } from "../../services/clerk"
+import { verifyClerkJwt } from "../../lib/clerk"
 
 declare global {
   namespace Express {
@@ -19,8 +19,13 @@ export async function clerkAuthMiddleware(
   res: Response,
   next: NextFunction
 ) {
+  console.log("ENV CHECK:", {
+    vendorIssuer: process.env.CLERK_VENDOR_ISSUER,
+    vendorJwks: process.env.CLERK_VENDOR_JWKS_URL,
+  })
   const header = req.headers.authorization
   if (!header?.startsWith("Bearer ")) {
+    console.log('clerkAuthMiddleware1')
     return res.status(401).json({ message: "Missing token" })
   }
 
@@ -31,7 +36,8 @@ export async function clerkAuthMiddleware(
     req.auth = auth
 
     next()
-  } catch {
+  } catch(err) {
+    console.log('clerkAuthMiddleware2 error:', err)
     return res.status(401).json({ message: "Unauthorized" })
   }
 }

@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -8,7 +7,747 @@ datasource db {
   provider = "postgresql"
 }
 
-//*-----------------------ENUMS-------------------
+model VendorUser {
+  id            String             @id @default(uuid())
+  clerkId       String             @unique
+  email         String             @unique
+  createdAt     DateTime           @default(now())
+  isActive      Boolean            @default(true)
+  isDeleted     Boolean            @default(false)
+  updatedAt     DateTime           @updatedAt
+  vendorAccount VendorAccount?
+  applications  VendorApplication?
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+model ConsumerAccount {
+  id        String   @id @default(uuid())
+  clerkId   String   @unique
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+
+model AdminUser {
+  id                        String                   @id @default(uuid())
+  email                     String                   @unique
+  passwordHash              String
+  createdAt                 DateTime                 @default(now())
+  createdCities             City[]                   @relation("CityCreatedBy")
+  updatedCities             City[]                   @relation("CityUpdatedBy")
+  createdCountries          Country[]                @relation("CountryCreatedBy")
+  updatedCountries          Country[]                @relation("CountryUpdatedBy")
+  countryPayoutTypesCreated CountryPayoutType[]      @relation("CountryPayoutTypeCreatedBy")
+  countryPayoutTypesUpdated CountryPayoutType[]      @relation("CountryPayoutTypeUpdatedBy")
+  createdCuisines           Cuisine[]                @relation("CuisineCreatedBy")
+  updatedCuisines           Cuisine[]                @relation("CuisineUpdatedBy")
+  updatedDocumentType       DocumentTypeConfig[]     @relation("DocumentTypeCreatedBy")
+  createdDocumentType       DocumentTypeConfig[]     @relation("DocumentTypeUpdatedBy")
+  updatedMeals              Meal[]                   @relation("MealAdminUpdatedBy")
+  updatedMealplans          MealPlan[]               @relation("MealPlanAdminUpdatedBy")
+  updatedOutlets            Outlet[]                 @relation("OutletUpdatedByAdmin")
+  outletAdminLogs           OutletAdminActivityLog[]
+  reviewedOutletDocuments   OutletDocument[]         @relation("OutletDocumentReviewedBy")
+  payoutTypesCreated        PayoutType[]             @relation("PayoutTypeCreatedBy")
+  payoutTypesUpdated        PayoutType[]             @relation("PayoutTypeUpdatedBy")
+  createdServiceAreas       ServiceArea[]            @relation("ServiceAreaCreatedBy")
+  updatedServiceAreas       ServiceArea[]            @relation("ServiceAreaUpdatedBy")
+  reviewedVendorDocuments   VendorDocument[]         @relation("VendorDocumentReviewedBy")
+  vendorTypesCreated        VendorType[]             @relation("VendorTypeCreatedBy")
+  vendorTypesUpdated        VendorType[]             @relation("VendorTypeUpdatedBy")
+  createdVendorTypeCountry  VendorTypeCountry[]      @relation("VendorTypeCountryCreatedBy")
+  updatedVendorTypeCountry  VendorTypeCountry[]      @relation("VendorTypeCountryUpdatedBy")
+}
+
+model Meal {
+  id               String         @id @default(uuid())
+  outletId         String
+  name             String
+  description      String?
+  price            Float
+  mainImage        String?
+  images           String[]
+  portionSize      String?
+  dietaryOptions   String[]
+  specialties      String[]
+  adminStatus      MealStatus     @default(ACTIVE)
+  adminSuspendedAt DateTime?
+  adminBannedAt    DateTime?
+  adminUpdatedAt   DateTime?
+  adminUpdatedById String?
+  deletedAt        DateTime?
+  vendorUpdatedAt  DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  adminUpdatedBy   AdminUser?     @relation("MealAdminUpdatedBy", fields: [adminUpdatedById], references: [id])
+  outlet           Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  cuisines         MealCuisine[]
+  mealPlans        MealPlanMeal[]
+
+  @@unique([outletId, name])
+  @@index([outletId])
+  @@index([adminStatus])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+model MealPlan {
+  id               String         @id @default(uuid())
+  outletId         String
+  name             String
+  description      String?
+  price            Float?
+  images           String[]
+  isPublished      Boolean        @default(false)
+  isFeatured       Boolean        @default(false)
+  adminStatus      MealStatus     @default(ACTIVE)
+  adminSuspendedAt DateTime?
+  adminBannedAt    DateTime?
+  adminUpdatedAt   DateTime?
+  adminUpdatedById String?
+  deletedAt        DateTime?
+  vendorUpdatedAt  DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  adminUpdatedBy   AdminUser?     @relation("MealPlanAdminUpdatedBy", fields: [adminUpdatedById], references: [id])
+  outlet           Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  meals            MealPlanMeal[]
+
+  @@unique([outletId, name])
+  @@index([outletId])
+  @@index([adminStatus])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+model MealCuisine {
+  mealId    String
+  cuisineId String
+  cuisine   Cuisine @relation(fields: [cuisineId], references: [id], onDelete: Cascade)
+  meal      Meal    @relation(fields: [mealId], references: [id], onDelete: Cascade)
+
+  @@id([mealId, cuisineId])
+  @@index([cuisineId])
+}
+
+model MealPlanMeal {
+  mealPlanId String
+  mealId     String
+  meal       Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+
+  @@id([mealPlanId, mealId])
+  @@index([mealId])
+}
+
+model Cuisine {
+  id               String          @id @default(uuid())
+  code             String          @unique
+  name             String
+  description      String?
+  status           CuisineStatus   @default(ACTIVE)
+  deletedAt        DateTime?
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  createdByAdmin   AdminUser?      @relation("CuisineCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedByAdmin   AdminUser?      @relation("CuisineUpdatedBy", fields: [updatedByAdminId], references: [id])
+  meals            MealCuisine[]
+  outlets          OutletCuisine[]
+  primaryVendors   VendorProfile[]
+
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model OutletCuisine {
+  outletId  String
+  cuisineId String
+  cuisine   Cuisine @relation(fields: [cuisineId], references: [id])
+  outlet    Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@id([outletId, cuisineId])
+  @@index([cuisineId])
+}
+
+model Country {
+  id                 String               @id @default(uuid())
+  name               String               @unique
+  code               String               @unique
+  currency           String
+  phoneCode          String
+  status             GeoStatus            @default(ACTIVE)
+  createdByAdminId   String?
+  updatedByAdminId   String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  currencySymbol     String?
+  timezones          String[]
+  cities             City[]
+  createdByAdmin     AdminUser?           @relation("CountryCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedByAdmin     AdminUser?           @relation("CountryUpdatedBy", fields: [updatedByAdminId], references: [id])
+  payoutTypes        CountryPayoutType[]
+  documentTypes      DocumentTypeConfig[]
+  vendors            VendorAccount[]
+  vendorApplications VendorApplication[]
+  vendorTypes        VendorTypeCountry[]
+
+  @@index([status])
+}
+
+model City {
+  id               String               @id @default(uuid())
+  countryId        String
+  name             String
+  code             String?
+  timezone         String
+  latitude         Float?
+  longitude        Float?
+  status           GeoStatus            @default(ACTIVE)
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  country          Country              @relation(fields: [countryId], references: [id])
+  createdBy        AdminUser?           @relation("CityCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedBy        AdminUser?           @relation("CityUpdatedBy", fields: [updatedByAdminId], references: [id])
+  documentTypes    DocumentTypeConfig[]
+  stores           Outlet[]
+  serviceAreas     ServiceArea[]
+
+  @@unique([countryId, name])
+  @@index([countryId])
+  @@index([status])
+}
+
+model ServiceArea {
+  id               String              @id @default(uuid())
+  cityId           String
+  name             String
+  boundaries       Json
+  status           GeoStatus           @default(ACTIVE)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  createdByAdminId String?
+  updatedByAdminId String?
+  outlets          OutletServiceArea[]
+  city             City                @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  createdBy        AdminUser?          @relation("ServiceAreaCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedBy        AdminUser?          @relation("ServiceAreaUpdatedBy", fields: [updatedByAdminId], references: [id])
+
+  @@unique([cityId, name])
+  @@index([cityId])
+  @@index([status])
+}
+
+model OutletServiceArea {
+  outletId      String
+  serviceAreaId String
+  outlet        Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  serviceArea   ServiceArea @relation(fields: [serviceAreaId], references: [id], onDelete: Cascade)
+
+  @@id([outletId, serviceAreaId])
+  @@index([serviceAreaId])
+}
+
+model VendorTypeCountry {
+  id               String     @id @default(uuid())
+  countryId        String
+  vendorTypeId     String
+  status           GeoStatus  @default(ACTIVE)
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  country          Country    @relation(fields: [countryId], references: [id])
+  createdBy        AdminUser? @relation("VendorTypeCountryCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedBy        AdminUser? @relation("VendorTypeCountryUpdatedBy", fields: [updatedByAdminId], references: [id])
+  vendorType       VendorType @relation(fields: [vendorTypeId], references: [id])
+
+  @@unique([countryId, vendorTypeId])
+  @@index([countryId])
+  @@index([vendorTypeId])
+  @@index([status])
+}
+
+model DocumentTypeConfig {
+  id                String                     @id @default(uuid())
+  name              String
+  code              String
+  description       String?
+  scope             DocumentScope
+  isInheritable     Boolean                    @default(false)
+  countryId         String
+  cityId            String?
+  isRequired        Boolean                    @default(true)
+  requiresExpiry    Boolean                    @default(true)
+  expiryWarningDays Int                        @default(30)
+  instructions      String?
+  sampleUrl         String?
+  status            DocumentTypeStatus         @default(ACTIVE)
+  createdByAdminId  String?
+  updatedByAdminId  String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  city              City?                      @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  country           Country                    @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  createdByAdmin    AdminUser?                 @relation("DocumentTypeCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedByAdmin    AdminUser?                 @relation("DocumentTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
+  vendorTypeConfigs DocumentTypeVendorType[]
+  storeDocuments    OutletDocument[]
+  storeInheritances StoreDocumentInheritance[]
+  vendorDocuments   VendorDocument[]
+
+  @@unique([code, countryId, cityId])
+  @@index([countryId])
+  @@index([cityId])
+  @@index([scope, countryId, cityId])
+}
+
+model DocumentTypeVendorType {
+  id             String             @id @default(uuid())
+  documentTypeId String
+  vendorTypeId   String
+  isRequired     Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  documentType   DocumentTypeConfig @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+  vendorType     VendorType         @relation(fields: [vendorTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([documentTypeId, vendorTypeId])
+  @@index([documentTypeId])
+  @@index([vendorTypeId])
+}
+
+model VendorDocument {
+  id                  String                     @id @default(uuid())
+  applicationId       String?
+  vendorId            String?
+  documentTypeId      String
+  documentNumber      String?
+  storageKey          String
+  documentName        String?
+  fileSize            Int?
+  mimeType            String?
+  status              DocumentStatus             @default(PENDING)
+  issueDate           DateTime?
+  expiryDate          DateTime?
+  uploadedAt          DateTime                   @default(now())
+  reviewedAt          DateTime?
+  approvedAt          DateTime?
+  rejectedAt          DateTime?
+  sourceApplicationId String?
+  reviewedByAdminId   String?
+  rejectionReason     String?
+  revisionNotes       String?
+  supersededBy        String?
+  supersededAt        DateTime?
+  version             Int                        @default(1)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  inheritedByStores   StoreDocumentInheritance[]
+  application         VendorApplication?         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  documentType        DocumentTypeConfig         @relation(fields: [documentTypeId], references: [id])
+  reviewedByAdmin     AdminUser?                 @relation("VendorDocumentReviewedBy", fields: [reviewedByAdminId], references: [id])
+  vendor              VendorAccount?             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([vendorId])
+  @@index([documentTypeId])
+  @@index([status])
+  @@index([expiryDate])
+}
+
+model OutletDocument {
+  id              String             @id @default(uuid())
+  outletId        String
+  documentTypeId  String
+  documentNumber  String?
+  storageKey      String
+  documentName    String?
+  fileSize        Int?
+  mimeType        String?
+  issueDate       DateTime?
+  expiryDate      DateTime?
+  status          DocumentStatus     @default(PENDING)
+  submittedAt     DateTime           @default(now())
+  reviewedAt      DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  reviewedBy      String?
+  rejectionReason String?
+  revisionNotes   String?
+  supersededBy    String?
+  supersededAt    DateTime?
+  version         Int                @default(1)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  documentType    DocumentTypeConfig @relation(fields: [documentTypeId], references: [id])
+  outlet          Outlet             @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  reviewedByAdmin AdminUser?         @relation("OutletDocumentReviewedBy", fields: [reviewedBy], references: [id])
+
+  @@unique([outletId, documentTypeId, supersededAt])
+  @@index([outletId])
+  @@index([documentTypeId])
+  @@index([status])
+  @@index([expiryDate])
+}
+
+model StoreDocumentInheritance {
+  id               String             @id @default(uuid())
+  storeId          String
+  vendorDocumentId String
+  documentTypeId   String
+  inheritedAt      DateTime           @default(now())
+  isActive         Boolean            @default(true)
+  documentType     DocumentTypeConfig @relation(fields: [documentTypeId], references: [id])
+  outlet           Outlet             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  vendorDocument   VendorDocument     @relation(fields: [vendorDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, documentTypeId])
+  @@index([storeId])
+  @@index([vendorDocumentId])
+  @@index([documentTypeId])
+}
+
+model VendorType {
+  id                  String                   @id @default(uuid())
+  name                String                   @unique
+  description         String?
+  status              VendorTypeStatus         @default(ACTIVE)
+  deletedAt           DateTime?
+  createdByAdminId    String?
+  updatedByAdminId    String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  documentTypeConfigs DocumentTypeVendorType[]
+  vendorAccounts      VendorAccount[]
+  vendorApplications  VendorApplication[]
+  createdBy           AdminUser?               @relation("VendorTypeCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedBy           AdminUser?               @relation("VendorTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
+  countries           VendorTypeCountry[]
+
+  @@index([status])
+}
+
+model VendorAccount {
+  id                    String                @id @default(uuid())
+  userId                String?               @unique
+  vendorTypeId          String
+  otherVendorType       String?
+  status                VendorStatus          @default(ACTIVE)
+  applicationId         String?               @unique
+  countryId             String
+  legalBusinessName     String
+  businessEmail         String                @unique
+  businessPhone         String
+  companyRegNumber      String?
+  taxRegistrationNumber String?
+  taxIdType             String?
+  ownerFirstName        String
+  ownerLastName         String
+  ownerPhone            String?
+  ownerEmail            String?
+  businessAddress       String
+  addressLine2          String?
+  postalCode            String?
+  addressVerified       Boolean               @default(false)
+  suspensionReason      String?
+  deactivatedAt         DateTime?
+  deletedAt             DateTime?
+  suspendedAt           DateTime?
+  suspensionUntil       DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  outlets               Outlet[]
+  country               Country               @relation(fields: [countryId], references: [id])
+  user                  VendorUser?           @relation(fields: [userId], references: [id])
+  vendorType            VendorType            @relation(fields: [vendorTypeId], references: [id])
+  application           VendorApplication?
+  documents             VendorDocument[]
+  payoutAccounts        VendorPayoutAccount[]
+  vendorProfile         VendorProfile?
+
+  @@unique([userId, countryId])
+  @@unique([companyRegNumber, countryId])
+  @@unique([taxRegistrationNumber, countryId])
+  @@unique([businessPhone, countryId])
+  @@index([userId])
+  @@index([countryId])
+  @@index([status])
+  @@index([businessEmail])
+  @@index([businessPhone])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([countryId, status])
+}
+
+model VendorProfile {
+  id                  String        @id @default(uuid())
+  vendorAccountId     String        @unique
+  displayName         String
+  tagline             String?
+  description         String?
+  story               String?
+  logoUrl             String?
+  coverImageUrl       String?
+  publicEmail         String?
+  publicPhone         String?
+  website             String?
+  socialLinks         Json?
+  reservationLink     String?
+  primaryCuisineId    String?
+  specialties         String[]
+  dietaryOptions      String[]
+  foundedYear         Int?
+  totalReviews        Int           @default(0)
+  averageRating       Float         @default(0)
+  isVerifiedBadge     Boolean       @default(false)
+  isTopRated          Boolean       @default(false)
+  isCommunityFavorite Boolean       @default(false)
+  isPublished         Boolean       @default(false)
+  isFeatured          Boolean       @default(false)
+  galleryImages       String[]
+  videoUrls           String[]
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  publishedAt         DateTime?
+  primaryCuisine      Cuisine?      @relation(fields: [primaryCuisineId], references: [id])
+  vendorAccount       VendorAccount @relation(fields: [vendorAccountId], references: [id], onDelete: Cascade)
+
+  @@index([vendorAccountId])
+  @@index([displayName])
+  @@index([primaryCuisineId])
+  @@index([isPublished])
+  @@index([isFeatured])
+  @@index([averageRating])
+  @@index([createdAt])
+  @@index([totalReviews])
+}
+
+model VendorApplication {
+  id                 String                  @id @default(uuid())
+  userId             String?                 @unique
+  countryId          String
+  vendorTypeId       String
+  otherVendorType    String?
+  legalBusinessName  String
+  registrationNumber String?
+  taxId              String?
+  businessEmail      String
+  businessPhone      String?
+  ownerFirstName     String
+  ownerLastName      String
+  ownerPhone         String?
+  ownerEmail         String?
+  businessAddress    String
+  addressLine2       String?
+  postalCode         String?
+  status             VendorApplicationStatus @default(DRAFT)
+  vendorAccountId    String?                 @unique
+  submittedAt        DateTime?
+  reviewedAt         DateTime?
+  approvedAt         DateTime?
+  approvedBy         String?
+  reviewedBy         String?
+  revisionCount      Int                     @default(0)
+  rejectionReason    String?
+  revisionNotes      String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  country            Country                 @relation(fields: [countryId], references: [id])
+  user               VendorUser?             @relation(fields: [userId], references: [id])
+  vendorAccount      VendorAccount?          @relation(fields: [vendorAccountId], references: [id])
+  vendorType         VendorType              @relation(fields: [vendorTypeId], references: [id])
+  documents          VendorDocument[]
+
+  @@unique([userId, countryId], name: "application_user_country_unique")
+  @@index([status])
+  @@index([countryId])
+}
+
+model PayoutType {
+  id               String              @id @default(uuid())
+  code             String              @unique
+  name             String
+  description      String?
+  status           PayoutTypeStatus    @default(ACTIVE)
+  deletedAt        DateTime?
+  createdByAdminId String?
+  updatedByAdminId String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  countries        CountryPayoutType[]
+  createdByAdmin   AdminUser?          @relation("PayoutTypeCreatedBy", fields: [createdByAdminId], references: [id])
+  updatedByAdmin   AdminUser?          @relation("PayoutTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
+
+  @@index([status])
+}
+
+model CountryPayoutType {
+  id                   String                @id @default(uuid())
+  countryId            String
+  payoutTypeId         String
+  status               GeoStatus             @default(ACTIVE)
+  currency             String?
+  minPayoutAmount      Float?
+  maxPayoutAmount      Float?
+  processingDays       Int?
+  createdByAdminId     String?
+  updatedByAdminId     String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  country              Country               @relation(fields: [countryId], references: [id])
+  createdByAdmin       AdminUser?            @relation("CountryPayoutTypeCreatedBy", fields: [createdByAdminId], references: [id])
+  payoutType           PayoutType            @relation(fields: [payoutTypeId], references: [id])
+  updatedByAdmin       AdminUser?            @relation("CountryPayoutTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
+  vendorPayoutAccounts VendorPayoutAccount[]
+
+  @@unique([countryId, payoutTypeId])
+  @@index([countryId])
+  @@index([payoutTypeId])
+  @@index([status])
+}
+
+model VendorPayoutAccount {
+  id                  String            @id @default(uuid())
+  vendorId            String
+  countryPayoutTypeId String
+  isDefault           Boolean           @default(false)
+  bankName            String?
+  branchName          String?
+  bankCode            String?
+  accountNumber       String?
+  accountName         String?
+  swiftCode           String?
+  iban                String?
+  routingNumber       String?
+  mobileNetwork       String?
+  mobileNumber        String?
+  mobileWallet        String?
+  paypalEmail         String?
+  stripeAccountId     String?
+  isVerified          Boolean           @default(false)
+  verifiedAt          DateTime?
+  verificationSource  String?
+  isActive            Boolean           @default(true)
+  deletedAt           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  countryPayoutType   CountryPayoutType @relation(fields: [countryPayoutTypeId], references: [id])
+  vendor              VendorAccount     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([countryPayoutTypeId])
+  @@index([isActive])
+}
+
+model Outlet {
+  id                       String                     @id @default(uuid())
+  vendorId                 String
+  name                     String
+  slug                     String?                    @unique
+  avatar                   String?
+  bio                      String?
+  coverBanner              String?
+  images                   String[]
+  cityId                   String
+  addressLine1             String
+  addressLine2             String?
+  postalCode               String?
+  neighborhood             String?
+  latitude                 Float
+  longitude                Float
+  deliveryRadius           Float?
+  deliveryZones            Json?
+  deliveryFee              Float?
+  minimumOrder             Float?
+  phone                    String?
+  email                    String?
+  isMainStore              Boolean                    @default(false)
+  ratings                  Float                      @default(0)
+  totalReviews             Int                        @default(0)
+  isFeatured               Boolean                    @default(false)
+  adminStatus              OutletAdminStatus          @default(ACTIVE)
+  adminSuspendedAt         DateTime?
+  adminSuspendUntil        DateTime?
+  adminBannedAt            DateTime?
+  adminUpdatedAt           DateTime?
+  adminUpdatedById         String?
+  vendorDisabledAt         DateTime?
+  deletedAt                DateTime?
+  vendorUpdatedAt          DateTime?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  meals                    Meal[]
+  mealPlans                MealPlan[]
+  adminUpdatedBy           AdminUser?                 @relation("OutletUpdatedByAdmin", fields: [adminUpdatedById], references: [id])
+  city                     City                       @relation(fields: [cityId], references: [id])
+  vendor                   VendorAccount              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  adminActivityLogs        OutletAdminActivityLog[]
+  cuisines                 OutletCuisine[]
+  documents                OutletDocument[]
+  operatingHours           OutletOperatingHours[]
+  serviceAreas             OutletServiceArea[]
+  inheritedVendorDocuments StoreDocumentInheritance[]
+
+  @@unique([vendorId, name])
+  @@index([vendorId])
+  @@index([cityId])
+  @@index([slug])
+  @@index([adminStatus])
+  @@index([latitude, longitude])
+}
+
+model OutletOperatingHours {
+  id         String    @id @default(uuid())
+  outletId   String
+  dayOfWeek  DayOfWeek
+  openTime   String
+  closeTime  String
+  isClosed   Boolean   @default(false)
+  isActive   Boolean   @default(true)
+  validFrom  DateTime?
+  validUntil DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  outlet     Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, dayOfWeek, validFrom])
+  @@index([outletId])
+}
+
+model OutletAdminActivityLog {
+  id             String                   @id @default(uuid())
+  outletId       String
+  adminId        String
+  action         OutletAdminActionType
+  reasonId       String?
+  otherReason    String?
+  previousStatus OutletAdminStatus?
+  newStatus      OutletAdminStatus?
+  createdAt      DateTime                 @default(now())
+  admin          AdminUser                @relation(fields: [adminId], references: [id])
+  outlet         Outlet                   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  reason         OutletAdminActionReason? @relation(fields: [reasonId], references: [id])
+
+  @@index([outletId])
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model OutletAdminActionReason {
+  id          String                   @id @default(uuid())
+  code        String                   @unique
+  label       String
+  description String?
+  appliesTo   OutletAdminActionType[]
+  isActive    Boolean                  @default(true)
+  createdAt   DateTime                 @default(now())
+  logs        OutletAdminActivityLog[]
+}
 
 enum VendorStatus {
   ACTIVE
@@ -28,7 +767,6 @@ enum VendorApplicationStatus {
   APPROVED
   REJECTED
 }
-
 
 enum OutletAdminStatus {
   ACTIVE
@@ -113,804 +851,4 @@ enum DocumentTypeStatus {
   INACTIVE
   DEPRECATED
   ARCHIVED
-}
-
-
-//*----------------------USERS/ADMINS/COURIORS/VENDORS-------------------------
-
-model VendorUser {
-  id        String   @id @default(uuid())
-  clerkId   String   @unique
-  email     String   @unique
-
-  applications  VendorApplication[]
-  vendorAccount VendorAccount?
-
-  isActive  Boolean  @default(true)
-  isDeleted Boolean  @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([clerkId])
-  @@index([email])
-}
-
-
-model ConsumerAccount {
-  id        String   @id @default(uuid())
-  clerkId   String   @unique
-  email     String   @unique
-
-  createdAt DateTime @default(now())
-}
-
-model AdminUser {
-  id                             String                 @id @default(uuid())
-  email                          String                 @unique
-  passwordHash                   String
-  countryPayoutTypesCreated      CountryPayoutType[]    @relation("CountryPayoutTypeCreatedBy")
-  countryPayoutTypesUpdated      CountryPayoutType[]    @relation("CountryPayoutTypeUpdatedBy")
-  payoutTypesCreated             PayoutType[]           @relation("PayoutTypeCreatedBy")
-  payoutTypesUpdated             PayoutType[]           @relation("PayoutTypeUpdatedBy")
-  vendorTypesCreated             VendorType[]           @relation("VendorTypeCreatedBy")
-  vendorTypesUpdated             VendorType[]           @relation("VendorTypeUpdatedBy")
-  reviewedVendorDocuments        VendorDocument[]       @relation("VendorDocumentReviewedBy")
-  updatedOutlets                 Outlet[]               @relation("OutletUpdatedByAdmin")
-  updatedMeals                   Meal[]                 @relation("MealAdminUpdatedBy")
-  updatedMealplans               MealPlan[]             @relation("MealPlanAdminUpdatedBy")
-  createdCuisines                Cuisine[]              @relation("CuisineCreatedBy")
-  updatedCuisines                Cuisine[]              @relation("CuisineUpdatedBy")
-  createdCountries               Country[]              @relation("CountryCreatedBy")
-  updatedCountries               Country[]              @relation("CountryUpdatedBy")
-  createdCities                  City[]                 @relation("CityCreatedBy")
-  updatedCities                  City[]                 @relation("CityUpdatedBy")
-  createdServiceAreas            ServiceArea[]          @relation("ServiceAreaCreatedBy")
-  updatedServiceAreas            ServiceArea[]          @relation("ServiceAreaUpdatedBy")
-  createdVendorTypeCountry       VendorTypeCountry[]    @relation("VendorTypeCountryCreatedBy")
-  updatedVendorTypeCountry       VendorTypeCountry[]    @relation("VendorTypeCountryUpdatedBy")
-  createdDocumentType            DocumentTypeConfig[]   @relation("DocumentTypeUpdatedBy")
-  updatedDocumentType            DocumentTypeConfig[]   @relation("DocumentTypeCreatedBy")
-  reviewedOutletDocuments        OutletDocument[]       @relation("OutletDocumentReviewedBy") 
-  outletAdminLogs                OutletAdminActivityLog[] 
-
-  createdAt                      DateTime             @default(now())
-}
-
-
-//*---------------------MEALS/MEAL-PLANS/CUISINES/CATEGORIES--------------
-
-model Meal {
-  id                String        @id @default(uuid())
-  outlet            Outlet        @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  outletId          String
-  name              String
-  description       String?
-  price             Float
-  mainImage         String?
-  images            String[]
-  portionSize       String?       // e.g., "500g", "1 plate", etc.
-  dietaryOptions    String[]      // optional, can evolve into table later
-  specialties       String[]      // optional
-
-  //* ---------------- Admin Control ----------------
-  adminStatus       MealStatus     @default(ACTIVE)
-  adminSuspendedAt  DateTime?
-  adminBannedAt     DateTime?
-  adminUpdatedAt    DateTime?
-  adminUpdatedById  String?
-  adminUpdatedBy    AdminUser?    @relation("MealAdminUpdatedBy", fields: [adminUpdatedById], references: [id])
-
-  //* ---------------- Vendor Control ----------------
-  deletedAt         DateTime?
-  vendorUpdatedAt   DateTime?
-
-  cuisines          MealCuisine[]
-  mealPlans         MealPlanMeal[]
-
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-
-  @@unique([outletId, name])
-  @@index([outletId])
-  @@index([adminStatus])
-  @@index([deletedAt])
-  @@index([createdAt])
-}
-
-model MealPlan {
-  id                String        @id @default(uuid())
-  outlet            Outlet        @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  outletId          String
-  name              String
-  description       String?
-  price             Float?   
-  images            String[]
-  isPublished       Boolean       @default(false)
-  isFeatured        Boolean       @default(false)
-
-  //* ---------------- Admin Control ----------------
-  adminStatus       MealStatus     @default(ACTIVE)
-  adminSuspendedAt  DateTime?
-  adminBannedAt     DateTime?
-  adminUpdatedAt    DateTime?
-  adminUpdatedById  String?
-  adminUpdatedBy    AdminUser?    @relation("MealPlanAdminUpdatedBy", fields: [adminUpdatedById], references: [id])
-
-
-  deletedAt         DateTime?
-  vendorUpdatedAt   DateTime?
-  meals             MealPlanMeal[]
-
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-
-  @@unique([outletId, name])
-  @@index([outletId])
-  @@index([adminStatus])
-  @@index([deletedAt])
-  @@index([createdAt])
-}
-
-model MealCuisine {
-  mealId    String
-  cuisineId String
-  meal      Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  cuisine   Cuisine  @relation(fields: [cuisineId], references: [id], onDelete: Cascade)
-
-  @@id([mealId, cuisineId])
-  @@index([cuisineId])
-}
-
-model MealPlanMeal {
-  mealPlanId String
-  mealId     String
-  mealPlan   MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
-  meal       Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  @@id([mealPlanId, mealId])
-  @@index([mealId])
-}
-
-model Cuisine {
-  id               String        @id @default(uuid())
-  code             String        @unique   // ITALIAN, INDIAN, KENYAN
-  name             String
-  description      String?
-  status           CuisineStatus @default(ACTIVE)
-  deletedAt        DateTime?
-  createdByAdminId String?
-  updatedByAdminId String?
-  createdByAdmin   AdminUser? @relation("CuisineCreatedBy",fields: [createdByAdminId],references: [id])
-  updatedByAdmin   AdminUser? @relation("CuisineUpdatedBy",fields: [updatedByAdminId],references: [id])
-  primaryVendors   VendorProfile[]
-  outlets          OutletCuisine[]
-  meals            MealCuisine[]
-
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@index([status])
-  @@index([deletedAt])
-}
-
-model OutletCuisine {
-  outletId   String
-  cuisineId  String
-  outlet     Outlet  @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  cuisine    Cuisine @relation(fields: [cuisineId], references: [id])
-
-  @@id([outletId, cuisineId])
-  @@index([cuisineId])
-}
-
-
-//* ----------------------------- GEOGRAPHY -----------------------------
-
-model Country {
-  id                  String        @id @default(uuid())
-  name                String        @unique
-  code                String        @unique
-  currency            String
-  phoneCode           String
-  status              GeoStatus   @default(ACTIVE)
-  cities              City[]
-  vendorTypes         VendorTypeCountry[]
-  documentTypes       DocumentTypeConfig[]
-  vendors             VendorAccount[]
-  payoutTypes         CountryPayoutType[]
-  vendorApplications  VendorApplication[]
-  createdByAdminId    String?
-  updatedByAdminId    String?
-  createdByAdmin      AdminUser?  @relation("CountryCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedByAdmin      AdminUser?  @relation("CountryUpdatedBy", fields: [updatedByAdminId], references: [id])
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
-
-  @@index([status])
-}
-
-model City {
-  id                String     @id @default(uuid())
-  country           Country    @relation(fields: [countryId], references: [id], onDelete: Restrict)
-  countryId         String
-  name              String
-  code              String?
-  timezone          String
-  latitude          Float?
-  longitude         Float?
-  status            GeoStatus   @default(ACTIVE)
-  stores            Outlet[]
-  documentTypes     DocumentTypeConfig[]
-  serviceAreas      ServiceArea[]
-  createdBy         AdminUser?  @relation("CityCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedBy         AdminUser?  @relation("CityUpdatedBy", fields: [updatedByAdminId], references: [id])
-  createdByAdminId  String?
-  updatedByAdminId  String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-
-  @@unique([countryId, name])
-  @@index([countryId])
-  @@index([status])
-}
-
-model ServiceArea {
-  id                String      @id @default(uuid())
-  city              City        @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  cityId            String
-  name              String
-  boundaries        Json
-  status            GeoStatus   @default(ACTIVE)
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  createdByAdminId  String?
-  updatedByAdminId  String?
-  createdBy         AdminUser?  @relation("ServiceAreaCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedBy         AdminUser?  @relation("ServiceAreaUpdatedBy", fields: [updatedByAdminId], references: [id])
-  outlets           OutletServiceArea[]
-
-  @@unique([cityId, name])
-  @@index([cityId])
-  @@index([status])
-}
-
-model OutletServiceArea {
-  outletId       String
-  serviceAreaId  String
-  outlet         Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  serviceArea    ServiceArea  @relation(fields: [serviceAreaId], references: [id], onDelete: Cascade)
-
-  @@id([outletId, serviceAreaId])
-  @@index([serviceAreaId])
-}
-
-model VendorTypeCountry {
-  id                String      @id @default(uuid())
-  country           Country     @relation(fields: [countryId], references: [id], onDelete: Restrict)
-  countryId         String
-  vendorType        VendorType  @relation(fields: [vendorTypeId], references: [id], onDelete: Restrict)
-  vendorTypeId      String
-  status            GeoStatus   @default(ACTIVE)
-  createdBy         AdminUser?  @relation("VendorTypeCountryCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedBy         AdminUser?  @relation("VendorTypeCountryUpdatedBy", fields: [updatedByAdminId], references: [id])
-  createdByAdminId  String?
-  updatedByAdminId  String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-
-  @@unique([countryId, vendorTypeId])
-  @@index([countryId])
-  @@index([vendorTypeId])
-  @@index([status])
-}
-
-//*---------------------DOCS--------------------------------
-
-model DocumentTypeConfig {
-  id                  String          @id @default(uuid())
-  name                String   
-  code                String
-  description         String?
-  scope               DocumentScope
-  isInheritable       Boolean         @default(false)  //* Only relevant when scope=VENDOR
-  country             Country         @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  countryId           String
-  city                City?           @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  cityId              String?         //* Only relevant when scope=STORE
-  isRequired          Boolean         @default(true)
-  requiresExpiry      Boolean         @default(true)
-  expiryWarningDays   Int             @default(30)
-  vendorTypeConfigs   DocumentTypeVendorType[]
-  instructions        String?
-  sampleUrl           String?
-  vendorDocuments     VendorDocument[]
-  storeDocuments      OutletDocument[]
-  storeInheritances   StoreDocumentInheritance[]
-  status              DocumentTypeStatus @default(ACTIVE)
-  createdByAdminId    String?
-  updatedByAdminId    String?
-  createdByAdmin      AdminUser? @relation("DocumentTypeCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedByAdmin      AdminUser? @relation("DocumentTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@index([countryId])
-  @@index([cityId])
-  @@unique([code, countryId, cityId])
-  @@index([scope, countryId, cityId])
-}
-
-model DocumentTypeVendorType {
-  id              String              @id @default(uuid())
-  documentType    DocumentTypeConfig  @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
-  documentTypeId  String
-  vendorType      VendorType          @relation(fields: [vendorTypeId], references: [id], onDelete: Cascade)
-  vendorTypeId    String
-  isRequired      Boolean             @default(true)
-  createdAt       DateTime            @default(now())
-  @@unique([documentTypeId, vendorTypeId])
-  @@index([documentTypeId])
-  @@index([vendorTypeId])
-}
-
-model VendorDocument {
-  id                    String                @id @default(uuid())
-  application           VendorApplication?    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  applicationId         String?
-  vendor                VendorAccount?        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vendorId              String?
-  documentType          DocumentTypeConfig    @relation(fields: [documentTypeId], references: [id])
-  documentTypeId        String
-  documentNumber        String?
-  storageKey            String
-  documentName          String?
-  fileSize              Int?
-  mimeType              String?
-  status                DocumentStatus        @default(PENDING)
-  issueDate             DateTime?
-  expiryDate            DateTime?
-  uploadedAt            DateTime              @default(now())
-  reviewedAt            DateTime?
-  approvedAt            DateTime?
-  rejectedAt            DateTime?
-  sourceApplicationId   String?
-  reviewedByAdminId     String?
-  reviewedByAdmin       AdminUser?            @relation("VendorDocumentReviewedBy", fields: [reviewedByAdminId], references: [id])
-  rejectionReason       String?
-  revisionNotes         String?
-  supersededBy          String?               //* ID of document that replaces this
-  supersededAt          DateTime?
-  version               Int                   @default(1)
-  inheritedByStores     StoreDocumentInheritance[]
-
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
-
-  @@index([applicationId])
-  @@index([vendorId])
-  @@index([documentTypeId])
-  @@index([status])
-  @@index([expiryDate])
-
-}
-
-model OutletDocument {
-  id                  String            @id @default(uuid())
-  outlet              Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  outletId             String
-  documentType        DocumentTypeConfig  @relation(fields: [documentTypeId], references: [id])
-  documentTypeId      String
-  documentNumber      String?
-  storageKey          String
-  documentName        String?
-  fileSize            Int?
-  mimeType            String?
-  issueDate           DateTime?
-  expiryDate          DateTime?
-  status              DocumentStatus     @default(PENDING)
-  submittedAt         DateTime           @default(now())
-  reviewedAt          DateTime?
-  approvedAt          DateTime?
-  rejectedAt          DateTime?
-  reviewedBy          String?
-  reviewedByAdmin     AdminUser?         @relation("OutletDocumentReviewedBy", fields: [reviewedBy], references: [id])
-  rejectionReason     String?
-  revisionNotes       String?
-
-  //* Document versioning
-  supersededBy      String?
-  supersededAt      DateTime?
-  version           Int                @default(1)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  @@unique([outletId, documentTypeId, supersededAt])
-  @@index([outletId])
-  @@index([documentTypeId])
-  @@index([status])
-  @@index([expiryDate])
-}
-
-//* Track which stores inherit which vendor documents
-model StoreDocumentInheritance {
-  id                String         @id @default(uuid())
-  outlet            Outlet    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  storeId           String
-  vendorDocument    VendorDocument @relation(fields: [vendorDocumentId], references: [id], onDelete: Cascade)
-  vendorDocumentId  String
-  
-  documentType      DocumentTypeConfig @relation(fields: [documentTypeId], references: [id])
-  documentTypeId    String
-  
-  inheritedAt       DateTime       @default(now())
-  isActive          Boolean        @default(true)
-  
-  @@unique([storeId, documentTypeId]) // One inheritance per doc type per store
-  @@index([storeId])
-  @@index([vendorDocumentId])
-  @@index([documentTypeId])
-}
-
-
-//*-------------------------VENDORS------------------------------
-
-model VendorType {
-  id                  String              @id @default(uuid())
-  name                String              @unique
-  description         String?
-  status              VendorTypeStatus    @default(ACTIVE)
-  deletedAt           DateTime?
-  countries           VendorTypeCountry[]
-  documentTypeConfigs DocumentTypeVendorType[]
-  vendorApplications  VendorApplication[]
-  createdBy           AdminUser?          @relation("VendorTypeCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedBy           AdminUser?          @relation("VendorTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
-  createdByAdminId    String?
-  updatedByAdminId    String?
-  vendorAccounts      VendorAccount[]
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-
-  @@index([status])
-}
-
-model VendorAccount {
-  id                    String                  @id @default(uuid())
-  user                  VendorUser?             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId                String?                 @unique
-  vendorType            VendorType              @relation(fields: [vendorTypeId], references: [id])
-  vendorTypeId          String
-  otherVendorType       String?
-  status                VendorStatus            @default(ACTIVE)
-  country               Country                 @relation(fields: [countryId], references: [id])
-  application           VendorApplication? @relation
-  applicationId         String? @unique
-  countryId             String
-  legalBusinessName     String
-  businessEmail         String                  @unique
-  businessPhone         String
-  companyRegNumber      String?
-  taxRegistrationNumber String?
-  taxIdType             String?
-  ownerFirstName        String
-  ownerLastName         String
-  ownerPhone            String?
-  ownerEmail            String?
-  businessAddress       String
-  addressLine2          String?
-  postalCode            String?
-  addressVerified       Boolean                  @default(false)
-  suspensionReason      String?
-  documents             VendorDocument[]
-  outlets               Outlet[]
-  payoutAccounts        VendorPayoutAccount[]
-  vendorProfile         VendorProfile?
-  deactivatedAt         DateTime?
-  deletedAt             DateTime?
-  suspendedAt           DateTime?
-  suspensionUntil       DateTime?
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
-
-  @@unique([userId, countryId])
-  @@unique([companyRegNumber, countryId])
-  @@unique([taxRegistrationNumber, countryId])
-  @@unique([businessPhone, countryId])
-  @@index([userId])
-  @@index([countryId])
-  @@index([status])
-  @@index([businessEmail])
-  @@index([businessPhone])
-  @@index([createdAt])
-  @@index([deletedAt])
-  @@index([countryId, status])
-}
-
-model VendorProfile {
-  id                   String         @id @default(uuid())
-  vendorAccount        VendorAccount  @relation(fields: [vendorAccountId], references: [id], onDelete: Cascade)
-  vendorAccountId      String         @unique
-  displayName          String
-  tagline              String?
-  description          String?
-  story                String?
-  logoUrl              String?
-  coverImageUrl        String?
-  publicEmail          String?
-  publicPhone          String?
-  website              String?
-  socialLinks          Json?
-  reservationLink      String?
-  primaryCuisineId     String?
-  primaryCuisine       Cuisine?       @relation(fields: [primaryCuisineId], references: [id])
-  specialties          String[]
-  dietaryOptions       String[]
-  foundedYear          Int?
-  totalReviews         Int            @default(0)
-  averageRating        Float          @default(0)
-  isVerifiedBadge      Boolean        @default(false)
-  isTopRated           Boolean        @default(false)
-  isCommunityFavorite  Boolean        @default(false)
-
-  isPublished          Boolean        @default(false)
-  isFeatured           Boolean        @default(false)
-
-  galleryImages        String[]
-  videoUrls            String[]
-
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  publishedAt          DateTime?
-  
-  @@index([vendorAccountId])
-  @@index([displayName])
-  @@index([primaryCuisineId])
-  @@index([isPublished])
-  @@index([isFeatured])
-  @@index([averageRating])
-  @@index([createdAt])
-  @@index([totalReviews])
-}
-
-model VendorApplication {
-  id                    String        @id @default(uuid())
-  user                  VendorUser?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId                String?       @unique
-  country               Country       @relation(fields: [countryId], references: [id])
-  countryId             String
-  vendorType            VendorType    @relation(fields: [vendorTypeId], references: [id])
-  vendorTypeId          String
-  otherVendorType       String?
-  legalBusinessName     String
-  registrationNumber    String?
-  taxId                 String?
-  businessEmail         String
-  businessPhone         String?
-  ownerFirstName        String
-  ownerLastName         String
-  ownerPhone            String?
-  ownerEmail            String?
-  businessAddress       String
-  addressLine2          String?
-  postalCode            String?
-  status                VendorApplicationStatus  @default(DRAFT)
-  vendorAccountId       String?                  @unique
-  vendorAccount         VendorAccount?           @relation(fields: [vendorAccountId], references: [id])
-  submittedAt           DateTime?
-  reviewedAt            DateTime?
-  approvedAt            DateTime?
-  approvedBy            String?
-  reviewedBy            String?  
-  revisionCount         Int                     @default(0)
-  rejectionReason       String?
-  revisionNotes         String?
-  documents             VendorDocument[]  
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-
-  @@unique([userId, countryId], name: "application_user_country_unique")
-  @@index([status])
-  @@index([countryId])
-}
-
-//*-----------------------------PAYOUTS------------------------------
-
-model PayoutType {
-  id                String           @id @default(uuid())
-  code              String           @unique // BANK_TRANSFER, MOBILE_MONEY, PAYPAL
-  name              String
-  description       String?
-  status            PayoutTypeStatus @default(ACTIVE)
-  deletedAt         DateTime?
-  countries         CountryPayoutType[]
-  createdByAdminId  String?
-  updatedByAdminId  String?
-  createdByAdmin    AdminUser? @relation("PayoutTypeCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedByAdmin    AdminUser? @relation("PayoutTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@index([status])
-}
-
-model CountryPayoutType {
-  id                String      @id @default(uuid())
-  country           Country     @relation(fields: [countryId], references: [id], onDelete: Restrict)
-  countryId         String
-  payoutType        PayoutType  @relation(fields: [payoutTypeId], references: [id], onDelete: Restrict)
-  payoutTypeId      String
-  status            GeoStatus   @default(ACTIVE)
-  //* Optional country-specific configuration
-  currency          String?
-  minPayoutAmount   Float?
-  maxPayoutAmount   Float?
-  processingDays    Int?
-  createdByAdminId  String?
-  updatedByAdminId  String?
-  createdByAdmin    AdminUser?  @relation("CountryPayoutTypeCreatedBy", fields: [createdByAdminId], references: [id])
-  updatedByAdmin    AdminUser?  @relation("CountryPayoutTypeUpdatedBy", fields: [updatedByAdminId], references: [id])
-  vendorPayoutAccounts VendorPayoutAccount[]
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-
-  @@unique([countryId, payoutTypeId])
-  @@index([countryId])
-  @@index([payoutTypeId])
-  @@index([status])
-}
-
-model VendorPayoutAccount {
-  id                    String               @id @default(uuid())
-  vendor                VendorAccount        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vendorId              String
-  countryPayoutType     CountryPayoutType    @relation(fields: [countryPayoutTypeId], references: [id], onDelete: Restrict)
-  countryPayoutTypeId   String
-  isDefault             Boolean              @default(false)
-  // -------- Bank Transfer --------
-  bankName              String?
-  branchName            String?
-  bankCode              String?
-  accountNumber         String?
-  accountName           String?
-  swiftCode             String?
-  iban                  String?
-  routingNumber         String?
-
-  // -------- Mobile Money --------
-  mobileNetwork         String?
-  mobileNumber          String?
-  mobileWallet          String?
-
-  // -------- Platform Accounts --------
-  paypalEmail           String?
-  stripeAccountId       String?
-
-  isVerified            Boolean              @default(false)
-  verifiedAt            DateTime?
-  verificationSource    String? // STRIPE, PAYPAL, MANUAL, MOBILE_PROVIDER
-  isActive              Boolean              @default(true)
-  deletedAt             DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-
-  @@index([vendorId])
-  @@index([countryPayoutTypeId])
-  @@index([isActive])
-}
-
-//*------------------------------OUTLETS-----------------------------
-
-model Outlet {
-  id             String             @id @default(uuid())
-  vendor         VendorAccount      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vendorId       String
-  name           String
-  slug           String?            @unique
-  avatar         String?
-  bio            String?
-  coverBanner    String?
-  images         String[]
-  city           City               @relation(fields: [cityId], references: [id])
-  cityId         String
-  addressLine1   String
-  addressLine2   String?
-  postalCode     String?
-  neighborhood   String?
-  latitude       Float
-  longitude      Float
-  deliveryRadius Float?
-  deliveryZones  Json?
-  deliveryFee    Float?
-  minimumOrder   Float?
-  phone          String?
-  email          String?
-  isMainStore    Boolean            @default(false)
-  meals          Meal[] 
-  mealPlans      MealPlan[]
-  cuisines       OutletCuisine[] 
-  ratings        Float                 @default(0)
-  totalReviews   Int                   @default(0)
-  isFeatured     Boolean               @default(false)
-  operatingHours OutletOperatingHours[]
-  documents      OutletDocument[]
-  serviceAreas   OutletServiceArea[]
-  inheritedVendorDocuments StoreDocumentInheritance[]
-  adminActivityLogs    OutletAdminActivityLog[]
-
-  //* ---------------- ADMIN AUTHORITY ----------------
-  adminStatus         OutletAdminStatus      @default(ACTIVE)
-  adminSuspendedAt    DateTime?
-  adminSuspendUntil   DateTime?
-  adminBannedAt       DateTime?
-  adminUpdatedAt      DateTime?
-  adminUpdatedById    String?
-  adminUpdatedBy      AdminUser?        @relation("OutletUpdatedByAdmin", fields: [adminUpdatedById], references: [id])
-
-  //* ---------------- VENDOR INTENT ----------------
-  vendorDisabledAt    DateTime?
-  deletedAt           DateTime?
-  vendorUpdatedAt     DateTime?
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
-
-  @@unique([vendorId, name])
-  @@index([vendorId])
-  @@index([cityId])
-  @@index([slug])
-  @@index([adminStatus])
-  @@index([latitude, longitude])
-}
-
-
-model OutletOperatingHours {
-  id          String      @id  @default(uuid())
-  outlet       Outlet      @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  outletId    String
-  dayOfWeek   DayOfWeek
-  openTime    String
-  closeTime   String
-  isClosed    Boolean     @default(false)
-  isActive    Boolean     @default(true)
-  validFrom   DateTime?
-  validUntil  DateTime?
-
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@unique([outletId, dayOfWeek, validFrom])
-  @@index([outletId])
-}
-
-
-//*-----------------------------LOGS--------------------------------------
-model OutletAdminActivityLog {
-  id                String   @id @default(uuid())
-  outlet            Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  outletId          String
-  admin             AdminUser @relation(fields: [adminId], references: [id])
-  adminId           String
-  action            OutletAdminActionType
-  reasonId          String?
-  reason            OutletAdminActionReason? @relation(fields: [reasonId], references: [id])
-  otherReason       String?
-  previousStatus    OutletAdminStatus?
-  newStatus         OutletAdminStatus?
-  createdAt         DateTime @default(now())
-
-  @@index([outletId])
-  @@index([adminId])
-  @@index([action])
-  @@index([createdAt])
-}
-
-model OutletAdminActionReason {
-  id          String   @id @default(uuid())
-  code        String   @unique
-  label       String
-  description String?
-  appliesTo   OutletAdminActionType[]
-   logs        OutletAdminActivityLog[]
-  isActive    Boolean  @default(true)
-
-  createdAt  DateTime @default(now())
 }

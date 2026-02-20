@@ -1,10 +1,23 @@
 import { Router } from 'express'
 import vendorRoutes from '../modules/vendor/routes'
+import metaRoutes from '@/modules/meta/routes'
+import { clerkAuthMiddleware, requireApp } from '@/middleware/auth'
 
 const router: Router = Router()
 
 
-router.use('/vendor', vendorRoutes)
+router.use(
+  '/vendor',
+  clerkAuthMiddleware, 
+  requireApp("vendor"),
+  vendorRoutes
+)
+router.use(
+  '/meta',
+  clerkAuthMiddleware, 
+  requireApp("vendor"), 
+  metaRoutes
+)
 // router.use('/admin', adminRoutes)
 // router.use('/customer', customerRoutes)
 

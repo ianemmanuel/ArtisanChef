@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken"
 import jwksClient, { JwksClient } from "jwks-rsa"
-import { CLERK_PROJECTS, ClerkAppType } from "../../auth/clerk/clerkProjects"
+import { getClerkProjects, ClerkAppType } from "./clerkProjects"
 
 export type VerifiedClerkToken = {
   clerkUserId: string
@@ -8,16 +8,30 @@ export type VerifiedClerkToken = {
   issuer: string
 }
 
-const jwksClients = new Map<string, JwksClient>()
+let _clients: Map<string, JwksClient> | null = null
 
-for (const [, cfg] of Object.entries(CLERK_PROJECTS)) {
-  jwksClients.set(
-    cfg.issuer,
-    jwksClient({ jwksUri: cfg.jwksUrl })
-  )
+function getClients(): Map<string, JwksClient> {
+  if (_clients) return _clients
+  _clients = new Map()
+
+  const projects = getClerkProjects()
+
+  for (const [, cfg] of Object.entries(projects)) {
+    if (!cfg.issuer || !cfg.jwksUrl) {
+      throw new Error(
+        `Missing Clerk env vars — check CLERK_*_ISSUER and CLERK_*_JWKS_URL in your .env`
+      )
+    }
+    _clients.set(cfg.issuer, jwksClient({ jwksUri: cfg.jwksUrl }))
+  }
+
+  return _clients
 }
 
 export async function verifyClerkJwt(token: string): Promise<VerifiedClerkToken> {
+  const clients = getClients()
+  const projects = getClerkProjects()
+
   const decoded = jwt.decode(token, { complete: true }) as jwt.Jwt | null
 
   if (
@@ -36,17 +50,16 @@ export async function verifyClerkJwt(token: string): Promise<VerifiedClerkToken>
     throw new Error("Invalid JWT claims")
   }
 
-  // Find app by issuer
-  const appEntry = Object.entries(CLERK_PROJECTS).find(
+  const appEntry = Object.entries(projects).find(
     ([, cfg]) => cfg.issuer === iss
   )
 
   if (!appEntry) {
-    throw new Error("Untrusted Clerk issuer")
+    throw new Error(`Untrusted Clerk issuer: ${iss}`)
   }
 
   const [app] = appEntry
-  const client = jwksClients.get(iss)
+  const client = clients.get(iss)
 
   if (!client) {
     throw new Error("JWKS client not configured")

@@ -8,13 +8,11 @@ import ReviewStep from "./ReviewStep"
 
 interface WizardLayoutProps {
   countries: any[]
-  vendorTypes: any[]
   initialApplication: any | null
 }
 
 export default function WizardLayout({
   countries,
-  vendorTypes,
   initialApplication,
 }: WizardLayoutProps) {
   const {
@@ -35,25 +33,25 @@ export default function WizardLayout({
         return (
           <BusinessDetailsStep
             countries={countries}
-            vendorTypes={vendorTypes}
             onSuccess={() => setCurrentStep("documents")}
           />
         )
 
-      case "documents":
-        return (
-          <DocumentsStep
-            onSuccess={() => setCurrentStep("review")}
-            onBack={() => setCurrentStep("business-details")}
-          />
-        )
+        case "documents":
+          return (
+            <DocumentsStep
+              onNext={() => setCurrentStep("review")}
+              onBack={() => setCurrentStep("business-details")}
+            />
+          )
 
-      case "review":
-        return (
-          <ReviewStep
-            onBack={() => setCurrentStep("documents")}
-          />
-        )
+        case "review":
+          return (
+            <ReviewStep
+              onBack={() => setCurrentStep("documents")}
+              onEdit={(step) => setCurrentStep(step)}
+            />
+          )
 
       default:
         return null

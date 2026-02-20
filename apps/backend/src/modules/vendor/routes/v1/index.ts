@@ -5,7 +5,7 @@ import storageBucketRouter from "./storage-bucket.routes"
 
 const v1Router: Router = Router()
 
-v1Router.use('/applications', applicationRouter)
+v1Router.use('/application', applicationRouter)
 v1Router.use('/documents', documentRouter)
 v1Router.use('/storage-bucket',storageBucketRouter)
 

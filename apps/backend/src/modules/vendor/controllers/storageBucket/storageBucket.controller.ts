@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express"
 import { prisma, VendorApplicationStatus } from "@repo/db"
 import { getVendorUser } from "@/helpers/auth/vendorAuth"
-import { DocumentRequirementService } from "@/services/documents"
-import { R2Service } from "@/services/r2"
+import { DocumentRequirementService } from "@/modules/vendor/services/documents"
+import { R2Service } from "@/lib/r2"
 import path from "path"
 
 const ALLOWED_MIME_TYPES = [

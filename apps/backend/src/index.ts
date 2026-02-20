@@ -1,5 +1,4 @@
-import express, { ErrorRequestHandler } from "express"
-import dotenv from "dotenv"
+import express from "express"
 import helmet from "helmet"
 import cors from "cors"
 import morgan from "morgan"
@@ -7,25 +6,35 @@ import { rateLimit, ipKeyGenerator } from "express-rate-limit"
 import cookieParser from "cookie-parser"
 import router from "./routes"
 import { errorHandler } from "./middleware/error/error.middleware"
-
-dotenv.config()
+import "./env"
 
 const app = express()
 
 const port = process.env.PORT || 8000
 
-const whitelist = ["http://localhost:3000","http://localhost:3001","http://localhost:3002"]
+const whitelist = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+]
 
-const corsOptions = {
-    origin: (origin:any, callback:any) => {
-        if(whitelist.indexOf(origin) !== -1){
-            callback(null, true)
-        } else {
-            callback(new Error('Not allowed by CORS'))
-        }
-    },
-    optionsSuccessStatus: 200
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    //! Allow requests with no origin (SSR, Postman, curl, mobile apps)
+    if (!origin) {
+      return callback(null, true)
+    }
+
+    if (whitelist.includes(origin)) {
+      return callback(null, true)
+    }
+
+    console.error("Blocked by CORS:", origin)
+    return callback(new Error("Not allowed by CORS"))
+  },
+  credentials: true,
 }
+
 app.use(cors(corsOptions))
 app.use(helmet())
 app.use(morgan("dev"))

@@ -11,12 +11,40 @@ interface OnboardingStore {
   setCurrentStep: (step: OnboardingStep) => void
   setApplication: (application: VendorApplication | null) => void
   updateApplicationDocuments: (documents: VendorDocument[]) => void
-  initializeFromApplication: (application: VendorApplication | null) => void
+  /**
+   * Sync store with the latest application from the backend.
+   * Pass `preserveStep: true` when you want to keep the user on the
+   * current step (e.g. after a re-fetch triggered by Back navigation).
+   */
+  initializeFromApplication: (
+    application: VendorApplication | null,
+    options?: { preserveStep?: boolean; forceStep?: OnboardingStep }
+  ) => void
   markStepComplete: (step: OnboardingStep) => void
   clear: () => void
 }
 
-export const useOnboardingStore = create<OnboardingStore>((set) => ({
+function deriveStep(application: VendorApplication): OnboardingStep {
+  if (application.status === VendorApplicationStatus.SUBMITTED) {
+    return "review"
+  }
+  if (!application.legalBusinessName) {
+    return "business-details"
+  }
+  if (!application.documents || application.documents.length === 0) {
+    return "documents"
+  }
+  return "review"
+}
+
+function deriveCompletedSteps(application: VendorApplication): OnboardingStep[] {
+  const completed: OnboardingStep[] = []
+  if (application.legalBusinessName) completed.push("business-details")
+  if (application.documents?.length > 0) completed.push("documents")
+  return completed
+}
+
+export const useOnboardingStore = create<OnboardingStore>((set, get) => ({
   currentStep: "business-details",
   completedSteps: [],
   application: null,
@@ -32,7 +60,7 @@ export const useOnboardingStore = create<OnboardingStore>((set) => ({
         : {}
     ),
 
-  initializeFromApplication: (application) => {
+  initializeFromApplication: (application, options = {}) => {
     if (!application) {
       set({
         application: null,
@@ -42,32 +70,25 @@ export const useOnboardingStore = create<OnboardingStore>((set) => ({
       return
     }
 
-    const completed: OnboardingStep[] = []
+    const completed = deriveCompletedSteps(application)
 
-    if (application.legalBusinessName) {
-      completed.push("business-details")
-    }
+    // If caller wants to force a specific step (e.g. after Back), honour it.
+    // If caller wants to preserve the step the user is on, keep it.
+    // Otherwise, derive the natural next step from data.
+    let nextStep: OnboardingStep
 
-    if (application.documents?.length > 0) {
-      completed.push("documents")
-    }
-
-    let currentStep: OnboardingStep = "business-details"
-
-    if (application.status === VendorApplicationStatus.SUBMITTED) {
-      currentStep = "review"
-    } else if (!completed.includes("business-details")) {
-      currentStep = "business-details"
-    } else if (!completed.includes("documents")) {
-      currentStep = "documents"
+    if (options.forceStep) {
+      nextStep = options.forceStep
+    } else if (options.preserveStep) {
+      nextStep = get().currentStep
     } else {
-      currentStep = "review"
+      nextStep = deriveStep(application)
     }
 
     set({
       application,
       completedSteps: completed,
-      currentStep,
+      currentStep: nextStep,
     })
   },
 

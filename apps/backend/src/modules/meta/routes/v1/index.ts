@@ -6,6 +6,6 @@ const v1Router: Router = Router()
 
 
 v1Router.use('/countries', countryRouter)
-v1Router.use('/vendorTypes', vendorTypeRouter)
+v1Router.use('/vendor-types', vendorTypeRouter)
 
 export default v1Router

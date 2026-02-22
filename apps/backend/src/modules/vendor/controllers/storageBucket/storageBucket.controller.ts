@@ -4,6 +4,7 @@ import { getVendorUser } from "@/helpers/auth/vendorAuth"
 import { DocumentRequirementService } from "@/modules/vendor/services/documents"
 import { R2Service } from "@/lib/r2"
 import path from "path"
+import { sendSuccess, sendError } from "@/helpers/api-response/response"
 
 const ALLOWED_MIME_TYPES = [
   "application/pdf",
@@ -11,6 +12,7 @@ const ALLOWED_MIME_TYPES = [
   "image/png",
   "image/webp",
 ]
+
 
 export const generateFileUploadUrl = async (
   req: Request,
@@ -20,17 +22,17 @@ export const generateFileUploadUrl = async (
   try {
     const auth = await getVendorUser(req)
     if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
+      return sendError(res, auth.status, auth.message)
     }
 
     const { applicationId, documentTypeId, fileName, mimeType } = req.body
 
     if (!applicationId || !documentTypeId || !fileName || !mimeType) {
-      return res.status(400).json({ message: "Missing required fields" })
+      return sendError(res, 400, "Missing required fields")
     }
 
     if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
-      return res.status(400).json({ message: "Unsupported file type" })
+      return sendError(res, 400, "Unsupported file type")
     }
 
     const application = await prisma.vendorApplication.findUnique({
@@ -38,16 +40,14 @@ export const generateFileUploadUrl = async (
     })
 
     if (!application || application.userId !== auth.vendorUser.id) {
-      return res.status(404).json({ message: "Application not found" })
+      return sendError(res, 404, "Application not found")
     }
 
     if (
       application.status !== VendorApplicationStatus.DRAFT &&
       application.status !== VendorApplicationStatus.REJECTED
     ) {
-      return res.status(403).json({
-        message: "Cannot upload documents at this stage",
-      })
+      return sendError(res, 403, "Cannot upload documents at this stage")
     }
 
     const validation =
@@ -57,7 +57,7 @@ export const generateFileUploadUrl = async (
       )
 
     if (!validation.ok) {
-      return res.status(400).json({ message: validation.message })
+      return sendError(res, 400, validation.message)
     }
 
     const extension = path.extname(fileName).replace(".", "")
@@ -73,15 +73,11 @@ export const generateFileUploadUrl = async (
       mimeType
     )
 
-    return res.json({
-      uploadUrl,
-      storageKey,
-    })
+    return sendSuccess(res, { uploadUrl, storageKey })
   } catch (err) {
     next(err)
   }
 }
-
 
 export const getFileViewUrl = async (
   req: Request,
@@ -91,7 +87,7 @@ export const getFileViewUrl = async (
   try {
     const auth = await getVendorUser(req)
     if (!auth.ok) {
-      return res.status(auth.status).json({ message: auth.message })
+      return sendError(res, auth.status, auth.message)
     }
 
     const { id } = req.params
@@ -102,16 +98,16 @@ export const getFileViewUrl = async (
     })
 
     if (!document || !document.application) {
-      return res.status(404).json({ message: "Document not found" })
+      return sendError(res, 404, "Document not found")
     }
 
     if (document.application.userId !== auth.vendorUser.id) {
-      return res.status(403).json({ message: "Unauthorized" })
+      return sendError(res, 403, "Unauthorized")
     }
 
     const url = await R2Service.generateViewUrl(document.storageKey)
 
-    return res.json({ url })
+    return sendSuccess(res, { url })
   } catch (err) {
     next(err)
   }

@@ -1,7 +1,7 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
     const { userId, getToken } = await auth()
 
@@ -21,18 +21,18 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const body = await request.json()
     const backendUrl = process.env.BACKEND_API_URL!
 
     const response = await fetch(
-      `${backendUrl}/meta/v1/countries/`,
+      `${backendUrl}/vendor/v1/documents/delete`,
       {
-        method: "GET",
+        method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        // Enable ISR-like caching at route level
-        next: { revalidate: 60 * 60 * 24 }, // 24 hours
+        body: JSON.stringify(body),
       }
     )
 
@@ -40,14 +40,14 @@ export async function GET(request: NextRequest) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: data.message || "Failed to fetch countries" },
+        { error: data.message || "Failed to delete document" },
         { status: response.status }
       )
     }
 
-    return NextResponse.json(data, { status: response.status })
+    return NextResponse.json(data, { status: 200 })
   } catch (error) {
-    console.error("Error fetching countries:", error)
+    console.error("Delete error:", error)
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -1,1 +1,1 @@
-export * from './onboarding'
+export * from './data'

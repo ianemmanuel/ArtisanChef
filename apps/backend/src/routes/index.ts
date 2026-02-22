@@ -2,6 +2,7 @@ import { Router } from 'express'
 import vendorRoutes from '../modules/vendor/routes'
 import metaRoutes from '@/modules/meta/routes'
 import { clerkAuthMiddleware, requireApp } from '@/middleware/auth'
+import clerkWebhookRoutes from "@/modules/integrations/clerk/webhooks/clerk.webhook.routes"
 
 const router: Router = Router()
 
@@ -18,6 +19,7 @@ router.use(
   requireApp("vendor"), 
   metaRoutes
 )
+
 // router.use('/admin', adminRoutes)
 // router.use('/customer', customerRoutes)
 

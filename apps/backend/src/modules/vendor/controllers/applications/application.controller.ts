@@ -4,7 +4,7 @@ import { getVendorUser } from "@/helpers/auth/vendorAuth"
 import { ClerkVendorStateService } from "@/lib/clerk"
 import { DocumentRequirementService } from "@/modules/vendor/services/documents"
 import { ApiError } from "@/middleware/error"
-import { sendSuccess } from "@/helpers/api-response/response"
+import { sendError, sendSuccess } from "@/helpers/api-response/response"
 
 
 //* GET vendor Application
@@ -190,10 +190,9 @@ export const submitApplication = async (req: Request, res: Response, next: NextF
 
     const progress = await DocumentRequirementService.getUploadProgress(application)
 
-    if (progress.percentage < 100){ 
-      return sendSuccess(res, null, "All required documents must be uploaded before submission", 400)
+    if (progress.percentage < 100){
+      return sendError(res, 400, "All required documents must be uploaded before submission")
     }
-
     const updatedApplication = await prisma.vendorApplication.update({
       where: { id },
       data: { status: VendorApplicationStatus.SUBMITTED, submittedAt: new Date() },

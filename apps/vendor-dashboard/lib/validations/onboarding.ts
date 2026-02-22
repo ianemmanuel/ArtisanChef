@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-// Business Details Form Schema
+//* Business Details Form Schema
 export const businessDetailsSchema = z.object({
   countryId: z.string().min(1, "Country is required"),
   vendorTypeId: z.string().min(1, "Vendor type is required"),
@@ -30,6 +30,7 @@ export const businessDetailsSchema = z.object({
   addressLine2: z.string().max(300, "Address line 2 must not exceed 300 characters").optional(),
   postalCode: z.string().optional(),
 })
+
 
 export type BusinessDetailsFormData = z.infer<typeof businessDetailsSchema>
 

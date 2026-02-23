@@ -1,82 +1,68 @@
 "use client"
 
-import { usePathname } from "next/navigation"
-import type { Application } from "@/lib/api"
-import { StepItem, type StepStatus } from "./StepItem"
+// This is a server-compatible component (no hooks) — receives parsed application data
+// from the layout, which has already extracted json.data correctly.
+
+interface Application {
+  status: string
+  documents?: Array<{ status: string }>
+}
 
 interface Props {
   application: Application | null
 }
 
-const STEPS = [
-  { label: "Business Details", href: "/onboarding/business-details" },
-  { label: "Documents", href: "/onboarding/documents" },
-  { label: "Review & Submit", href: "/onboarding/review" },
-] as const
+function getStep(application: Application | null): 1 | 2 | 3 {
+  if (!application) return 1
 
-function getStepStatuses(
-  application: Application | null,
-  pathname: string
-): StepStatus[] {
-  const currentIndex = STEPS.findIndex((step) =>
-    pathname.startsWith(step.href)
-  )
+  const status = application.status
 
-  return STEPS.map((_, index) => {
-    if (index === 0) {
-      if (currentIndex === 0) return "active"
-      if (application) return "complete"
-      return "upcoming"
-    }
+  // Terminal / review states — show step 3
+  if (["SUBMITTED", "UNDER_REVIEW", "APPROVED", "REJECTED"].includes(status)) return 3
 
-    if (!application) return "locked"
-
-    if (currentIndex === index) return "active"
-    if (currentIndex > index) return "complete"
-
-    return "upcoming"
-  })
+  // DRAFT — determine by whether docs have been uploaded
+  const hasDocuments = application.documents?.some(d => d.status !== "WITHDRAWN") ?? false
+  return hasDocuments ? 3 : 2
 }
 
+const STEPS = ["Business Details", "Documents", "Review & Submit"]
+
 export function OnboardingStepIndicator({ application }: Props) {
-  const pathname = usePathname()
-  const statuses = getStepStatuses(application, pathname)
+  const current = getStep(application)
 
   return (
-    <nav aria-label="Onboarding steps">
-      <ol className="flex items-center">
-        {STEPS.map((step, index) => {
-          const status = statuses[index]
-          const isLast = index === STEPS.length - 1
+    <div className="flex items-center gap-2">
+      {STEPS.map((label, i) => {
+        const step = (i + 1) as 1 | 2 | 3
+        const done = step < current
+        const active = step === current
 
-          return (
-            <li
-              key={step.href}
-              className="flex items-center flex-1 last:flex-none"
+        return (
+          <div key={label} className="flex items-center gap-2">
+            <div
+              className={`flex items-center gap-2 text-sm font-medium
+                ${done ? "text-green-600" : active ? "text-orange-500" : "text-stone-400"}`}
             >
-              <StepItem
-                index={index}
-                label={step.label}
-                href={step.href}
-                status={status}
-              />
+              <span
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
+                  ${done
+                    ? "bg-green-100 text-green-600"
+                    : active
+                    ? "bg-orange-100 text-orange-600"
+                    : "bg-stone-100 text-stone-400"
+                  }`}
+              >
+                {done ? "✓" : step}
+              </span>
+              {label}
+            </div>
 
-              {/* Connector */}
-              {!isLast && (
-                <div className="flex-1 mx-3">
-                  <div
-                    className={`h-px transition-colors ${
-                      status === "complete"
-                        ? "bg-orange-300"
-                        : "bg-stone-200"
-                    }`}
-                  />
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ol>
-    </nav>
+            {i < STEPS.length - 1 && (
+              <div className={`h-px w-8 ${done ? "bg-green-300" : "bg-stone-200"}`} />
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }

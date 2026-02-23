@@ -1,2 +1,2 @@
-export * from "./ReviewForm"
+export * from "./review/ReviewForm"
 export * from "./StepIndicator"

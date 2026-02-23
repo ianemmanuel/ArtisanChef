@@ -26,21 +26,14 @@ export default async function OnboardingLayout({ children }: Props) {
     cache: "no-store",
   })
 
-  if (res.status === 401) {
-    redirect("/sign-in")
-  }
+  if (res.status === 401) redirect("/sign-in")
 
-  // 🟢 No application yet → valid state
-  let application = null
+  // Parse the response body once
+  const json = await res.json()
 
-  if (res.status === 404) {
-    application = null
-  } else if (res.ok) {
-    application = await res.json()
-  } else {
-    // 🔥 Real system failure
-    throw new Error("APPLICATION_FETCH_FAILED")
-  }
+  // No application yet — valid, user is on step 1
+  // Extract application.data if success, otherwise null
+  const application = res.ok && json.status === "success" ? json.data : null
 
   return (
     <div className="min-h-screen bg-stone-50 font-sans">

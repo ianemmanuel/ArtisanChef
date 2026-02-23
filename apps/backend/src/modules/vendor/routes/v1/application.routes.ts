@@ -3,6 +3,7 @@ import {
   getApplication,
   upsertApplication,
   submitApplication,
+  previewApplication,
 } from "../../controllers/applications"
 
 const applicationRouter: Router = Router()
@@ -10,6 +11,7 @@ const applicationRouter: Router = Router()
 //* /api/vendors/v1/applications
 applicationRouter.get("/", getApplication)
 applicationRouter.post("/upsert-application", upsertApplication)
-applicationRouter.post("/submit", submitApplication)
+applicationRouter.post("/submit/:id", submitApplication)
+applicationRouter.get("/:id/preview", previewApplication)
 
 export default applicationRouter

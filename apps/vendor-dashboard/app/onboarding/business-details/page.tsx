@@ -14,6 +14,7 @@ export default async function BusinessDetailsPage() {
   const headers = { Authorization: `Bearer ${token}` }
   let application: any = null
   let countries: any[] = []
+  let hasDocuments = false
   let fetchError: string | null = null
 
   try {
@@ -27,22 +28,27 @@ export default async function BusinessDetailsPage() {
 
     if (appRes.ok && appJson.status === "success") {
       application = appJson.data ?? null
-    } else if (!appRes.ok) {
-      fetchError = appJson?.message || "Failed to fetch application"
+      // Check if any non-withdrawn docs exist — used to trigger warning dialog in the form
+      hasDocuments = application?.documents?.some((d: any) => d.status !== "WITHDRAWN") ?? false
     }
 
     if (countriesRes.ok && countriesJson.status === "success") {
       countries = countriesJson.data?.countries ?? []
-    } else if (!countriesRes.ok) {
-      fetchError = countriesJson?.message || "Failed to fetch countries"
+    } else {
+      fetchError = "Failed to load countries. Please refresh the page."
     }
 
-    // Block editing if not draft or rejected
-    if (application && application.status !== "DRAFT" && application.status !== "REJECTED") {
+    // Block editing if not in an editable state
+    if (
+      application &&
+      application.status !== "DRAFT" &&
+      application.status !== "REJECTED"
+    ) {
       redirect("/onboarding")
     }
   } catch (err: any) {
-    fetchError = err?.message || "Something went wrong fetching data"
+    console.error("[BusinessDetailsPage]", err)
+    fetchError = "Something went wrong loading the page. Please refresh."
   }
 
   return (
@@ -53,8 +59,11 @@ export default async function BusinessDetailsPage() {
           <AlertDescription>{fetchError}</AlertDescription>
         </Alert>
       )}
-
-      <BusinessDetailsForm application={application} countries={countries} />
+      <BusinessDetailsForm
+        application={application}
+        countries={countries}
+        hasDocuments={hasDocuments}
+      />
     </>
   )
 }

@@ -1,12 +1,13 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { ArrowLeft, ArrowRight } from "lucide-react"
 import { DocumentsHeader } from "./DocumentsHeader"
 import { DocumentCard } from "./DocumentCard"
 import { Alert, AlertDescription } from "@repo/ui/components/alert"
+import { Button } from "@repo/ui/components/button"
 import { toast } from "sonner"
-
-//!const API_URL = process.env.NEXT_PUBLIC_API_URL!
 
 interface BackendDocument {
   id: string
@@ -39,104 +40,96 @@ interface Props {
   applicationId: string
 }
 
-export function DocumentsForm({
-  requirements: initialRequirements,
-  initialProgress,
-  applicationId,
-}: Props) {
-  const [requirements, setRequirements] =
-    useState<Requirement[]>(initialRequirements)
-
-  const [progress, setProgress] =
-    useState<Progress>(initialProgress)
-
-  const [uploadingId, setUploadingId] =
-    useState<string | null>(null)
-
-  const [deletingId, setDeletingId] =
-    useState<string | null>(null)
-
-  const [error, setError] =
-    useState<string | null>(null)
+export function DocumentsForm({ requirements: initialRequirements, initialProgress, applicationId }: Props) {
+  const router = useRouter()
+  const [requirements, setRequirements] = useState<Requirement[]>(initialRequirements)
+  const [progress, setProgress] = useState<Progress>(initialProgress)
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleUpload(req: Requirement, file: File) {
     try {
       setError(null)
       setUploadingId(req.documentTypeId)
 
-      // 1️⃣ Presign
-      const presignRes = await fetch(
-        `/api/onboarding/documents/presign`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            applicationId,
-            documentTypeId: req.documentTypeId,
-            fileName: file.name,
-            mimeType: file.type,
-          }),
-        }
-      )
+      // 1️⃣ Get presigned upload URL from our Next.js route handler
+      const presignRes = await fetch("/api/onboarding/documents/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicationId,
+          documentTypeId: req.documentTypeId,
+          fileName: file.name,
+          fileType: file.type,   // matches presignUpload controller: const { fileType }
+        }),
+      })
 
       const presignJson = await presignRes.json()
 
       if (!presignRes.ok || presignJson.status !== "success") {
-        setError(presignJson.message)
+        const message = presignRes.status < 500
+          ? presignJson.message || "Failed to prepare upload"
+          : "Something went wrong. Please try again."
+        console.error("[DocumentsForm] presign error:", presignJson)
+        setError(message)
         return
       }
 
       const { uploadUrl, storageKey } = presignJson.data
 
-      // 2️⃣ Upload to R2
-      await fetch(uploadUrl, {
+      // 2️⃣ Upload directly to R2 using the presigned URL
+      const r2Res = await fetch(uploadUrl, {
         method: "PUT",
         body: file,
         headers: { "Content-Type": file.type },
       })
 
-      // 3️⃣ Save document record
-      const upsertRes = await fetch(
-        `api/onboarding/documents/upsert`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            applicationId,
-            documentTypeId: req.documentTypeId,
-            storageKey,
-            documentName: file.name,
-            fileSize: file.size,
-            mimeType: file.type,
-          }),
-        }
-      )
+      if (!r2Res.ok) {
+        console.error("[DocumentsForm] R2 upload failed", r2Res.status)
+        setError("File upload failed. Please try again.")
+        return
+      }
+
+      // 3️⃣ Save the document record in our DB
+      const upsertRes = await fetch("/api/onboarding/documents/upsert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicationId,
+          documentTypeId: req.documentTypeId,
+          storageKey,
+          documentName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,   // matches upsertDocument controller: const { mimeType }
+        }),
+      })
 
       const upsertJson = await upsertRes.json()
 
       if (!upsertRes.ok || upsertJson.status !== "success") {
-        setError(upsertJson.message)
+        const message = upsertRes.status < 500
+          ? upsertJson.message || "Failed to save document"
+          : "Something went wrong. Please try again."
+        console.error("[DocumentsForm] upsert error:", upsertJson)
+        setError(message)
         return
       }
 
-      const { document, progress } = upsertJson.data
+      const { document, progress: newProgress } = upsertJson.data
 
       setRequirements(prev =>
         prev.map(r =>
           r.documentTypeId === req.documentTypeId
-            ? {
-                ...r,
-                uploaded: true,
-                uploadedDocument: document,
-              }
+            ? { ...r, uploaded: true, uploadedDocument: document }
             : r
         )
       )
-
-      setProgress(progress)
-      toast.success("Document uploaded")
-    } catch {
-      setError("Upload failed")
+      setProgress(newProgress)
+      toast.success("Document uploaded successfully")
+    } catch (err) {
+      console.error("[DocumentsForm] upload unexpected error:", err)
+      setError("Something went wrong. Please try again.")
     } finally {
       setUploadingId(null)
     }
@@ -149,15 +142,18 @@ export function DocumentsForm({
       setError(null)
       setDeletingId(req.documentTypeId)
 
-      const res = await fetch(
-        `/api/onboarding/documents/${req.uploadedDocument.id}`,
-        { method: "DELETE" }
-      )
+      const res = await fetch(`/api/onboarding/documents/${req.uploadedDocument.id}`, {
+        method: "DELETE",
+      })
 
       const json = await res.json()
 
       if (!res.ok || json.status !== "success") {
-        setError(json.message)
+        const message = res.status < 500
+          ? json.message || "Failed to delete document"
+          : "Something went wrong. Please try again."
+        console.error("[DocumentsForm] delete error:", json)
+        setError(message)
         return
       }
 
@@ -168,28 +164,30 @@ export function DocumentsForm({
             : r
         )
       )
-
       setProgress(json.data.progress)
-      toast.success("Document deleted")
-    } catch {
-      setError("Delete failed")
+      toast.success("Document removed")
+    } catch (err) {
+      console.error("[DocumentsForm] delete unexpected error:", err)
+      setError("Something went wrong. Please try again.")
     } finally {
       setDeletingId(null)
     }
   }
 
   async function handlePreview(doc: BackendDocument) {
-    const res = await fetch(
-      `/api/onboarding/documents/${doc.id}`,
-       { method: "GET" }
-    )
+    try {
+      const res = await fetch(`/api/onboarding/documents/${doc.id}`, { method: "GET" })
+      const json = await res.json()
 
-    const json = await res.json()
-
-    if (res.ok && json.status === "success") {
-      window.open(json.data.url, "_blank")
-    } else {
-      toast.error("Preview failed")
+      if (res.ok && json.status === "success") {
+        window.open(json.data.url, "_blank")
+      } else {
+        console.error("[DocumentsForm] preview error:", json)
+        toast.error("Could not open document. Please try again.")
+      }
+    } catch (err) {
+      console.error("[DocumentsForm] preview unexpected error:", err)
+      toast.error("Could not open document. Please try again.")
     }
   }
 
@@ -215,6 +213,24 @@ export function DocumentsForm({
             onPreview={handlePreview}
           />
         ))}
+      </div>
+
+      {/* Navigation */}
+      <div className="flex justify-between border-t pt-6">
+        <Button
+          variant="outline"
+          onClick={() => router.push("/onboarding/business-details")}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back
+        </Button>
+
+        <Button
+          onClick={() => router.push("/onboarding/review")}
+          disabled={!progress.isComplete}
+          className="bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-50"
+        >
+          Review & Submit <ArrowRight className="ml-2 h-4 w-4" />
+        </Button>
       </div>
     </div>
   )

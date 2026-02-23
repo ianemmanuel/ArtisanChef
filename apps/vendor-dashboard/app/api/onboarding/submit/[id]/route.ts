@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 
-export async function POST(request: NextRequest) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const { userId, getToken } = await auth()
 
@@ -13,10 +16,10 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
-
+    const { id } = await params
     const backendUrl = process.env.BACKEND_API_URL!
 
-    const response = await fetch(`${backendUrl}/vendor/v1/application/submit`, {
+    const response = await fetch(`${backendUrl}/vendor/v1/application/submit/${id}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,

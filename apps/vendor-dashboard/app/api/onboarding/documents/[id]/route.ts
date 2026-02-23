@@ -17,7 +17,7 @@ export async function DELETE(
     const backendUrl = process.env.BACKEND_API_URL!
 
     const response = await fetch(
-      `${backendUrl}/vendor/v1/documents/${id}`,
+      `${backendUrl}/vendor/v1/documents/delete/${id}`,
       {
         method: "DELETE",
         headers: {

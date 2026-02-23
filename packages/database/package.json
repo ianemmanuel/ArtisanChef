@@ -9,7 +9,8 @@
         "seed:countries": "tsx src/seed/countries.seed.ts",
         "seed:vendortypes": "tsx src/seed/vendorTypes.seed.ts",
         "seed:vendortypecountry": "tsx src/seed/vendorTypeCountry.seed.ts",
-        "seed:documenttypeconfig": "tsx src/seed/documentTypeConfig.seed.ts"
+        "seed:documenttypeconfig": "tsx src/seed/documentTypeConfig.seed.ts",
+        "seed:documenttypevendortype": "tsx src/seed/documentTypeVendorType.seed.ts"
     },
     "devDependencies": {
         "@repo/typescript-config": "workspace:*",

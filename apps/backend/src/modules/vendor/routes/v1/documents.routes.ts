@@ -10,8 +10,8 @@ import {
 const documentRouter:Router = Router()
 
 documentRouter.post("/presign", presignUpload)
-documentRouter.post("/", upsertDocument)
-documentRouter.delete("/:id", deleteDocument)
+documentRouter.post("/upsert", upsertDocument)
+documentRouter.delete("delete/:id", deleteDocument)
 documentRouter.get("/:id/preview", previewDocument)
 documentRouter.get("/requirements/:applicationId", getApplicationDocuments)
 

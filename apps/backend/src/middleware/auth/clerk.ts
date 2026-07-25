@@ -1,6 +1,11 @@
-
 import { Request, Response, NextFunction } from "express"
-import { verifyClerkJwt } from "../../lib/clerk"
+
+import { verifyClerkJwt } from "@/lib/clerk"
+import { ApiError } from "@/middleware/error/"
+import { HttpStatus } from "@/constants/httpStatus"
+import { logger } from "@/lib/pino/logger"
+
+const authLog = logger.child({ module: "auth:clerk" })
 
 declare global {
   namespace Express {
@@ -14,30 +19,33 @@ declare global {
   }
 }
 
+/*
+ * Generic multi-app Clerk verifier. Attaches req.auth for whichever
+ * app issued the token — pair with requireApp() to enforce a
+ * specific one. Admin has its own dedicated authenticateAdmin()
+ * instead (see modules/admin/middleware) since its downstream chain
+ * needs more than this generic shape provides.
+*/
+
 export async function clerkAuthMiddleware(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ) {
-  console.log("ENV CHECK:", {
-    vendorIssuer: process.env.CLERK_VENDOR_ISSUER,
-    vendorJwks: process.env.CLERK_VENDOR_JWKS_URL,
-  })
   const header = req.headers.authorization
+
   if (!header?.startsWith("Bearer ")) {
-    console.log('clerkAuthMiddleware1')
-    return res.status(401).json({ message: "Missing token" })
+    return next(new ApiError(HttpStatus.UNAUTHORIZED, "Missing token", "MISSING_TOKEN"))
   }
 
   try {
     const token = header.replace("Bearer ", "")
-    const auth = await verifyClerkJwt(token)
+    const auth  = await verifyClerkJwt(token)
 
     req.auth = auth
-
     next()
-  } catch(err) {
-    console.log('clerkAuthMiddleware2 error:', err)
-    return res.status(401).json({ message: "Unauthorized" })
+  } catch (err) {
+    authLog.debug({ err }, "Token verification failed")
+    next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "INVALID_TOKEN"))
   }
 }

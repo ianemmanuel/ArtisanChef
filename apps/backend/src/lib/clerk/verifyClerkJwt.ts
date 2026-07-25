@@ -8,9 +8,12 @@ export type VerifiedClerkToken = {
   issuer: string
 }
 
-// JWKS clients are cached for the lifetime of the process.
-// One client per Clerk instance (one per app type).
-// Lazy-initialised on first call — safe because env vars are validated at startup.
+/* 
+  JWKS clients are cached for the lifetime of the process.
+  One client per Clerk instance (one per app type).
+  Lazy-initialised on first call — safe because env vars are validated at startup.
+*/
+
 let _clients: Map<string, JwksClient> | null = null
 // Cache projects alongside clients so we don't call getClerkProjects() twice per request.
 let _projects: ReturnType<typeof getClerkProjects> | null = null

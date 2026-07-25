@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from "express"
-import type { AdminRequest }  from "@repo/types/backend"
-import { logger }             from "@/lib/pino/logger"
+import type { AdminRequest } from "@repo/types/backend"
+import { AdminRoleNames } from "@repo/types/enums"
+
+import { ApiError } from "@/errors/apiError"
+import { HttpStatus } from "@/constants/httpStatus"
+import { logger } from "@/lib/pino/logger"
 
 const authLog = logger.child({ module: "auth:identity-guard" })
 
@@ -25,16 +29,16 @@ const authLog = logger.child({ module: "auth:identity-guard" })
  *   - Service layer enforces scope rules with full context (country checks, etc.)
  *   - Defence in depth: if one layer is misconfigured the other catches it
  */
-export function requireIdentityAccess(req: Request, res: Response, next: NextFunction) {
-  const { adminUser } = req as unknown as AdminRequest
+export function requireIdentityAccess(req: Request, _res: Response, next: NextFunction) {
+  const { adminUser } = req as AdminRequest
 
   // super_admin bypasses all restrictions
-  if (adminUser.role?.name === "super_admin") {
+  if (adminUser.role?.name === AdminRoleNames.SUPER_ADMIN) {
     return next()
   }
 
   // identity_admin is allowed — specific permission checks follow in requirePermission()
-  if (adminUser.role?.name === "identity_admin") {
+  if (adminUser.role?.name === AdminRoleNames.IDENTITY_ADMIN) {
     return next()
   }
 
@@ -44,9 +48,9 @@ export function requireIdentityAccess(req: Request, res: Response, next: NextFun
     "Non-identity role attempted to access admin user management — blocked",
   )
 
-  return res.status(403).json({
-    status : "error",
-    message: "Admin user management is restricted to identity and super admin roles.",
-    code   : "IDENTITY_ROLE_REQUIRED",
-  })
+  return next(new ApiError(
+    HttpStatus.FORBIDDEN,
+    "Admin user management is restricted to identity and super admin roles.",
+    "IDENTITY_ROLE_REQUIRED",
+  ))
 }

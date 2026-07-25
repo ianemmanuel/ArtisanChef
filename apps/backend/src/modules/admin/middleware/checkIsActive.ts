@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from "express"
-import { prisma, AdminUserStatus }  from "@repo/db"
-import { logger }   from "@/lib/pino/logger"
+import { prisma, AdminUserStatus } from "@repo/db"
+import type { AdminRequest } from "@repo/types/backend"
+
+import { ApiError } from "@/errors/apiError"
+import { HttpStatus } from "@/constants/httpStatus"
+import { logger } from "@/lib/pino/logger"
 
 const authLog = logger.child({ module: "auth:check-active" })
 
@@ -9,11 +13,11 @@ const authLog = logger.child({ module: "auth:check-active" })
  * Checks status enum for precise error messages per state.
  * Updates lastSeenAt fire-and-forget — never blocks the request.
  */
-export async function checkIsActive(req: Request, res: Response, next: NextFunction) {
-  const adminUser = (req as any).adminUser
+export async function checkIsActive(req: Request, _res: Response, next: NextFunction) {
+  const { adminUser } = req as AdminRequest
 
   if (!adminUser) {
-    return res.status(401).json({ status: "error", message: "Unauthorized", code: "UNAUTHORIZED" })
+    return next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "UNAUTHORIZED"))
   }
 
   switch (adminUser.status as AdminUserStatus) {
@@ -22,29 +26,29 @@ export async function checkIsActive(req: Request, res: Response, next: NextFunct
 
     case AdminUserStatus.suspended:
       authLog.warn({ adminUserId: adminUser.id }, "Blocked request — account suspended")
-      return res.status(403).json({
-        status : "error",
-        message: "This account has been suspended. Contact your administrator.",
-        code   : "ACCOUNT_SUSPENDED",
-      })
+      return next(new ApiError(
+        HttpStatus.FORBIDDEN,
+        "This account has been suspended. Contact your administrator.",
+        "ACCOUNT_SUSPENDED",
+      ))
 
     case AdminUserStatus.deactivated:
       authLog.warn({ adminUserId: adminUser.id }, "Blocked request — account deactivated")
-      return res.status(403).json({
-        status : "error",
-        message: "This account has been deactivated. Contact your administrator.",
-        code   : "ACCOUNT_DEACTIVATED",
-      })
+      return next(new ApiError(
+        HttpStatus.FORBIDDEN,
+        "This account has been deactivated. Contact your administrator.",
+        "ACCOUNT_DEACTIVATED",
+      ))
 
     case AdminUserStatus.pending:
     case AdminUserStatus.invited:
     default:
       authLog.warn({ adminUserId: adminUser.id, status: adminUser.status }, "Blocked request — account not activated")
-      return res.status(403).json({
-        status : "error",
-        message: "This account has not been activated yet.",
-        code   : "ACCOUNT_NOT_ACTIVATED",
-      })
+      return next(new ApiError(
+        HttpStatus.FORBIDDEN,
+        "This account has not been activated yet.",
+        "ACCOUNT_NOT_ACTIVATED",
+      ))
   }
 
   // Fire and forget — never blocks the request

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express"
-import type { AdminPermissionKey } from "@repo/types/backend"
+import type { AdminPermissionKey } from "@repo/types/enums"
+import type { AdminRequest } from "@repo/types/backend"
 
 /**
  * STEP 4 — Extract the flat permission key array from AdminUserPermission.
@@ -17,20 +18,13 @@ import type { AdminPermissionKey } from "@repo/types/backend"
  *
  * No additional database call.
  */
-export function loadPermissions(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const adminUser = (req as any).adminUser
+export function loadPermissions(req: Request, _res: Response, next: NextFunction) {
+  const { adminUser } = req as AdminRequest
 
-  // adminUser.permissions comes from the include in loadAdminUser:
-  // include: { permissions: { include: { permission: true } } }
-  const permissions: AdminPermissionKey[] =
-    (adminUser?.permissions ?? [])
-      .filter((up: any) => up.permission?.isActive === true)
-      .map((up: any) => up.permission.key as AdminPermissionKey)
+  const permissions: AdminPermissionKey[] = (adminUser.permissions ?? [])
+    .filter((grant) => grant.permission?.isActive === true)
+    .map((grant) => grant.permission.key as AdminPermissionKey)
 
-  ;(req as any).adminPermissions = permissions
+  ;(req as Partial<AdminRequest>).adminPermissions = permissions
   next()
 }

@@ -1,19 +1,26 @@
 import { Request, Response, NextFunction } from "express"
-import { verifyClerkJwt }  from "@/lib/clerk"
-import { logger }          from "@/lib/pino/logger"
+import type { AuthenticatedAdminRequest } from "@repo/types/backend"
 
-const authLog = logger.child({ module: "auth:verify-token" })
+import { verifyClerkJwt } from "@/lib/clerk"
+import { ApiError } from "@/errors/apiError"
+import { HttpStatus } from "@/constants/httpStatus"
+import { logger } from "@/lib/pino/logger"
+
+const authLog = logger.child({ module: "auth:admin" })
 
 /**
- * STEP 1 — Verify the JWT is from the admin Clerk instance.
- * Sets req.adminClerkUserId on success.
+ * STEP 1 of the admin authorization chain — identity only.
+ * Verifies the JWT came from the admin Clerk instance and attaches
+ * adminClerkUserId. Everything else (AdminUser record, role,
+ * permissions, geo scope) is populated by the middlewares that run
+ * after this one — see loadAdminUser / loadAdminPermissions /
+ * loadAdminScope in this same folder.
  */
-
-export async function verifyAdminToken(req: Request, res: Response, next: NextFunction) {
+export async function verifyAdminToken(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization
 
   if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ status: "error", message: "Missing or malformed token", code: "MISSING_TOKEN" })
+    return next(new ApiError(HttpStatus.UNAUTHORIZED, "Missing or malformed token", "MISSING_TOKEN"))
   }
 
   try {
@@ -22,13 +29,13 @@ export async function verifyAdminToken(req: Request, res: Response, next: NextFu
 
     if (verified.app !== "admin") {
       authLog.warn({ app: verified.app }, "Token from wrong Clerk instance rejected")
-      return res.status(401).json({ status: "error", message: "Unauthorized", code: "INVALID_TOKEN" })
+      return next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "INVALID_TOKEN"))
     }
 
-    ;(req as any).adminClerkUserId = verified.clerkUserId
+    ;(req as AuthenticatedAdminRequest).adminClerkUserId = verified.clerkUserId
     next()
   } catch (err) {
     authLog.debug({ err }, "Token verification failed")
-    return res.status(401).json({ status: "error", message: "Unauthorized", code: "INVALID_TOKEN" })
+    next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "INVALID_TOKEN"))
   }
 }

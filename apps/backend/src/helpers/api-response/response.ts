@@ -1,5 +1,6 @@
-// services/response.ts
+
 import { Response } from "express"
+import type { ApiErrorDetail } from "@/errors/apiError"
 
 export const sendSuccess = <T>(
   res: Response,
@@ -18,11 +19,13 @@ export const sendError = (
   res: Response,
   statusCode: number,
   message: string,
-  code?: string
+  code?: string,
+  errors?: ApiErrorDetail[],
 ) => {
   return res.status(statusCode).json({
     status: "error",
     message,
     ...(code && { code }),
+    ...(errors && errors.length > 0 && { errors }),
   })
 }

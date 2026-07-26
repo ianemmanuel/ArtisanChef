@@ -5,7 +5,7 @@ import { zodErrorToApiError } from "@/errors/zodError"
 
 type ValidationSource = "body" | "query" | "params"
 
-/**
+/*
  * Validates req[source] against a Zod schema. On failure, converts
  * the ZodError into an ApiError and hands it to next() — it flows
  * through the same error pipeline (and response shape) as every

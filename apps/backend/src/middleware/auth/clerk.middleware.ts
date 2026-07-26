@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express"
 
 import { verifyClerkJwt } from "@/lib/clerk"
+import { extractBearerToken } from "@/lib/clerk/extractBearerToken"
 import { ApiError } from "@/errors/apiError"
 import { HttpStatus } from "@/constants/httpStatus"
 import { logger } from "@/lib/pino/logger"
@@ -22,24 +23,23 @@ declare global {
 /*
  * Generic multi-app Clerk verifier. Attaches req.auth for whichever
  * app issued the token — pair with requireApp() to enforce a
- * specific one. Admin has its own dedicated authenticateAdmin()
+ * specific one. Admin has its own dedicated verifyAdminToken()
  * instead (see modules/admin/middleware) since its downstream chain
  * needs more than this generic shape provides.
-*/
+ */
 export async function clerkAuthMiddleware(
   req: Request,
   _res: Response,
   next: NextFunction
 ) {
-  const header = req.headers.authorization
+  const token = extractBearerToken(req)
 
-  if (!header?.startsWith("Bearer ")) {
+  if (!token) {
     return next(new ApiError(HttpStatus.UNAUTHORIZED, "Missing token", "MISSING_TOKEN"))
   }
 
   try {
-    const token = header.replace("Bearer ", "")
-    const auth  = await verifyClerkJwt(token)
+    const auth = await verifyClerkJwt(token)
 
     req.auth = auth
     next()

@@ -1,2 +1,2 @@
-export * from './clerk'
-export * from './requireApp'
+export * from './clerk.middleware'
+export * from './requireApp.middleware'

@@ -1,3 +1,9 @@
-export * from "./clerkMetadata"
-export * from "./verifyClerkJwt"
-export * from "./clerkProjects"
+export { verifyClerkJwt } from "./verifyClerkJwt"
+export type { VerifiedClerkToken } from "./verifyClerkJwt"
+
+export { getClerkProjects } from "./clerkProjects"
+export type { ClerkAppType } from "./clerkProjects"
+
+export { ClerkVendorStateService, ClerkAdminStateService } from "./clerkMetadata"
+
+export { extractBearerToken } from "./extractBearerToken"

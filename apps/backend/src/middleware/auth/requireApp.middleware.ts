@@ -15,12 +15,7 @@ export function requireApp(expectedApp: ClerkAppType) {
     }
 
     if (req.auth.app !== expectedApp) {
-      return next(new ApiError(
-        HttpStatus.FORBIDDEN,
-        "Invalid token for this application",
-        "WRONG_APP",
-        [{ field: "app", message: `expected ${expectedApp}, received ${req.auth.app}` }],
-      ))
+      return next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "INVALID_TOKEN"))
     }
 
     next()

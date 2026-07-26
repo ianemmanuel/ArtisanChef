@@ -13,8 +13,8 @@ import { AdminScopeType } from "@repo/types/enums"
  * They receive req.adminScope and pass it to scopeService helpers.
  *
  * No database call — everything needed was loaded in loadAdminUser.
-*/
-export function scopeFilter(req: Request, _res: Response, next: NextFunction) {
+ */
+export function buildScopeContext(req: Request, _res: Response, next: NextFunction) {
   const { adminUser } = req as AdminRequest
   const scopes = adminUser.scopes ?? []
 

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express"
-import type { AdminScopeContext } from "@repo/types/backend"
+import type { AdminScopeContext, AdminRequest } from "@repo/types/backend"
 import { AdminScopeType } from "@repo/types/enums"
- 
+
 /**
  * STEP 5 — Build the geographic scope context.
  *
@@ -14,22 +14,14 @@ import { AdminScopeType } from "@repo/types/enums"
  *
  * No database call — everything needed was loaded in loadAdminUser.
  */
-export function scopeFilter(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const adminUser = (req as any).adminUser
-  const scopes: Array<{
-    scopeType : string
-    countryId : string | null
-    cityId    : string | null
-  }> = adminUser?.scopes ?? []
+export function scopeFilter(req: Request, _res: Response, next: NextFunction) {
+  const { adminUser } = req as AdminRequest
+  const scopes = adminUser.scopes ?? []
 
   const hasGlobal = scopes.some((s) => s.scopeType === AdminScopeType.GLOBAL)
 
   if (hasGlobal) {
-    ;(req as any).adminScope = {
+    ;(req as Partial<AdminRequest>).adminScope = {
       isGlobal   : true,
       countryIds : [],
       cityIds    : [],
@@ -50,7 +42,7 @@ export function scopeFilter(
     }
   }
 
-  ;(req as any).adminScope = {
+  ;(req as Partial<AdminRequest>).adminScope = {
     isGlobal   : false,
     countryIds : Array.from(countryIds),
     cityIds    : Array.from(cityIds),

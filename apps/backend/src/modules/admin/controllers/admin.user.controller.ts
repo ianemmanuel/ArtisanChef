@@ -1,5 +1,5 @@
 import { RequestHandler } from "express"
-import { AdminUserStatus } from "@repo/db"
+
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/middleware/error"

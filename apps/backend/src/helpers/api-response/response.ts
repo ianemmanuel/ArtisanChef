@@ -1,5 +1,6 @@
+// services/response.ts
 import { Response } from "express"
-import type { ApiErrorDetail } from "@/core/errors/apiError"
+import type { ApiErrorDetail } from "@/errors/apiError"
 
 export const sendSuccess = <T>(
   res: Response,

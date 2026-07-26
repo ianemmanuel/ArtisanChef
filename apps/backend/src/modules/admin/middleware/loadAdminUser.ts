@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from "express"
 import { prisma } from "@repo/db"
+import type { AuthenticatedAdminRequest, AdminRequest, AdminUserWithRole } from "@repo/types/backend"
+
+import { ApiError } from "@/errors/apiError"
+import { HttpStatus } from "@/constants/httpStatus"
 
 /**
  * STEP 2 — Load the admin user with all data needed for the request lifecycle.
@@ -13,23 +17,15 @@ import { prisma } from "@repo/db"
  * Returns 401 (not 403) if no row exists — "we don't recognise you."
  * A valid Clerk token with no AdminUser row means the user was never onboarded.
  */
-export async function loadAdminUser(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  const clerkUserId = (req as any).adminClerkUserId as string | undefined
+export async function loadAdminUser(req: Request, _res: Response, next: NextFunction) {
+  const { adminClerkUserId } = req as AuthenticatedAdminRequest
 
-  if (!clerkUserId) {
-    return res.status(401).json({
-      status : "error",
-      message: "Unauthorized",
-      code   : "MISSING_CLERK_ID",
-    })
+  if (!adminClerkUserId) {
+    return next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "MISSING_CLERK_ID"))
   }
 
   const adminUser = await prisma.adminUser.findUnique({
-    where  : { clerkUserId },
+    where  : { clerkUserId: adminClerkUserId },
     include: {
       role: true,
       // Individual permission grants — what this user CAN DO
@@ -41,13 +37,9 @@ export async function loadAdminUser(
   })
 
   if (!adminUser) {
-    return res.status(401).json({
-      status : "error",
-      message: "Unauthorized",
-      code   : "ADMIN_USER_NOT_FOUND",
-    })
+    return next(new ApiError(HttpStatus.UNAUTHORIZED, "Unauthorized", "ADMIN_USER_NOT_FOUND"))
   }
 
-  ;(req as any).adminUser = adminUser
+  ;(req as Partial<AdminRequest>).adminUser = adminUser as unknown as AdminUserWithRole
   next()
 }

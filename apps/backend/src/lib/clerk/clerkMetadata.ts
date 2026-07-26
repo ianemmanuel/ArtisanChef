@@ -6,7 +6,7 @@ import { logger } from "@/lib/pino/logger"
 
 const clerkLog = logger.child({ module: "clerk-metadata" })
 
-/**
+/*
  * Only vendor and admin have a Clerk backend client — customer and
  * courier are JWKS-verify-only by design (see env.ts). Narrowing the
  * type here means calling getClerkClient("customer") is a compile

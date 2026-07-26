@@ -8,7 +8,7 @@ import { logger } from "@/lib/pino/logger"
 
 const authLog = logger.child({ module: "auth:check-active" })
 
-/**
+/*
  * STEP 3 — Enforce that the admin account is in an active state.
  * Checks status enum for precise error messages per state.
  * Updates lastSeenAt fire-and-forget — never blocks the request.

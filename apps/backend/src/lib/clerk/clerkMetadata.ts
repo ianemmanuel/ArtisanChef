@@ -1,5 +1,6 @@
 import { createClerkClient } from "@clerk/backend"
 import { VendorApplicationStatus } from "@repo/db"
+
 import { env } from "@/env"
 import { logger } from "@/lib/pino/logger"
 
@@ -7,7 +8,7 @@ const clerkLog = logger.child({ module: "clerk-metadata" })
 
 /**
  * Only vendor and admin have a Clerk backend client — customer and
- * courier are JWKS-verify-only by design (see env.ts). xNarrowing the
+ * courier are JWKS-verify-only by design (see env.ts). Narrowing the
  * type here means calling getClerkClient("customer") is a compile
  * error, not a "missing env var" surprise at runtime.
  */
@@ -66,7 +67,7 @@ export class ClerkVendorStateService {
   }
 }
 
-//* Admin-specific metadata 
+//* Admin-specific metadata
 
 export class ClerkAdminStateService {
   private static get client() {

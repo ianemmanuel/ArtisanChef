@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express"
 
 import { verifyClerkJwt } from "@/lib/clerk"
-import { ApiError } from "@/middleware/error/"
+import { ApiError } from "@/errors/apiError"
 import { HttpStatus } from "@/constants/httpStatus"
 import { logger } from "@/lib/pino/logger"
 
@@ -26,7 +26,6 @@ declare global {
  * instead (see modules/admin/middleware) since its downstream chain
  * needs more than this generic shape provides.
 */
-
 export async function clerkAuthMiddleware(
   req: Request,
   _res: Response,

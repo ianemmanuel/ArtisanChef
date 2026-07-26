@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import type { AdminScopeContext, AdminRequest } from "@repo/types/backend"
 import { AdminScopeType } from "@repo/types/enums"
 
-/**
+/*
  * STEP 5 — Build the geographic scope context.
  *
  * Reads the admin's scope rows (loaded by loadAdminUser) and computes
@@ -13,7 +13,7 @@ import { AdminScopeType } from "@repo/types/enums"
  * They receive req.adminScope and pass it to scopeService helpers.
  *
  * No database call — everything needed was loaded in loadAdminUser.
- */
+*/
 export function scopeFilter(req: Request, _res: Response, next: NextFunction) {
   const { adminUser } = req as AdminRequest
   const scopes = adminUser.scopes ?? []

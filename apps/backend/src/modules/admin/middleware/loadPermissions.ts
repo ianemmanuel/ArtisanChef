@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import type { AdminPermissionKey } from "@repo/types/enums"
 import type { AdminRequest } from "@repo/types/backend"
 
-/**
+/*
  * STEP 4 — Extract the flat permission key array from AdminUserPermission.
  *
  * Individual permission grants live in AdminUserPermission — not in the role.
@@ -17,7 +17,7 @@ import type { AdminRequest } from "@repo/types/backend"
  * deprecated and excluded even if a grant row exists.
  *
  * No additional database call.
- */
+*/
 export function loadPermissions(req: Request, _res: Response, next: NextFunction) {
   const { adminUser } = req as AdminRequest
 

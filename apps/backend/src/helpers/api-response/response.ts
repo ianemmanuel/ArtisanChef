@@ -1,4 +1,4 @@
-// services/response.ts
+
 import { Response } from "express"
 import type { ApiErrorDetail } from "@/errors/apiError"
 

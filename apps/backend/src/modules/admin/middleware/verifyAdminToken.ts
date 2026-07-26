@@ -8,14 +8,14 @@ import { logger } from "@/lib/pino/logger"
 
 const authLog = logger.child({ module: "auth:admin" })
 
-/**
+/*
  * STEP 1 of the admin authorization chain — identity only.
  * Verifies the JWT came from the admin Clerk instance and attaches
  * adminClerkUserId. Everything else (AdminUser record, role,
  * permissions, geo scope) is populated by the middlewares that run
  * after this one — see loadAdminUser / loadAdminPermissions /
  * loadAdminScope in this same folder.
- */
+*/
 export async function verifyAdminToken(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization
 

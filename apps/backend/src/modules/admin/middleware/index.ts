@@ -1,17 +1,17 @@
 import { verifyAdminToken } from "./verifyAdminToken"
-import { loadAdminUser }    from "./loadAdminUser"
-import { checkIsActive }    from "./checkIsActive"
-import { loadPermissions }  from "./loadPermissions"
-import { scopeFilter }      from "./scopeFilter"
+import { loadAdminUser } from "./loadAdminUser"
+import { checkIsActive } from "./checkIsActive"
+import { loadPermissions } from "./loadPermissions"
+import { scopeFilter } from "./scopeFilter"
 
 export { verifyAdminToken } from "./verifyAdminToken"
-export { loadAdminUser }    from "./loadAdminUser"
-export { checkIsActive }    from "./checkIsActive"
-export { loadPermissions }  from "./loadPermissions"
-export { scopeFilter }      from "./scopeFilter"
+export { loadAdminUser } from "./loadAdminUser"
+export { checkIsActive } from "./checkIsActive"
+export { loadPermissions } from "./loadPermissions"
+export { scopeFilter } from "./scopeFilter"
 export { requirePermission } from "./requirePermission"
 
-/**
+/*
  * The composed admin authentication chain.
  * Apply to any admin router to enforce the full middleware pipeline:
  *
@@ -28,7 +28,7 @@ export { requirePermission } from "./requirePermission"
  *   import { AdminPermissions } from "@repo/types"
  *
  *   router.post("/approve", requirePermission(AdminPermissions.VENDORS_APPROVE), handler)
- */
+*/
 export const adminAuthChain = [
   verifyAdminToken,
   loadAdminUser,

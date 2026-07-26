@@ -5,7 +5,7 @@ import type { AdminRequest } from "@repo/types/backend"
 import { ApiError } from "@/errors/apiError"
 import { HttpStatus } from "@/constants/httpStatus"
 
-/**
+/*
  * STEP 6 — Gate a specific route behind a permission check.
  *
  * This is a factory function — call it per route with the required permission:
@@ -16,7 +16,7 @@ import { HttpStatus } from "@/constants/httpStatus"
  *
  * Always use AdminPermissions constants (from @repo/types), never raw strings.
  * A typo in a constant is a compile error. A typo in a string is a silent bug.
- */
+*/
 export function requirePermission(permission: AdminPermissionKey) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const { adminPermissions } = req as AdminRequest

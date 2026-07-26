@@ -5,7 +5,7 @@ import type { AuthenticatedAdminRequest, AdminRequest, AdminUserWithRole } from 
 import { ApiError } from "@/errors/apiError"
 import { HttpStatus } from "@/constants/httpStatus"
 
-/**
+/*
  * STEP 2 — Load the admin user with all data needed for the request lifecycle.
  *
  * Single query loads:

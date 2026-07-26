@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express"
 import { ZodError } from "zod"
 import { logger } from "@/lib/pino/logger"
+import { ZodError } from "zod"
+import { logger } from "@/lib/pino/logger"
 import { sendError } from "@/helpers/api-response/response"
 import { ApiError } from "@/errors/apiError"
 import { zodErrorToApiError } from "@/errors/zodError"
@@ -25,6 +27,8 @@ function toApiError(err: unknown): ApiError {
 
 //* Global error handler. Must be the last middleware registered.
 
+//* Global error handler. Must be the last middleware registered.
+
 export const errorHandler = (
   err  : unknown,
   req  : Request,
@@ -39,9 +43,24 @@ export const errorHandler = (
     // want it in your alerting, not silently at warn.
     if (apiError.statusCode >= 500) {
       errorLog.error({ err, correlationId: req.id }, apiError.message)
+  const apiError = toApiError(err)
+
+  if (apiError.isOperational) {
+    // Still worth an `error`-level log if it's a 5xx — e.g. an
+    // upstream dependency being down is operational, but you still
+    // want it in your alerting, not silently at warn.
+    if (apiError.statusCode >= 500) {
+      errorLog.error({ err, correlationId: req.id }, apiError.message)
     } else {
       errorLog.warn({ statusCode: apiError.statusCode, code: apiError.code, correlationId: req.id }, apiError.message)
+      errorLog.warn({ statusCode: apiError.statusCode, code: apiError.code, correlationId: req.id }, apiError.message)
     }
+  } else {
+    //* Not something we recognize — treat as a bug, not routine traffic.
+    errorLog.error({ err, correlationId: req.id }, "Unhandled exception")
+  }
+
+  return sendError(res, apiError.statusCode, apiError.message, apiError.code, apiError.errors)
   } else {
     //* Not something we recognize — treat as a bug, not routine traffic.
     errorLog.error({ err, correlationId: req.id }, "Unhandled exception")

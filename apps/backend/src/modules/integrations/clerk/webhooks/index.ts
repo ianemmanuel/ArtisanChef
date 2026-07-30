@@ -4,7 +4,7 @@ import vendorWebhookRoutes from "./vendor/vendor.clerk.webhook.routes"
 
 const router: Router = Router()
 
-/**
+/*
  * Clerk webhook sub-routes.
  * Each Clerk application gets its own isolated route, controller and service.
  * Mounted at /webhooks/clerk in index.ts.

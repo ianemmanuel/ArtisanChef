@@ -1,6 +1,6 @@
 import { ApiError } from "@/middleware/error"
 
-/**
+/*
  * SCOPE RULES PER ROLE
  * ─────────────────────
  * These rules encode operational reality for a multi-city, multi-country

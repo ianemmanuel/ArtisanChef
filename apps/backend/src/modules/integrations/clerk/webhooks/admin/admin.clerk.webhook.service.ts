@@ -13,7 +13,7 @@ import {
 
 const webhookLog = logger.child({ module: "webhook:admin" })
 
-//* ─── Clerk client ───────────────────
+//* Clerk client 
 
 function getAdminClerkClient() {
   const secretKey = process.env.CLERK_ADMIN_SECRET_KEY
@@ -21,7 +21,7 @@ function getAdminClerkClient() {
   return createClerkClient({ secretKey })
 }
 
-//* ─── Entry point ──────────────
+//* Entry point 
 
 export async function processAdminClerkWebhook(req: Request): Promise<void> {
   const secret = process.env.CLERK_ADMIN_WEBHOOK_SECRET
@@ -40,7 +40,7 @@ export async function processAdminClerkWebhook(req: Request): Promise<void> {
   }
 }
 
-// ─── user.created ─────────────────────────────────────────────────────────────
+//* user.created 
 
 async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
   const clerkUserId = data.id
@@ -53,7 +53,7 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
   const email     = normalizeEmail(rawEmail)
   const adminUser = await prisma.adminUser.findUnique({ where: { email } })
 
-  // ── Not in DB — unauthorized signup ─────────────────────────────────────
+  //? Not in DB — unauthorized signup 
   if (!adminUser) {
     webhookLog.warn({ email, clerkUserId }, "Unauthorized signup — deleting from Clerk")
 
@@ -69,13 +69,13 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
     return
   }
 
-  // ── Already active ───────────────────────────────────────────────────────
   if (adminUser.status === AdminUserStatus.active) {
     webhookLog.info({ email, adminUserId: adminUser.id }, "user.created — already active, skipping")
     return
   }
 
-  // ── Not in invited state — should not be activating ─────────────────────
+  //? Not in invited state — should not be activating
+
   if (adminUser.status !== AdminUserStatus.invited) {
     webhookLog.warn(
       { email, adminUserId: adminUser.id, status: adminUser.status },
@@ -96,7 +96,7 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
     return
   }
 
-  // ── Happy path: invited → active ─────────────────────────────────────────
+  //* Happy path: invited → active 
   const result = await prisma.adminUser.updateMany({
     where: { id: adminUser.id, status: AdminUserStatus.invited, clerkUserId: null },
     data : { clerkUserId, status: AdminUserStatus.active, isActive: true },
@@ -123,7 +123,7 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
   })
 }
 
-// ─── user.deleted ─────────────────────────────────────────────────────────────
+//* user.deleted 
 
 async function handleUserDeleted(clerkUserId: string): Promise<void> {
   if (!clerkUserId) {
@@ -165,7 +165,7 @@ async function handleUserDeleted(clerkUserId: string): Promise<void> {
   })
 }
 
-// ─── Shared helper ────────────────────────────────────────────────────────────
+//* Shared helper 
 
 async function safeDeleteClerkUser(clerkUserId: string, email: string): Promise<void> {
   try {

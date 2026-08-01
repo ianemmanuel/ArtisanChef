@@ -1,4 +1,3 @@
-
 import {
   AdminScopeType, 
   AdminPermissionKey, 
@@ -148,9 +147,18 @@ export interface UpdateAdminUserRoleRequest {
   roleId: string
 }
 
+/*
+ * GLOBAL scopes carry no countryId/cityId — a globally-scoped admin
+ * isn't tied to a specific country or city row. COUNTRY scope needs
+ * countryId; CITY scope needs both cityId and its parent countryId.
+ * This is why countryId/cityId are both optional here rather than
+ * required — the valid combinations depend on scopeType, and the
+ * service layer (resolveScopes / validateScopeForRole) is what
+ * actually enforces which combinations are legal per role.
+ */
 export interface ScopeEntry {
-  scopeType : "COUNTRY" | "CITY"
-  countryId : string
+  scopeType : "GLOBAL" | "COUNTRY" | "CITY"
+  countryId?: string
   cityId?   : string
 }
 

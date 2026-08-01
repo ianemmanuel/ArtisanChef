@@ -11,7 +11,7 @@ const clerkLog = logger.child({ module: "clerk-metadata" })
  * courier are JWKS-verify-only by design (see env.ts). Narrowing the
  * type here means calling getClerkClient("customer") is a compile
  * error, not a "missing env var" surprise at runtime.
- */
+*/
 type ClientAppType = "vendor" | "admin"
 
 const _clerkClients = new Map<ClientAppType, ReturnType<typeof createClerkClient>>()
@@ -26,14 +26,14 @@ function getClerkClient(app: ClientAppType) {
   return client
 }
 
-//* Vendor-specific metadata
+//* Vendor-specific metadata 
 
 export class ClerkVendorStateService {
   private static get client() {
     return getClerkClient("vendor")
   }
 
-  /**
+  /*
    * Mirrors vendor application status into Clerk's publicMetadata so
    * the frontend can read it straight off the session without an
    * extra API call. Postgres remains the source of truth — nothing
@@ -42,7 +42,7 @@ export class ClerkVendorStateService {
    * already succeeded, and failing the whole request over a
    * best-effort read-optimization would make a successful operation
    * look failed to the caller.
-   */
+  */
   static async setVendorApplicationStatus(
     clerkUserId: string,
     status: VendorApplicationStatus
@@ -67,20 +67,25 @@ export class ClerkVendorStateService {
   }
 }
 
-//* Admin-specific metadata
+/* 
+  *Admin-specific state 
+  * Every admin-Clerk mutation lives here — this is the ONLY place in the
+  * codebase that should construct an admin Clerk client. 
+*/
 
 export class ClerkAdminStateService {
   private static get client() {
     return getClerkClient("admin")
   }
 
-  /**
-   * Revoke all active sessions for an admin user.
-   * Called immediately when an admin is deactivated or offboarded.
-   * Ensures the user cannot complete any in-flight requests after
-   * deactivation — this one DOES throw on failure, since a failed
-   * revocation is a security-relevant failure the caller needs to
-   * know about, not a cosmetic sync issue.
+  /*
+   * Revoke all active sessions for an admin user without banning them
+   * — e.g. "force re-login everywhere" without blocking future sign-in.
+   * Note: banUser() already revokes all sessions as a side effect
+   * (confirmed via Clerk's own docs), so this is NOT needed as part
+   * of suspend/deactivate — those call banUser/deleteUser directly.
+   * This throws on failure — a failed revocation is security-relevant,
+   * not a cosmetic sync issue.
    */
   static async revokeAllSessions(clerkUserId: string) {
     const sessions = await this.client.sessions.getSessionList({ userId: clerkUserId })
@@ -89,5 +94,44 @@ export class ClerkAdminStateService {
         .filter((s) => s.status === "active")
         .map((s) => this.client.sessions.revokeSession(s.id))
     )
+  }
+
+  /*
+   * Bans the user — Clerk revokes all their active sessions as a
+   * side effect and blocks future sign-in. Used by suspendAdminUser.
+   */
+  static async banUser(clerkUserId: string) {
+    return this.client.users.banUser(clerkUserId)
+  }
+
+  /** Reverses banUser. Used by reinstateAdminUser. */
+  static async unbanUser(clerkUserId: string) {
+    return this.client.users.unbanUser(clerkUserId)
+  }
+
+  /*
+   * Permanently deletes the Clerk identity. Used by deactivateAdminUser
+   * (deliberate — deactivation is not reversible the way suspension is)
+   * and by the admin webhook service to clean up unauthorized/ineligible
+   * signups.
+   */
+  static async deleteUser(clerkUserId: string) {
+    return this.client.users.deleteUser(clerkUserId)
+  }
+
+  //* Used by sendAdminInvitation
+  static async createInvitation(params: {
+    emailAddress  : string
+    redirectUrl   : string
+    publicMetadata: Record<string, unknown>
+    expiresInDays : number
+  }) {
+    return this.client.invitations.createInvitation({
+      emailAddress  : params.emailAddress,
+      redirectUrl   : params.redirectUrl,
+      publicMetadata: params.publicMetadata,
+      expiresInDays : params.expiresInDays,
+      notify        : true,
+    })
   }
 }

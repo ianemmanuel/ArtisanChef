@@ -5,7 +5,7 @@ import type {
 } from "@repo/types/backend"
 import type { AdminPermissionKey, AdminScopeType  } from "@repo/types/enums"
 
-/**
+/*
  * Builds the session payload the frontend uses for page/feature gating.
  * Pure transformation — everything it needs was already loaded by
  * adminAuthChain (loadAdminUser, loadPermissions, scopeFilter).

@@ -1,8 +1,9 @@
-import { createClerkClient } from "@clerk/backend"
 import { prisma, AdminUserStatus } from "@repo/db"
 import { Request } from "express"
+import { env } from "@/env"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
+import { ClerkAdminStateService } from "@/lib/clerk"
 import {
   verifyWebhookRequest,
   extractPrimaryEmail,
@@ -13,21 +14,10 @@ import {
 
 const webhookLog = logger.child({ module: "webhook:admin" })
 
-//* Clerk client 
-
-function getAdminClerkClient() {
-  const secretKey = process.env.CLERK_ADMIN_SECRET_KEY
-  if (!secretKey) throw new Error("CLERK_ADMIN_SECRET_KEY is not set")
-  return createClerkClient({ secretKey })
-}
-
-//* Entry point 
+//* Entry point
 
 export async function processAdminClerkWebhook(req: Request): Promise<void> {
-  const secret = process.env.CLERK_ADMIN_WEBHOOK_SECRET
-  if (!secret) throw new Error("CLERK_ADMIN_WEBHOOK_SECRET is not set")
-
-  const event = verifyWebhookRequest(req, secret)
+  const event = verifyWebhookRequest(req, env.CLERK_ADMIN_WEBHOOK_SECRET)
 
   switch (event.type) {
     case WEBHOOK_EVENTS.USER_CREATED:
@@ -40,7 +30,7 @@ export async function processAdminClerkWebhook(req: Request): Promise<void> {
   }
 }
 
-//* user.created 
+//* user.created
 
 async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
   const clerkUserId = data.id
@@ -53,7 +43,7 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
   const email     = normalizeEmail(rawEmail)
   const adminUser = await prisma.adminUser.findUnique({ where: { email } })
 
-  //? Not in DB — unauthorized signup 
+  //? Not in DB — unauthorized signup
   if (!adminUser) {
     webhookLog.warn({ email, clerkUserId }, "Unauthorized signup — deleting from Clerk")
 
@@ -96,7 +86,31 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
     return
   }
 
-  //* Happy path: invited → active 
+  //? Invitation expired — defense in depth. Clerk itself refuses to let
+  //? a user complete signup through an expired invitation link, so
+  //? this shouldn't be reachable in practice — but we don't rely on
+  //? that alone for something security-relevant.
+  if (adminUser.invitationExpiresAt && adminUser.invitationExpiresAt < new Date()) {
+    webhookLog.warn(
+      { email, adminUserId: adminUser.id, expiresAt: adminUser.invitationExpiresAt },
+      "user.created — invitation expired, deleting from Clerk",
+    )
+
+    auditService.security("security.expired_invitation_activation_attempt", {
+      trigger    : "clerk_webhook",
+      event      : "user.created",
+      clerkUserId,
+      email,
+      adminUserId: adminUser.id,
+      expiresAt  : adminUser.invitationExpiresAt,
+      outcome    : "clerk_user_deleted",
+    })
+
+    await safeDeleteClerkUser(clerkUserId, email)
+    return
+  }
+
+  //* Happy path: invited → active
   const result = await prisma.adminUser.updateMany({
     where: { id: adminUser.id, status: AdminUserStatus.invited, clerkUserId: null },
     data : { clerkUserId, status: AdminUserStatus.active, isActive: true },
@@ -121,9 +135,12 @@ async function handleUserCreated(data: ClerkUserCreatedData): Promise<void> {
     },
     metadata: { trigger: "clerk_webhook", event: "user.created" },
   })
+
+  // TODO: send welcome email here once services/email/ exists —
+  // this is the correct place (post-activation, not post-invite).
 }
 
-//* user.deleted 
+//* user.deleted
 
 async function handleUserDeleted(clerkUserId: string): Promise<void> {
   if (!clerkUserId) {
@@ -165,11 +182,11 @@ async function handleUserDeleted(clerkUserId: string): Promise<void> {
   })
 }
 
-//* Shared helper 
+//* Shared helper
 
 async function safeDeleteClerkUser(clerkUserId: string, email: string): Promise<void> {
   try {
-    await getAdminClerkClient().users.deleteUser(clerkUserId)
+    await ClerkAdminStateService.deleteUser(clerkUserId)
     webhookLog.info({ clerkUserId, email }, "Clerk user deleted")
   } catch (err) {
     webhookLog.error({ err, clerkUserId, email }, "Failed to delete Clerk user — cron will clean up")

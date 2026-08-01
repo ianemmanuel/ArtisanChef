@@ -93,7 +93,7 @@ export const ROLE_SCOPE_RULES: Record<string, {
   },
 }
 
-/**
+/*
  * Validates that assigned scopes are compatible with the given role.
  * Throws ApiError(400) if any scope type violates the role's rules.
  */
@@ -115,7 +115,7 @@ export function validateScopeForRole(
   }
 }
 
-/**
+/*
  * Returns the allowed scope types for a given role.
  * Used by the ScopeSelector to filter options shown to the actor.
  */

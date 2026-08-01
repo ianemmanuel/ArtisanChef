@@ -1,38 +1,33 @@
-import { createClerkClient } from "@clerk/backend"
 import { prisma, AdminUserStatus } from "@repo/db"
 import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
-import { validateScopeForRole, getDefaultScopeType } from "@/lib/scope/scope-rules"
-import type { AdminScopeContext, CreateAdminUserRequest }  from "@repo/types/backend"
+import { ClerkAdminStateService } from "@/lib/clerk"
+import { validateScopeForRole, getDefaultScopeType } from "../lib/scope/scope-rules"
+import { SYSTEM_USER_ID } from "@/constants/system"
+import { env } from "@/env"
+import type {
+  AdminScopeContext,
+  CreateAdminUserRequest,
+  UpdateAdminUserPermissionsRequest,
+  UpdateAdminUserRoleRequest,
+  UpdateAdminUserScopesRequest,
+  ScopeEntry,
+} from "@repo/types/backend"
+
+// Re-exported so anything currently importing ScopeEntry from this
+// file keeps working — the type itself now lives in @repo/types/backend.
+export type { ScopeEntry } from "@repo/types/backend"
 
 const serviceLog = logger.child({ module: "admin-user-service" })
 
-
-export interface ScopeEntry {
-  scopeType : "GLOBAL" | "COUNTRY" | "CITY"
-  countryId?: string
-  cityId?   : string
-}
-
-
-
-interface UpdateAdminUserPermissionsInput {
-  adminUserId    : string
-  permissionKeys : string[]
-}
-
-interface UpdateAdminUserRoleInput {
-  adminUserId : string
-  roleId      : string
-}
-
-interface UpdateAdminUserScopesInput {
-  adminUserId : string
-  scopes      : ScopeEntry[]
-}
-
-
+/**
+ * Matches what's passed to Clerk's createInvitation (expiresInDays)
+ * explicitly, rather than relying on Clerk's own default (also 30
+ * days, but silent) — so our tracked invitationExpiresAt always
+ * agrees with what Clerk actually enforces.
+ */
+const INVITATION_EXPIRY_DAYS = 30
 
 export function formatDisplayName(user: {
   firstName : string
@@ -41,14 +36,6 @@ export function formatDisplayName(user: {
 }): string {
   return [user.firstName, user.middleName, user.lastName].filter(Boolean).join(" ")
 }
-
-function getAdminClerkClient() {
-  const secretKey = process.env.CLERK_ADMIN_SECRET_KEY
-  if (!secretKey) throw new ApiError(500, "CLERK_ADMIN_SECRET_KEY is not configured", "CLERK_MISCONFIGURED")
-  return createClerkClient({ secretKey })
-}
-
-
 
 export async function createAdminUser(
   input: CreateAdminUserRequest,
@@ -225,12 +212,11 @@ export async function sendAdminInvitation(
     lastName  : adminUser.lastName,
   })
 
-  const clerk = getAdminClerkClient()
-
   try {
-    await clerk.invitations.createInvitation({
-      emailAddress: adminUser.email,
-      redirectUrl : process.env.CLERK_ADMIN_INVITE_REDIRECT_URL,
+    await ClerkAdminStateService.createInvitation({
+      emailAddress : adminUser.email,
+      redirectUrl  : env.CLERK_ADMIN_INVITE_REDIRECT_URL,
+      expiresInDays: INVITATION_EXPIRY_DAYS,
       publicMetadata: {
         adminUserId     : adminUser.id,
         role            : adminUser.role?.name ?? "",
@@ -240,18 +226,20 @@ export async function sendAdminInvitation(
           ? `You've been invited to join DailyBread Admin as ${adminUser.role.displayName}.`
           : "You've been invited to join DailyBread Admin.",
       },
-      notify: true,
     })
   } catch (err) {
     serviceLog.error({ err, adminUserId }, "Clerk invitation failed")
     throw new ApiError(502, `Failed to send Clerk invitation: ${(err as Error).message}`, "CLERK_ERROR")
   }
 
+  const invitationExpiresAt = new Date(Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
+
   await prisma.adminUser.update({
     where: { id: adminUserId },
     data : {
       status              : AdminUserStatus.invited,
       invitationSentAt    : new Date(),
+      invitationExpiresAt,
       invitationSentCount : { increment: 1 },
     },
   })
@@ -273,10 +261,10 @@ export async function sendAdminInvitation(
   return { success: true }
 }
 
-//* ─── Update permissions ─────────────
+//* Update permissions
 
 export async function updateAdminUserPermissions(
-  input     : UpdateAdminUserPermissionsInput,
+  input     : UpdateAdminUserPermissionsRequest,
   actorId   : string,
   actorScope: AdminScopeContext,
 ) {
@@ -326,7 +314,7 @@ export async function updateAdminUserPermissions(
   return { updated: permissions.length }
 }
 
-//* ─── Update role ────────────────
+//* Update role
 //
 // IMPORTANT: Changing a user's role CLEARS all their existing permission grants.
 // Reason: permissions are valid only within a role's pool (ceiling).
@@ -337,7 +325,7 @@ export async function updateAdminUserPermissions(
 // after the role change. The frontend shows this clearly on the review page.
 
 export async function updateAdminUserRole(
-  input     : UpdateAdminUserRoleInput,
+  input     : UpdateAdminUserRoleRequest,
   actorId   : string,
   actorScope: AdminScopeContext,
 ) {
@@ -412,7 +400,7 @@ export async function updateAdminUserRole(
 //* ─── Update scopes ───────────────────
 
 export async function updateAdminUserScopes(
-  input     : UpdateAdminUserScopesInput,
+  input     : UpdateAdminUserScopesRequest,
   actorId   : string,
   actorScope: AdminScopeContext,
 ) {
@@ -466,7 +454,6 @@ export async function updateAdminUserScopes(
 }
 
 // ─── Suspend, Reinstate, Deactivate ──────────────────────────────────────────
-// (unchanged from previous version — omitted for brevity but must remain in file)
 
 export async function suspendAdminUser(
   adminUserId: string, reason: string, actorId: string, actorScope: AdminScopeContext,
@@ -479,7 +466,7 @@ export async function suspendAdminUser(
   if (user.status === AdminUserStatus.pending || user.status === AdminUserStatus.invited)
     throw new ApiError(400, "Cannot suspend a user who has not activated their account", "INVALID_STATUS")
   if (user.clerkUserId) {
-    try { await getAdminClerkClient().users.banUser(user.clerkUserId) }
+    try { await ClerkAdminStateService.banUser(user.clerkUserId) }
     catch (err) { throw new ApiError(502, `Clerk ban failed: ${(err as Error).message}`, "CLERK_ERROR") }
   }
   await prisma.adminUser.update({ where: { id: adminUserId }, data: { status: AdminUserStatus.suspended, isActive: false, deactivationReason: reason } })
@@ -496,7 +483,7 @@ export async function reinstateAdminUser(
   assertUserWithinActorScope(user.scopes, actorScope)
   if (user.status !== AdminUserStatus.suspended) throw new ApiError(400, "Only suspended users can be reinstated", "INVALID_STATUS")
   if (user.clerkUserId) {
-    try { await getAdminClerkClient().users.unbanUser(user.clerkUserId) }
+    try { await ClerkAdminStateService.unbanUser(user.clerkUserId) }
     catch (err) { throw new ApiError(502, `Clerk unban failed: ${(err as Error).message}`, "CLERK_ERROR") }
   }
   await prisma.adminUser.update({ where: { id: adminUserId }, data: { status: AdminUserStatus.active, isActive: true, deactivationReason: null } })
@@ -513,7 +500,7 @@ export async function deactivateAdminUser(
   assertUserWithinActorScope(user.scopes, actorScope)
   if (user.status === AdminUserStatus.deactivated) throw new ApiError(400, "Already deactivated", "ALREADY_DEACTIVATED")
   if (user.clerkUserId) {
-    try { await getAdminClerkClient().users.deleteUser(user.clerkUserId) }
+    try { await ClerkAdminStateService.deleteUser(user.clerkUserId) }
     catch (err) { serviceLog.error({ err, adminUserId }, "Clerk deletion failed — continuing with DB deactivation") }
   }
   await prisma.adminUser.update({ where: { id: adminUserId }, data: { status: AdminUserStatus.deactivated, isActive: false, deactivatedAt: new Date(), deactivationReason: reason, clerkUserId: null } })
@@ -522,7 +509,7 @@ export async function deactivateAdminUser(
   return { success: true }
 }
 
-// ─── Read queries ──────────────────────────────────────────────────────────────
+//* Read queries 
 
 export async function getAdminUser(adminUserId: string, actorScope: AdminScopeContext) {
   const user = await prisma.adminUser.findUnique({
@@ -585,7 +572,7 @@ export async function listRoles() {
   })
 }
 
-// ─── Scope helpers ────────────────────────────────────────────────────────────
+//* Scope helpers
 
 function resolveScopes(
   requested : ScopeEntry[] | undefined,
@@ -637,7 +624,6 @@ function assertUserWithinActorScope(
 }
 
 function buildScopeFilter(actorScope: AdminScopeContext): object {
-  const { SYSTEM_USER_ID } = require("@/lib/pino/constants")
   if (actorScope.isGlobal) return { id: { not: SYSTEM_USER_ID } }
   return { id: { not: SYSTEM_USER_ID }, scopes: { some: { countryId: { in: actorScope.countryIds } } } }
 }

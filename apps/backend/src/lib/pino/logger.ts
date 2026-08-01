@@ -1,6 +1,6 @@
 import pino from "pino"
 
-/**
+/*
  * In development: human-readable output via pino-pretty.
  * In production: structured JSON → stdout → captured by infra → forwarded to Logtail.
  *

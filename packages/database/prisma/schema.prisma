@@ -20,6 +20,7 @@ model AdminUser {
   lastName            String
   employeeId          String?   @unique
   status              AdminUserStatus @default(pending)
+  invitationExpiresAt DateTime?
   isActive            Boolean    @default(false)
   invitedById         String?
   invitationSentCount Int        @default(0)

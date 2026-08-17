@@ -1,6 +1,6 @@
 import { Prisma } from "@repo/db"
 
-import { ApiError } from "./apiError"
+import { ApiError } from "./ApiError"
 
 /**
  * Translates known Prisma error types into ApiError instances.

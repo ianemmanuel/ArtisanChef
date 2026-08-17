@@ -70,9 +70,12 @@ export const handleGetCountriesByStatus: RequestHandler = async (req, res, next)
 export const handleAssignCountryToRegion: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
-    const { regionId, countryId } = req.params as { regionId: string; countryId: string }
+    const { countryRef } = req.params as { countryRef: string }
+    const { regionId } = req.body as { regionId?: string }
 
-    await assignCountryToRegion(countryId, regionId, adminUser.id, adminScope )
+    if (!regionId?.trim()) throw new ApiError(400, "regionId is required", "MISSING_FIELDS")
+
+    await assignCountryToRegion(countryRef, regionId, adminUser.id, adminScope)
 
     return sendSuccess(res, null, "Country assigned to region")
   } catch (err) { next(err) }
@@ -81,9 +84,9 @@ export const handleAssignCountryToRegion: RequestHandler = async (req, res, next
 export const handleRemoveCountryFromRegion: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope }  = req as unknown as AdminRequest
-    const { countryId } = req.params as { regionId: string; countryId: string }
+    const { countryRef } = req.params as { countryRef: string }
 
-    await removeCountryFromRegion(countryId, adminUser.id, adminScope)
+    await removeCountryFromRegion(countryRef, adminUser.id, adminScope)
 
     return sendSuccess(res, null, "Country removed from region")
   } catch (err) { next(err) }

@@ -1,18 +1,19 @@
 import { Router } from "express"
 import {
-  upsertDocument,
-  deleteDocument,
-  getApplicationDocuments,
-  previewDocument,
-  presignUpload,
+  handleUpsertDocument,
+  handleDeleteDocument,
+  handleGetApplicationDocuments,
+  handlePreviewDocument,
+  handlePresignUpload,
 } from "../../controllers/vendor.document.controller"
 
-const documentRouter:Router = Router()
+const documentRouter: Router = Router()
 
-documentRouter.post("/presign", presignUpload)
-documentRouter.post("/upsert", upsertDocument)
-documentRouter.delete("delete/:id", deleteDocument)
-documentRouter.get("/:id/preview", previewDocument)
-documentRouter.get("/requirements/:applicationId", getApplicationDocuments)
+//* /api/vendors/v1/documents
+documentRouter.post("/presign", handlePresignUpload)
+documentRouter.post("/upsert", handleUpsertDocument)
+documentRouter.delete("/delete/:id", handleDeleteDocument) 
+documentRouter.get("/:id/preview", handlePreviewDocument)
+documentRouter.get("/requirements", handleGetApplicationDocuments)
 
 export default documentRouter

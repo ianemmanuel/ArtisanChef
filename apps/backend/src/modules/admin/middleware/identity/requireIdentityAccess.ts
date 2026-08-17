@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import type { AdminRequest } from "@repo/types/backend"
 import { AdminRoleNames } from "@repo/types/enums"
 
-import { ApiError } from "@/errors/apiError"
+import { ApiError } from "@/errors/ApiError"
 import { HttpStatus } from "@/constants/httpStatus"
 import { logger } from "@/lib/pino/logger"
 

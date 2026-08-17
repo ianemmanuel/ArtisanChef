@@ -32,9 +32,8 @@ import { pathToFileURL } from 'node:url'
 import { prisma } from '../index'
 import { seedSystem } from './system'
 import { seedAdmin } from './admin'
-// TODO: uncomment as these modules are built
-// import { seedGeography } from './geography'
-// import { seedVendor } from './vendor'
+import { seedGeography } from './geography'
+import { seedVendor } from './vendor'
 
 async function seed() {
   console.log("🌱 Seeding DailyBread database...\n")
@@ -43,17 +42,17 @@ async function seed() {
   await seedSystem()
   console.log()
 
-  // console.log("── Geography ─────────────────────────────")
-  // await seedGeography()
-  // console.log()
+  console.log("── Geography ─────────────────────────────")
+  await seedGeography()
+  console.log()
 
   console.log("── Admin ──────────────────────────────────")
   await seedAdmin()
   console.log()
 
-  // console.log("── Vendor ─────────────────────────────────")
-  // await seedVendor()
-  // console.log()
+  console.log("── Vendor ─────────────────────────────────")
+  await seedVendor()
+  console.log()
 
   console.log("✅ All seeds complete.")
 }

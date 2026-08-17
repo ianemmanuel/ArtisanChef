@@ -1,10 +1,23 @@
 import { VendorStatus, VendorApplicationStatus, VendorTypeStatus } from "../enums/vendor"
 import { GeoStatus } from "../enums/geography"
 
-import { DocumentStatus } from "../enums/document"
+import { DocumentStatus, DocumentScope, DocumentTypeStatus } from "../enums/document"
 
 
-export interface VendorType {
+export interface VendorUser {
+  id       : string
+  clerkId  : string
+  email    : string
+  isActive : boolean
+  isDeleted: boolean
+  isBanned : boolean
+  banReason: string | null
+  bannedAt : string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VendorType{
   id : string
   name : string
   description : string | null
@@ -25,31 +38,127 @@ export interface VendorTypeCountry {
   updatedAt : string
 }
 
+//* ─── Admin: vendor type configuration ──────────────────────────────────────
+
+export interface CreateVendorTypeRequest {
+  name: string
+  description?: string
+}
+
+export interface UpdateVendorTypeRequest {
+  name?: string
+  description?: string
+  status?: VendorTypeStatus
+}
+
+export interface AssignVendorTypeToCountryRequest {
+  countryId: string
+  vendorTypeId: string
+}
+
+//* ─── Admin: document type configuration ────────────────────────────────────
+//* Given country X + vendor type Y, DocumentTypeVendorType is the join that
+//* answers "what documents must this vendor provide" — see
+//* vendor.document.service.ts's getAllowedDocumentTypes, the single
+//* consumer both the vendor-facing flow and admin-facing config reuse.
+
+export interface DocumentTypeConfig {
+  id : string
+  name : string
+  code : string
+  description : string | null
+  scope : DocumentScope
+  isInheritable : boolean
+  countryId : string
+  cityId : string | null
+  isRequired : boolean
+  requiresExpiry : boolean
+  expiryWarningDays : number
+  instructions : string | null
+  sampleUrl : string | null
+  status : DocumentTypeStatus
+  createdByAdminId : string | null
+  createdAt : string
+  updatedAt : string
+}
+
+export interface DocumentTypeVendorType {
+  id : string
+  documentTypeId : string
+  vendorTypeId : string
+  isRequired : boolean
+  createdAt : string
+}
+
+export interface CreateDocumentTypeRequest {
+  name: string
+  code: string
+  description?: string
+  scope: DocumentScope
+  countryId: string
+  cityId?: string
+  isRequired?: boolean
+  requiresExpiry?: boolean
+  expiryWarningDays?: number
+  instructions?: string
+  sampleUrl?: string
+}
+
+export interface UpdateDocumentTypeRequest {
+  name?: string
+  description?: string
+  isRequired?: boolean
+  requiresExpiry?: boolean
+  expiryWarningDays?: number
+  instructions?: string
+  sampleUrl?: string
+  status?: DocumentTypeStatus
+}
+
+export interface AssignDocumentTypeToVendorTypeRequest {
+  documentTypeId: string
+  vendorTypeId: string
+  isRequired?: boolean
+}
+
+/*
+  * Nullability: everything except id/
+  * countryId/vendorTypeId/status/timestamps is nullable, to support
+  * progressive saving during onboarding — a DRAFT application can
+  * legitimately have most fields still unset.
+*/
 export interface VendorApplication {
   id : string
   userId : string | null
   countryId : string
   vendorTypeId : string
   otherVendorType : string | null
-  legalBusinessName : string
+  legalBusinessName : string | null
   registrationNumber: string | null
   taxId : string | null
-  businessEmail : string
+  businessEmail : string | null
   businessPhone : string | null
-  ownerFirstName : string
-  ownerLastName : string
+  ownerFirstName : string | null
+  ownerLastName : string | null
   ownerPhone : string | null
   ownerEmail : string | null
-  businessAddress : string
+  businessAddress : string | null
   addressLine2 : string | null
   postalCode : string | null
   status : VendorApplicationStatus
   revisionCount : number
   rejectionReason : string | null
   revisionNotes : string | null
+  reasonCode : string | null
   submittedAt : string | null
   reviewedAt : string | null
   approvedAt : string | null
+  //* Reviewer ownership — see admin.vendor.service.ts's claimApplication/
+  //* reassignApplication. Plain ids, not relations (matches this
+  //* codebase's admin-actor-reference convention).
+  assignedReviewerId : string | null
+  assignedAt : string | null
+  reviewedById : string | null
   createdAt : string
   updatedAt : string
 }
@@ -96,7 +205,7 @@ export interface VendorAccountWithDetails extends VendorAccount {
   outlets  : OutletSummary[]
 }
 
-// ─── Vendor profile ───────────────────────────────────────────────────────────
+//* Vendor profile
 
 export interface VendorProfile {
   id : string
@@ -160,32 +269,94 @@ export interface OutletSummary {
 }
 
 
+/*
+  * Vendor lifecycle state — derived server-side from VendorUser +
+  * VendorApplication + VendorAccount, never stored directly. This is
+  * the ONE field the frontend should switch navigation/UI on.
+*/
+export type VendorLifecycleState =
+  | "NOT_STARTED"     // no VendorApplication row exists yet
+  | "DRAFT"           // application exists, status DRAFT
+  | "PENDING_REVIEW"  // status SUBMITTED or UNDER_REVIEW
+  | "NEEDS_REVISION"  // status NEEDS_REVISION — editable, resubmit flow
+  | "REJECTED"        // status REJECTED — terminal, no resubmission
+  | "ACTIVE"          // VendorAccount exists and is ACTIVE
+  | "SUSPENDED"       // VendorAccount exists and is SUSPENDED
+  | "BANNED"          // VendorAccount exists and is BANNED
+
+/*
+  * GET /api/vendor/v1/auth/session response shape.
+  * application/vendorAccount are the SLIM shapes loadVendorContext
+  * actually loads — not the richer VendorApplicationWithDetails/
+  * VendorAccountWithDetails used by the dedicated GET /application
+  * and GET /vendor-account endpoints.
+*/
+
+export interface VendorSessionApplication {
+  id              : string
+  status          : VendorApplicationStatus
+  countryId       : string
+  vendorTypeId    : string
+  submittedAt     : string | null
+  reviewedAt      : string | null
+  approvedAt      : string | null
+  rejectionReason : string | null
+  revisionNotes   : string | null
+  reasonCode      : string | null
+}
+
+export interface VendorSessionAccount {
+  id                : string
+  status            : VendorStatus
+  countryId         : string
+  vendorTypeId      : string
+  legalBusinessName : string
+  suspensionReason  : string | null
+  suspendedAt       : string | null
+  suspensionUntil   : string | null
+}
+
+export interface VendorSessionData {
+  state         : VendorLifecycleState
+  vendorUser    : {
+    id       : string
+    email    : string
+    isActive : boolean
+    // Present regardless of state — the frontend's BANNED screen
+    // needs banReason without a second call, same reasoning as
+    // rejectionReason/revisionNotes below.
+    isBanned : boolean
+    banReason: string | null
+    bannedAt : string | null
+  }
+  application   : VendorSessionApplication | null
+  vendorAccount : VendorSessionAccount | null
+}
 
 
+/*
+  * Vendor application API contracts
+  * These match the existing vendor onboarding routes.
+  * Captured here so frontend apps import from @repo/types, not from each other.
 
-
-// ─── Vendor application API contracts ────────────────────────────────────────
-// These match the existing vendor onboarding routes.
-// Captured here so frontend apps import from @repo/types, not from each other.
-
-// ─── GET /api/vendor/v1/application ──────────────────────────────────────────
-
+  * GET /api/vendor/v1/application
+*/
 export interface ApplicationResponse {
   id                : string
   status            : VendorApplicationStatus
   countryId         : string
   vendorTypeId      : string
   otherVendorType   : string | null
-  legalBusinessName : string
+  legalBusinessName : string | null
   registrationNumber: string | null
   taxId             : string | null
-  businessEmail     : string
+  businessEmail     : string | null
   businessPhone     : string | null
-  ownerFirstName    : string
-  ownerLastName     : string
+  ownerFirstName    : string | null
+  ownerLastName     : string | null
   ownerPhone        : string | null
   ownerEmail        : string | null
-  businessAddress   : string
+  businessAddress   : string | null
   addressLine2      : string | null
   postalCode        : string | null
   rejectionReason   : string | null
@@ -201,27 +372,50 @@ export interface ApplicationDocumentSummary {
   status         : DocumentStatus
 }
 
-// ─── POST /api/vendor/v1/application/upsert-application ─────────────────────
-
-export interface UpsertApplicationRequest {
-  countryId         : string
-  vendorTypeId      : string
-  otherVendorType?  : string
-  legalBusinessName : string
-  registrationNumber?: string
-  taxId?            : string
-  businessEmail     : string
-  businessPhone?    : string
-  ownerFirstName    : string
-  ownerLastName     : string
-  ownerPhone?       : string
-  ownerEmail?       : string
-  businessAddress   : string
-  addressLine2?     : string
-  postalCode?       : string
+/*
+  * POST /api/vendor/v1/application — starts the application. Deliberately
+  * tiny: just enough to know which requirements to show next. Matches
+  * createApplicationSchema in the backend.
+*/
+export interface CreateVendorApplicationRequest {
+  countryId        : string
+  vendorTypeId     : string
+  otherVendorType? : string
 }
 
-// ─── GET /api/vendor/v1/documents/requirements/:applicationId ─────────────────
+/*
+  * PATCH /api/vendor/v1/application — every subsequent form page saves
+  * its own slice. Every field optional at this layer; format-validated
+  * when present. Matches updateApplicationSchema in the backend.
+*/
+
+export interface UpdateVendorApplicationRequest {
+  legalBusinessName?  : string
+  registrationNumber? : string
+  taxId?              : string
+  businessEmail?      : string
+  businessPhone?      : string
+  ownerFirstName?     : string
+  ownerLastName?      : string
+  ownerPhone?         : string
+  ownerEmail?         : string
+  businessAddress?    : string
+  addressLine2?       : string
+  postalCode?         : string
+}
+
+/*
+  * PATCH /api/vendor/v1/application/scope — separate, destructive
+  * action (clears uploaded documents), DRAFT-only. Same shape as
+  * create. Matches changeApplicationScopeSchema in the backend.
+*/
+export type ChangeVendorApplicationScopeRequest = CreateVendorApplicationRequest
+
+/*
+  * GET /api/vendor/v1/documents — requirements + progress for the
+  * caller's own application. No :applicationId param — resolved
+  * server-side, a vendor only ever has one application.
+*/
 
 export interface DocumentRequirement {
   documentTypeId : string
@@ -253,10 +447,12 @@ export interface DocumentProgress {
   percentage       : number
 }
 
-// ─── POST /api/vendor/v1/documents/presign ───────────────────────────────────
+/*
+  * POST /api/vendor/v1/documents/presign — applicationId removed,
+  * resolved server-side from the authenticated vendor's own application.
+*/
 
 export interface PresignUploadRequest {
-  applicationId  : string
   documentTypeId : string
   fileName       : string
   fileType       : string
@@ -267,10 +463,9 @@ export interface PresignUploadResponse {
   storageKey : string
 }
 
-// ─── POST /api/vendor/v1/documents/upsert ────────────────────────────────────
+//* POST /api/vendor/v1/documents — applicationId removed, same reason.
 
 export interface UpsertDocumentRequest {
-  applicationId  : string
   documentTypeId : string
   storageKey     : string
   documentName   : string

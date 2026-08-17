@@ -1,9 +1,101 @@
-import { prisma, VendorApplicationStatus, VendorStatus, DocumentStatus  } from "@repo/db"
-import { ApiError } from "@/middleware/error"
+import {
+  prisma,
+  VendorApplicationStatus,
+  VendorStatus,
+  DocumentStatus,
+  AdminUserStatus,
+  AdminReviewAvailability,
+  AdminScopeType,
+  type VendorApplication,
+} from "@repo/db"
+import { ApiError } from "@/errors/ApiError"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
 import type { AdminScopeContext } from "@repo/types/backend"
+import { AdminPermissions, type AdminPermissionKey } from "@repo/types/enums"
 import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
+import { assertAllRequiredDocumentsApproved } from "@/modules/vendor/services/vendor.document.service"
+import { REQUIRED_APPLICATION_FIELDS } from "@/modules/vendor/schemas/vendor.application.schema"
+import { ClerkVendorStateService } from "@/lib/clerk"
+
+function assertCountryInScope(countryId: string, scope: AdminScopeContext): void {
+  if (!scope.isGlobal && !scope.countryIds.includes(countryId)) {
+    throw new ApiError(403, "This application is outside your scope", "SCOPE_FORBIDDEN")
+  }
+}
+
+/*
+ * Ownership guard — applied to every review action (markUnderReview,
+ * approve, reject, needs-revision). An unclaimed application (no
+ * assignedReviewerId) is unaffected — anyone with the base action
+ * permission may still act on it directly, same as before this
+ * feature existed. Once claimed, only the assigned reviewer or an
+ * admin holding the explicit reassignment permission may act — this
+ * is the actual "remains responsible unless reassigned" rule.
+ */
+function assertReviewerOwnership(
+  application: { assignedReviewerId: string | null },
+  actorId: string,
+  actorPermissions: AdminPermissionKey[],
+): void {
+  if (!application.assignedReviewerId) return
+  if (application.assignedReviewerId === actorId) return
+  if (actorPermissions.includes(AdminPermissions.VENDORS_APPLICATIONS_REASSIGN)) return
+
+  throw new ApiError(
+    403,
+    "This application is assigned to another reviewer",
+    "NOT_ASSIGNED_REVIEWER",
+  )
+}
+
+/*
+ * Country-specific reason wins over global — same optional-narrower-
+ * scope resolution as DocumentTypeConfig. findFirst, not findUnique —
+ * same nullable-compound-unique typing workaround used throughout this
+ * session's other new config lookups.
+ */
+async function resolveActionReason(code: string, countryId: string) {
+  const specific = await prisma.adminActionReason.findFirst({
+    where: { code, countryId, isActive: true },
+  })
+  if (specific) return specific
+
+  const global = await prisma.adminActionReason.findFirst({
+    where: { code, countryId: null, isActive: true },
+  })
+  if (global) return global
+
+  throw new ApiError(404, "Unknown or inactive reason code", "INVALID_REASON_CODE")
+}
+
+/*
+ * Type-narrowing guard, not a new business rule: an application can
+ * only reach SUBMITTED/UNDER_REVIEW (the states approveApplication
+ * accepts) by first passing this exact same completeness check in
+ * submitApplication (vendor.application.service.ts). This should
+ * never actually fire — it exists so approval can't silently write
+ * null into VendorAccount's required columns if that invariant is
+ * ever violated, and so TS can see these fields are non-null here.
+ */
+function assertApplicationCompleteForApproval(
+  application: VendorApplication,
+): asserts application is VendorApplication & {
+  legalBusinessName: string
+  businessEmail    : string
+  ownerFirstName   : string
+  ownerLastName    : string
+  businessAddress  : string
+} {
+  const missing = REQUIRED_APPLICATION_FIELDS.filter((field) => !application[field])
+  if (missing.length > 0) {
+    throw new ApiError(
+      400,
+      `Cannot approve — application is missing required fields: ${missing.join(", ")}`,
+      "APPLICATION_INCOMPLETE",
+    )
+  }
+}
 
 const serviceLog = logger.child({ module: "vendor-ops-service" })
 
@@ -117,9 +209,10 @@ export async function getApplication(applicationId: string, actorScope: AdminSco
 //* Mark under review
 
 export async function markUnderReview(
-  applicationId: string,
-  actorId      : string,
-  actorScope   : AdminScopeContext,
+  applicationId   : string,
+  actorId         : string,
+  actorScope      : AdminScopeContext,
+  actorPermissions: AdminPermissionKey[],
 ) {
   const application = await prisma.vendorApplication.findUnique({
     where: { id: applicationId },
@@ -129,6 +222,7 @@ export async function markUnderReview(
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(application.countryId)) {
     throw new ApiError(403, "Outside your scope", "SCOPE_FORBIDDEN")
   }
+  assertReviewerOwnership(application, actorId, actorPermissions)
 
   if (application.status !== VendorApplicationStatus.SUBMITTED) {
     throw new ApiError(
@@ -141,8 +235,9 @@ export async function markUnderReview(
   const updated = await prisma.vendorApplication.update({
     where: { id: applicationId },
     data : {
-      status    : VendorApplicationStatus.UNDER_REVIEW,
-      reviewedAt: new Date(),
+      status      : VendorApplicationStatus.UNDER_REVIEW,
+      reviewedAt  : new Date(),
+      reviewedById: actorId,
     },
   })
 
@@ -165,9 +260,10 @@ export async function markUnderReview(
 //* Approve Application
 
 export async function approveApplication(
-  applicationId: string,
-  actorId      : string,
-  actorScope   : AdminScopeContext,
+  applicationId   : string,
+  actorId         : string,
+  actorScope      : AdminScopeContext,
+  actorPermissions: AdminPermissionKey[],
 ) {
   const application = await prisma.vendorApplication.findUnique({
     where: { id: applicationId },
@@ -177,6 +273,7 @@ export async function approveApplication(
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(application.countryId)) {
     throw new ApiError(403, "This application is outside your scope", "SCOPE_FORBIDDEN")
   }
+  assertReviewerOwnership(application, actorId, actorPermissions)
 
   if (
     application.status !== VendorApplicationStatus.SUBMITTED &&
@@ -189,13 +286,23 @@ export async function approveApplication(
     )
   }
 
+  /*
+    *Every required document must be individually APPROVED — not
+    *merely uploaded/pending — before the application itself can be
+    *approved. This was previously unenforced: an application could
+    *be approved with a required document still PENDING or REJECTED.
+  */
+  await assertAllRequiredDocumentsApproved(application)
+  assertApplicationCompleteForApproval(application)
+
   const [updatedApplication, vendorAccount] = await prisma.$transaction(async (tx) => {
     const app = await tx.vendorApplication.update({
       where: { id: applicationId },
       data : {
-        status    : VendorApplicationStatus.APPROVED,
-        reviewedAt: new Date(),
-        approvedAt: new Date(),
+        status      : VendorApplicationStatus.APPROVED,
+        reviewedAt  : new Date(),
+        approvedAt  : new Date(),
+        reviewedById: actorId,
       },
     })
 
@@ -222,9 +329,14 @@ export async function approveApplication(
       },
     })
 
-    // Transfer APPROVED documents to the new vendor account
+    // Transfer this application's documents to the new vendor account.
+    // Includes PENDING (uploaded but optional/unreviewed) alongside
+    // APPROVED — an approval must not silently strand documents the
+    // vendor already uploaded just because they weren't required or
+    // never got reviewed. REJECTED/EXPIRED/WITHDRAWN/SUPERSEDED are
+    // correctly excluded — those are dead ends, not carried forward.
     await tx.vendorDocument.updateMany({
-      where: { applicationId, status: "APPROVED" },
+      where: { applicationId, status: { in: [DocumentStatus.APPROVED, DocumentStatus.PENDING] } },
       data : { vendorId: account.id },
     })
 
@@ -254,11 +366,13 @@ export async function approveApplication(
 //* Reject Application
 
 export async function rejectApplication(
-  applicationId  : string,
-  rejectionReason: string,
-  revisionNotes  : string | undefined,
-  actorId        : string,
-  actorScope     : AdminScopeContext,
+  applicationId   : string,
+  reasonCode      : string,
+  rejectionReason : string | undefined,
+  revisionNotes   : string | undefined,
+  actorId         : string,
+  actorScope      : AdminScopeContext,
+  actorPermissions: AdminPermissionKey[],
 ) {
   const application = await prisma.vendorApplication.findUnique({
     where: { id: applicationId },
@@ -268,6 +382,7 @@ export async function rejectApplication(
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(application.countryId)) {
     throw new ApiError(403, "This application is outside your scope", "SCOPE_FORBIDDEN")
   }
+  assertReviewerOwnership(application, actorId, actorPermissions)
 
   if (
     application.status !== VendorApplicationStatus.SUBMITTED &&
@@ -280,18 +395,24 @@ export async function rejectApplication(
     )
   }
 
+  // reasonCode is the mandatory, vendor-facing structured explanation —
+  // rejectionReason/revisionNotes remain optional, case-specific free text.
+  const reason = await resolveActionReason(reasonCode, application.countryId)
+
   const updated = await prisma.vendorApplication.update({
     where: { id: applicationId },
     data : {
       status         : VendorApplicationStatus.REJECTED,
-      rejectionReason,
+      reasonCode     : reason.code,
+      rejectionReason: rejectionReason || null,
       revisionNotes  : revisionNotes || null,
       reviewedAt     : new Date(),
+      reviewedById   : actorId,
       revisionCount  : { increment: 1 },
     },
   })
 
-  serviceLog.warn({ applicationId, actorId, rejectionReason }, "Vendor application rejected")
+  serviceLog.warn({ applicationId, actorId, reasonCode: reason.code }, "Vendor application rejected")
 
   auditService.log({
     adminUserId: actorId,
@@ -300,12 +421,268 @@ export async function rejectApplication(
     entityId   : applicationId,
     changes    : {
       before: { status: application.status },
-      after : { status: "REJECTED", rejectionReason },
+      after : { status: "REJECTED", reasonCode: reason.code },
     },
-    metadata: { revisionNotes },
+    metadata: { reasonCode: reason.code, reasonLabel: reason.label, rejectionReason, revisionNotes },
   })
 
   return updated
+}
+
+
+//* Mark application as needing revision — soft, resubmittable, distinct from rejectApplication (terminal)
+
+/*
+ * Soft, resubmittable outcome — distinct from rejectApplication
+ * (terminal). Deliberately does NOT touch assignedReviewerId/
+ * assignedAt — ownership persists through vendor edit -> resubmit,
+ * so the same reviewer picks the application back up. See
+ * submitApplication (vendor.application.service.ts), which likewise
+ * never touches these fields.
+ */
+export async function markApplicationNeedsRevision(
+  applicationId   : string,
+  reasonCode      : string,
+  rejectionReason : string | undefined,
+  revisionNotes   : string | undefined,
+  actorId         : string,
+  actorScope      : AdminScopeContext,
+  actorPermissions: AdminPermissionKey[],
+) {
+  const application = await prisma.vendorApplication.findUnique({
+    where: { id: applicationId },
+  })
+  if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
+
+  if (!actorScope.isGlobal && !actorScope.countryIds.includes(application.countryId)) {
+    throw new ApiError(403, "This application is outside your scope", "SCOPE_FORBIDDEN")
+  }
+  assertReviewerOwnership(application, actorId, actorPermissions)
+
+  if (
+    application.status !== VendorApplicationStatus.SUBMITTED &&
+    application.status !== VendorApplicationStatus.UNDER_REVIEW
+  ) {
+    throw new ApiError(
+      400,
+      `Cannot request revision on an application with status: ${application.status}`,
+      "INVALID_STATUS",
+    )
+  }
+
+  const reason = await resolveActionReason(reasonCode, application.countryId)
+
+  const updated = await prisma.vendorApplication.update({
+    where: { id: applicationId },
+    data : {
+      status         : VendorApplicationStatus.NEEDS_REVISION,
+      reasonCode     : reason.code,
+      rejectionReason: rejectionReason || null,
+      revisionNotes  : revisionNotes || null,
+      reviewedAt     : new Date(),
+      reviewedById   : actorId,
+      revisionCount  : { increment: 1 },
+    },
+  })
+
+  serviceLog.warn({ applicationId, actorId, reasonCode: reason.code }, "Vendor application marked needs revision")
+
+  auditService.log({
+    adminUserId: actorId,
+    action     : "vendor_application.needs_revision",
+    entityType : "VendorApplication",
+    entityId   : applicationId,
+    changes    : {
+      before: { status: application.status },
+      after : { status: "NEEDS_REVISION", reasonCode: reason.code },
+    },
+    metadata: { reasonCode: reason.code, reasonLabel: reason.label, rejectionReason, revisionNotes },
+  })
+
+  return updated
+}
+
+//* Claim an application
+
+/*
+ * Concurrency safety: the actual guarantee is the conditional
+ * updateMany below, not the pre-checks above it. Two concurrent claims
+ * both pass the pre-checks (both read before either writes), but only
+ * one UPDATE ... WHERE assignedReviewerId IS NULL AND status =
+ * SUBMITTED can match — Postgres row-level locking serializes the two
+ * statements, and by the time the second one runs, the WHERE clause
+ * re-evaluates against the now-current row and matches zero rows. No
+ * explicit transaction/locking needed for a single-row conditional
+ * update — this is the whole point of doing it this way.
+ */
+export async function claimApplication(
+  applicationId    : string,
+  actorId          : string,
+  actorScope       : AdminScopeContext,
+  actorAvailability: AdminReviewAvailability,
+) {
+  const application = await prisma.vendorApplication.findUnique({
+    where : { id: applicationId },
+    select: { id: true, status: true, countryId: true, assignedReviewerId: true },
+  })
+  if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
+  assertCountryInScope(application.countryId, actorScope)
+
+  if (actorAvailability !== AdminReviewAvailability.AVAILABLE) {
+    throw new ApiError(403, "You are unavailable and cannot claim new applications", "REVIEWER_UNAVAILABLE")
+  }
+  if (application.status !== VendorApplicationStatus.SUBMITTED) {
+    throw new ApiError(
+      400,
+      `Only submitted applications can be claimed (current status: ${application.status})`,
+      "INVALID_STATUS",
+    )
+  }
+  if (application.assignedReviewerId) {
+    throw new ApiError(409, "Application is already claimed", "ALREADY_CLAIMED")
+  }
+
+  const assignedAt = new Date()
+
+  const result = await prisma.vendorApplication.updateMany({
+    where: { id: applicationId, assignedReviewerId: null, status: VendorApplicationStatus.SUBMITTED },
+    data : { assignedReviewerId: actorId, assignedAt },
+  })
+
+  if (result.count === 0) {
+    throw new ApiError(409, "Application was claimed by another reviewer just now", "ALREADY_CLAIMED")
+  }
+
+  serviceLog.info({ applicationId, actorId }, "Application claimed")
+  auditService.log({
+    adminUserId: actorId,
+    action     : "vendor_application.claimed",
+    entityType : "VendorApplication",
+    entityId   : applicationId,
+    changes    : { after: { assignedReviewerId: actorId } },
+  })
+
+  return { id: applicationId, assignedReviewerId: actorId, assignedAt }
+}
+
+//* Reassign an application to another eligible reviewer
+
+export async function reassignApplication(
+  applicationId: string,
+  targetAdminId: string,
+  reason       : string | undefined,
+  actorId      : string,
+  actorScope   : AdminScopeContext,
+) {
+  const application = await prisma.vendorApplication.findUnique({
+    where : { id: applicationId },
+    select: { id: true, countryId: true, assignedReviewerId: true },
+  })
+  if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
+  assertCountryInScope(application.countryId, actorScope)
+
+  if (targetAdminId === application.assignedReviewerId) {
+    throw new ApiError(400, "Application is already assigned to this reviewer", "NO_CHANGE")
+  }
+
+  const target = await prisma.adminUser.findUnique({
+    where : { id: targetAdminId },
+    select: { id: true, status: true, reviewAvailability: true },
+  })
+  if (!target) throw new ApiError(404, "Target reviewer not found", "TARGET_NOT_FOUND")
+  if (target.status !== AdminUserStatus.active) {
+    throw new ApiError(400, "Target reviewer is not an active admin", "TARGET_INACTIVE")
+  }
+  if (target.reviewAvailability !== AdminReviewAvailability.AVAILABLE) {
+    throw new ApiError(400, "Target reviewer is unavailable", "TARGET_UNAVAILABLE")
+  }
+
+  // "Has vendor-review capability" is checked against the materialized
+  // AdminUserPermission grant (the same thing requirePermission checks
+  // for the acting admin), not the role pool — consistent with how the
+  // rest of the system authorizes. vendors:applications:review, not
+  // :claim — review is the fundamental participation capability; a
+  // target must be permitted to review applications at all, independent
+  // of whether they've separately been granted claim/approve/reject.
+  const hasCapability = await prisma.adminUserPermission.findFirst({
+    where : { adminUserId: targetAdminId, permission: { key: AdminPermissions.VENDORS_APPLICATIONS_REVIEW, isActive: true } },
+    select: { id: true },
+  })
+  if (!hasCapability) {
+    throw new ApiError(400, "Target reviewer does not have vendor application review capability", "TARGET_NOT_CAPABLE")
+  }
+
+  const targetHasScope = await prisma.adminUserScope.findFirst({
+    where: {
+      adminUserId: targetAdminId,
+      OR: [
+        { scopeType: AdminScopeType.GLOBAL },
+        { scopeType: AdminScopeType.COUNTRY, countryId: application.countryId },
+        { scopeType: AdminScopeType.CITY, countryId: application.countryId },
+      ],
+    },
+    select: { id: true },
+  })
+  if (!targetHasScope) {
+    throw new ApiError(400, "Target reviewer does not have scope covering this application's country", "TARGET_OUT_OF_SCOPE")
+  }
+
+  const previousReviewerId = application.assignedReviewerId
+  const assignedAt = new Date()
+
+  await prisma.vendorApplication.update({
+    where: { id: applicationId },
+    data : { assignedReviewerId: targetAdminId, assignedAt },
+  })
+
+  serviceLog.info({ applicationId, previousReviewerId, targetAdminId, actorId }, "Application reassigned")
+  auditService.log({
+    adminUserId: actorId,
+    action     : "vendor_application.reassigned",
+    entityType : "VendorApplication",
+    entityId   : applicationId,
+    changes    : {
+      before: { assignedReviewerId: previousReviewerId },
+      after : { assignedReviewerId: targetAdminId },
+    },
+    metadata: { previousReviewerId, newReviewerId: targetAdminId, reason },
+  })
+
+  return { id: applicationId, assignedReviewerId: targetAdminId, assignedAt }
+}
+
+//* Escalate an application — pure audit event, no schema/state change.
+//* See AdminActionReason/AuditLog for why this doesn't need its own
+//* workflow model: escalation is a signal, not a state transition.
+
+export async function escalateApplication(
+  applicationId: string,
+  reason       : string,
+  actorId      : string,
+  actorScope   : AdminScopeContext,
+) {
+  const application = await prisma.vendorApplication.findUnique({
+    where : { id: applicationId },
+    select: { id: true, countryId: true, assignedReviewerId: true, status: true },
+  })
+  if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
+  assertCountryInScope(application.countryId, actorScope)
+
+  serviceLog.warn({ applicationId, actorId, reason }, "Application escalated")
+  auditService.log({
+    adminUserId: actorId,
+    action     : "vendor_application.escalated",
+    entityType : "VendorApplication",
+    entityId   : applicationId,
+    metadata   : {
+      reason,
+      countryId         : application.countryId,
+      assignedReviewerId: application.assignedReviewerId,
+      status            : application.status,
+    },
+  })
+
+  return { success: true }
 }
 
 //* Approve a vendor document
@@ -529,7 +906,6 @@ export async function suspendVendor(
   if (!account || account.deletedAt) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(account.countryId)) throw new ApiError(403, "Outside your scope", "SCOPE_FORBIDDEN")
   if (account.status === VendorStatus.SUSPENDED) throw new ApiError(400, "Vendor is already suspended", "ALREADY_SUSPENDED")
-  if (account.status === VendorStatus.BANNED)    throw new ApiError(400, "Cannot suspend a banned vendor", "INVALID_STATUS")
 
   // Count active payout accounts before deactivating — include in audit
   const activePayoutCount = await prisma.vendorPayoutAccount.count({
@@ -565,11 +941,12 @@ export async function suspendVendor(
   return { success: true }
 }
 
-//* ─── Reinstate ──────────────────
-// Note: payout accounts remain inactive after reinstatement.
-// The vendor must re-add and re-verify their payout accounts.
-// This is intentional — account details may have changed during suspension.
-
+/*
+  *Reinstate
+  *Note: payout accounts remain inactive after reinstatement.
+  *The vendor must re-add and re-verify their payout accounts.
+  *This is intentional — account details may have changed during suspension.
+*/
 export async function reinstateVendor(
   vendorId  : string,
   actorId   : string,
@@ -602,48 +979,72 @@ export async function reinstateVendor(
   return { success: true }
 }
 
-//* ─── Ban ─────────────────────────
-// Also soft-deletes all payout accounts — permanent, no reinstatement.
+/*
+* Ban 
+* Also soft-deletes all payout accounts — permanent, no reinstatement.
+* identity-level (VendorUser.isBanned), not
+* VendorAccount.status — see schema-changes.md. Signature kept as
+* vendorAccountId so the existing route/controller call site
+* doesn't need to change; resolved to the linked VendorUser
+* internally.
+*/
 
 export async function banVendor(
-  vendorId  : string,
-  reason    : string,
-  actorId   : string,
-  actorScope: AdminScopeContext,
+  vendorAccountId: string,
+  reason         : string,
+  actorId        : string,
+  actorScope     : AdminScopeContext,
 ) {
-  const account = await prisma.vendorAccount.findUnique({ where: { id: vendorId } })
+  const account = await prisma.vendorAccount.findUnique({ where: { id: vendorAccountId } })
   if (!account || account.deletedAt) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(account.countryId)) throw new ApiError(403, "Outside your scope", "SCOPE_FORBIDDEN")
-  if (account.status === VendorStatus.BANNED) throw new ApiError(400, "Vendor is already banned", "ALREADY_BANNED")
+  if (!account.userId) throw new ApiError(400, "Vendor account has no linked user", "MISSING_VENDOR_USER")
+
+  const vendorUser = await prisma.vendorUser.findUnique({ where: { id: account.userId } })
+  if (!vendorUser) throw new ApiError(404, "Vendor user not found", "VENDOR_USER_NOT_FOUND")
+  if (vendorUser.isBanned) throw new ApiError(400, "Vendor is already banned", "ALREADY_BANNED")
 
   const activePayoutCount = await prisma.vendorPayoutAccount.count({
-    where: { vendorId, deletedAt: null },
+    where: { vendorId: vendorAccountId, deletedAt: null },
   })
 
   const now = new Date()
 
   await prisma.$transaction([
-    prisma.vendorAccount.update({
-      where: { id: vendorId },
-      data : { status: VendorStatus.BANNED, suspensionReason: reason, deactivatedAt: now },
+    prisma.vendorUser.update({
+      where: { id: vendorUser.id },
+      data : { isBanned: true, banReason: reason, bannedAt: now, isActive: false },
     }),
     // Hard soft-delete all payout accounts — vendor is permanently banned
     prisma.vendorPayoutAccount.updateMany({
-      where: { vendorId, deletedAt: null },
+      where: { vendorId: vendorAccountId, deletedAt: null },
       data : { isActive: false, isDefault: false, deletedAt: now },
     }),
   ])
 
-  serviceLog.warn({ vendorId, actorId, reason }, "Vendor banned")
+  /* 
+    * Best-effort — the DB-level ban above is the source of truth and
+    * has already succeeded. A Clerk hiccup shouldn't roll that back
+    * or fail the whole request.
+  */
+  if (vendorUser.clerkId) {
+    try {
+      await ClerkVendorStateService.banUser(vendorUser.clerkId)
+    } catch (err) {
+      serviceLog.error({ err, vendorUserId: vendorUser.id }, "Clerk ban failed — continuing, DB ban already applied")
+    }
+  }
+
+  serviceLog.warn({ vendorAccountId, vendorUserId: vendorUser.id, actorId, reason }, "Vendor banned")
 
   auditService.log({
     adminUserId: actorId,
     action     : "vendor_account.banned",
     entityType : "VendorAccount",
-    entityId   : vendorId,
+    entityId   : vendorAccountId,
     changes    : {
-      before: { status: account.status },
-      after : { status: "BANNED" },
+      before: { isBanned: false },
+      after : { isBanned: true },
     },
     metadata: { reason, payoutAccountsDeleted: activePayoutCount },
   })

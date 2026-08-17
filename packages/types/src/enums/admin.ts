@@ -12,10 +12,16 @@ export const AdminPermissions = {
   VENDORS_ACCOUNTS_EXPORT    : "vendors:accounts:export",
 
   // ── Vendors — applications ───────────────────────────────────────────────
-  VENDORS_APPLICATIONS_READ   : "vendors:applications:read",
-  VENDORS_APPLICATIONS_REVIEW : "vendors:applications:review",
-  VENDORS_APPLICATIONS_APPROVE: "vendors:applications:approve",
-  VENDORS_APPLICATIONS_REJECT : "vendors:applications:reject",
+  VENDORS_APPLICATIONS_READ     : "vendors:applications:read",
+  VENDORS_APPLICATIONS_REVIEW   : "vendors:applications:review",
+  VENDORS_APPLICATIONS_APPROVE  : "vendors:applications:approve",
+  VENDORS_APPLICATIONS_REJECT   : "vendors:applications:reject",
+  VENDORS_APPLICATIONS_CLAIM    : "vendors:applications:claim",
+  VENDORS_APPLICATIONS_REASSIGN : "vendors:applications:reassign",
+  VENDORS_APPLICATIONS_ESCALATE : "vendors:applications:escalate",
+
+  // ── Vendors — reviewers ───────────────────────────────────────────────────
+  VENDORS_REVIEWERS_MANAGE_AVAILABILITY: "vendors:reviewers:manage_availability",
 
   // ── Vendors — documents ──────────────────────────────────────────────────
   VENDORS_DOCUMENTS_VIEW      : "vendors:documents:view",
@@ -64,6 +70,9 @@ export const AdminPermissions = {
   SETTINGS_GEOGRAPHY_WRITE   : "settings:geography:write",
   SETTINGS_DOCUMENTS_READ    : "settings:documents:read",
   SETTINGS_DOCUMENTS_WRITE   : "settings:documents:write",
+  SETTINGS_VENDOR_TYPES_READ : "settings:vendor_types:read",
+  SETTINGS_VENDOR_TYPES_WRITE: "settings:vendor_types:write",
+  SETTINGS_ACTION_REASONS_WRITE: "settings:action_reasons:write",
 } as const
 
 export type AdminPermissionKey = typeof AdminPermissions[keyof typeof AdminPermissions]
@@ -96,3 +105,11 @@ export enum AdminScopeType {
   COUNTRY = "COUNTRY",
   CITY    = "CITY",
 }
+
+//* Review-workload availability — independent of AdminUserStatus/isActive.
+export const AdminReviewAvailability = {
+  AVAILABLE  : "AVAILABLE",
+  UNAVAILABLE: "UNAVAILABLE",
+} as const
+
+export type AdminReviewAvailability = typeof AdminReviewAvailability[keyof typeof AdminReviewAvailability]

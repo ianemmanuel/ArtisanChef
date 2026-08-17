@@ -1,8 +1,6 @@
-
 export enum VendorStatus {
   ACTIVE    = "ACTIVE",
   SUSPENDED = "SUSPENDED",
-  BANNED    = "BANNED",
 }
 
 export enum VendorTypeStatus {
@@ -11,9 +9,10 @@ export enum VendorTypeStatus {
 }
 
 export enum VendorApplicationStatus {
-  DRAFT        = "DRAFT",
-  SUBMITTED    = "SUBMITTED",
-  UNDER_REVIEW = "UNDER_REVIEW",
-  APPROVED     = "APPROVED",
-  REJECTED     = "REJECTED",
+  DRAFT          = "DRAFT",
+  SUBMITTED      = "SUBMITTED",
+  UNDER_REVIEW   = "UNDER_REVIEW",
+  NEEDS_REVISION = "NEEDS_REVISION",
+  APPROVED       = "APPROVED",
+  REJECTED       = "REJECTED",
 }

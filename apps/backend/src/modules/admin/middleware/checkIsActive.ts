@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import { prisma, AdminUserStatus } from "@repo/db"
 import type { AdminRequest } from "@repo/types/backend"
 
-import { ApiError } from "@/errors/apiError"
+import { ApiError } from "@/errors/ApiError"
 import { HttpStatus } from "@/constants/httpStatus"
 import { logger } from "@/lib/pino/logger"
 

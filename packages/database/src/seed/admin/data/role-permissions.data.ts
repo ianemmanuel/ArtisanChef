@@ -16,6 +16,7 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "admin_users:roles:assign",
     "audit_logs:all:read",
     "settings:geography:read",
+    "vendors:reviewers:manage_availability",
   ],
 
   finance: [
@@ -43,11 +44,15 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "vendors:applications:review",
     "vendors:applications:approve",
     "vendors:applications:reject",
+    "vendors:applications:claim",
+    "vendors:applications:reassign",
+    "vendors:applications:escalate",
     "vendors:documents:view",
     "finance:discounts:read",
     "orders:all:read",
     "settings:geography:read",
     "settings:documents:read",
+    "settings:vendor_types:read",
   ],
 
   customer_care: [

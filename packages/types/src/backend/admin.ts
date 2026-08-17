@@ -5,6 +5,7 @@ import type { Request } from "express"
 import type { AdminUserWithRole, AdminScopeContext } from "../domain/admin"
 import type { AdminPermissionKey } from "../enums/admin"
 export type { AdminPermissionKey } from "../enums/admin"
+export type { AdminReviewAvailability } from "../enums/admin"
 
 export type {
   AdminPermission,
@@ -37,10 +38,19 @@ export type {
   ApplicationDetail,
   ApproveApplicationResponse,
   RejectApplicationRequest,
+  MarkApplicationNeedsRevisionRequest,
+  ClaimApplicationResponse,
+  ReassignApplicationRequest,
+  EscalateApplicationRequest,
   ListVendorAccountsParams,
   VendorAccountListItem,
   VendorAccountDetail,
   SuspendVendorRequest,
+  SetReviewAvailabilityRequest,
+  UnavailableReviewerCaseload,
+  AdminActionReason,
+  CreateActionReasonRequest,
+  UpdateActionReasonRequest,
 } from "../domain/admin";
 
 

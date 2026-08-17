@@ -136,7 +136,9 @@ export async function getVendorKPIs( scope: AdminScopeContext ): Promise<VendorK
     prisma.vendorAccount.count({ where: { ...where, deletedAt: null } }),
     prisma.vendorAccount.count({ where: { ...where, deletedAt: null, status: "ACTIVE" } }),
     prisma.vendorAccount.count({ where: { ...where, deletedAt: null, status: "SUSPENDED" } }),
-    prisma.vendorAccount.count({ where: { ...where, deletedAt: null, status: "BANNED" } }),
+    // Ban is identity-level (VendorUser.isBanned), not VendorAccount.status
+    // — see schema-changes.md / admin.vendor.service.ts's banVendor.
+    prisma.vendorAccount.count({ where: { ...where, deletedAt: null, user: { isBanned: true } } }),
     // Pending = submitted OR currently under review — both need admin action
     prisma.vendorApplication.count({
       where: {...where, status: { in: ["SUBMITTED", "UNDER_REVIEW"] }},

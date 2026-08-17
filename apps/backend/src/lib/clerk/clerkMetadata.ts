@@ -11,7 +11,7 @@ const clerkLog = logger.child({ module: "clerk-metadata" })
  * courier are JWKS-verify-only by design (see env.ts). Narrowing the
  * type here means calling getClerkClient("customer") is a compile
  * error, not a "missing env var" surprise at runtime.
-*/
+ */
 type ClientAppType = "vendor" | "admin"
 
 const _clerkClients = new Map<ClientAppType, ReturnType<typeof createClerkClient>>()
@@ -26,14 +26,14 @@ function getClerkClient(app: ClientAppType) {
   return client
 }
 
-//* Vendor-specific metadata 
+//* Vendor-specific metadata
 
 export class ClerkVendorStateService {
   private static get client() {
     return getClerkClient("vendor")
   }
 
-  /*
+  /**
    * Mirrors vendor application status into Clerk's publicMetadata so
    * the frontend can read it straight off the session without an
    * extra API call. Postgres remains the source of truth — nothing
@@ -42,7 +42,7 @@ export class ClerkVendorStateService {
    * already succeeded, and failing the whole request over a
    * best-effort read-optimization would make a successful operation
    * look failed to the caller.
-  */
+   */
   static async setVendorApplicationStatus(
     clerkUserId: string,
     status: VendorApplicationStatus
@@ -65,20 +65,33 @@ export class ClerkVendorStateService {
       clerkLog.warn({ err, clerkUserId }, "Failed to clear vendor application state in Clerk")
     }
   }
+
+  /**
+   * Bans the user — Clerk revokes all their active sessions as a
+   * side effect and blocks future sign-in. Used by admin's banVendor.
+   * Propagates errors rather than swallowing them; the caller decides
+   * how to handle a Clerk failure (banVendor treats it as best-effort
+   * once the DB-level ban has already succeeded).
+   */
+  static async banUser(clerkUserId: string) {
+    return this.client.users.banUser(clerkUserId)
+  }
 }
 
-/* 
-  *Admin-specific state 
-  * Every admin-Clerk mutation lives here — this is the ONLY place in the
-  * codebase that should construct an admin Clerk client. 
-*/
+// ── Admin-specific state ──────────────────────────────────────────────────────
+//
+// Every admin-Clerk mutation lives here — this is the ONLY place in the
+// codebase that should construct an admin Clerk client. admin.user.service.ts
+// and the admin Clerk webhook service both call into this instead of
+// building their own client, which is what happened before this consolidation
+// (three independent client constructions for the same Clerk instance).
 
 export class ClerkAdminStateService {
   private static get client() {
     return getClerkClient("admin")
   }
 
-  /*
+  /**
    * Revoke all active sessions for an admin user without banning them
    * — e.g. "force re-login everywhere" without blocking future sign-in.
    * Note: banUser() already revokes all sessions as a side effect
@@ -96,7 +109,7 @@ export class ClerkAdminStateService {
     )
   }
 
-  /*
+  /**
    * Bans the user — Clerk revokes all their active sessions as a
    * side effect and blocks future sign-in. Used by suspendAdminUser.
    */
@@ -109,7 +122,7 @@ export class ClerkAdminStateService {
     return this.client.users.unbanUser(clerkUserId)
   }
 
-  /*
+  /**
    * Permanently deletes the Clerk identity. Used by deactivateAdminUser
    * (deliberate — deactivation is not reversible the way suspension is)
    * and by the admin webhook service to clean up unauthorized/ineligible
@@ -119,7 +132,7 @@ export class ClerkAdminStateService {
     return this.client.users.deleteUser(clerkUserId)
   }
 
-  //* Used by sendAdminInvitation
+  /** Used by sendAdminInvitation. */
   static async createInvitation(params: {
     emailAddress  : string
     redirectUrl   : string

@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express"
 import type { ZodSchema } from "zod"
 
-import { zodErrorToApiError } from "@/errors/zodError"
+import { zodErrorToApiError } from "@/errors/ZodError"
 
 type ValidationSource = "body" | "query" | "params"
 

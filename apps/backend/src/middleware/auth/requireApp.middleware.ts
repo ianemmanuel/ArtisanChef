@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express"
 
 import { ClerkAppType } from "@/lib/clerk"
-import { ApiError } from "@/errors/apiError"
+import { ApiError } from "@/errors/ApiError"
 import { HttpStatus } from "@/constants/httpStatus"
 
 /*

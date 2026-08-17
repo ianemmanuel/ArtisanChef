@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 
 import { verifyClerkJwt } from "@/lib/clerk"
 import { extractBearerToken } from "@/lib/clerk/extractBearerToken"
-import { ApiError } from "@/errors/apiError"
+import { ApiError } from "@/errors/ApiError"
 import { HttpStatus } from "@/constants/httpStatus"
 import { logger } from "@/lib/pino/logger"
 

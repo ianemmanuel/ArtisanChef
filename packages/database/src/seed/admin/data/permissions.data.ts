@@ -63,6 +63,26 @@ export const PERMISSIONS = [
     description: "Reject a vendor application and notify the applicant with a reason",
   },
   {
+    key        : "vendors:applications:claim",
+    module     : "vendors",
+    description: "Claim an unassigned vendor application as its current reviewer",
+  },
+  {
+    key        : "vendors:applications:reassign",
+    module     : "vendors",
+    description: "Reassign a vendor application from its current reviewer to another eligible reviewer",
+  },
+  {
+    key        : "vendors:applications:escalate",
+    module     : "vendors",
+    description: "Escalate a vendor application for higher-level attention",
+  },
+  {
+    key        : "vendors:reviewers:manage_availability",
+    module     : "vendors",
+    description: "Change another admin's vendor-application review availability",
+  },
+  {
     key        : "vendors:documents:view",
     module     : "vendors",
     description: "Generate signed preview URLs to view vendor documents in-browser",
@@ -243,6 +263,21 @@ export const PERMISSIONS = [
     key        : "settings:documents:write",
     module     : "settings",
     description: "Create and update document type requirements for onboarding",
+  },
+  {
+    key        : "settings:vendor_types:read",
+    module     : "settings",
+    description: "View vendor type definitions and their country availability",
+  },
+  {
+    key        : "settings:vendor_types:write",
+    module     : "settings",
+    description: "Create vendor types and manage their availability per country",
+  },
+  {
+    key        : "settings:action_reasons:write",
+    module     : "settings",
+    description: "Create and update standardized reason codes used for application review and account actions",
   },
 ] as const
 

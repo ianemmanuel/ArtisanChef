@@ -20,7 +20,7 @@ import {
 
 export const handleListAdminUsers: RequestHandler = async (req, res, next) => {
   try {
-    const { adminScope }                             = req as unknown as AdminRequest
+    const { adminScope } = req as unknown as AdminRequest
     const { status, roleId, search, page, pageSize } = req.query
     const result = await listAdminUsers(
       {
@@ -48,8 +48,16 @@ export const handleGetAdminUser: RequestHandler = async (req, res, next) => {
 export const handleCreateAdminUser: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope }                               = req as unknown as AdminRequest
-    const { firstName, middleName, lastName, email, employeeId,
-            roleId, permissionKeys = [], scopes }                 = req.body
+    const { 
+      firstName, 
+      middleName, 
+      lastName, 
+      email, 
+      employeeId,
+      roleId, 
+      permissionKeys = [], 
+      scopes 
+    } = req.body
 
     if (!firstName || !lastName || !email || !roleId) {
       throw new ApiError(400, "firstName, lastName, email, and roleId are required", "MISSING_FIELDS")
@@ -90,8 +98,8 @@ export const handleUpdatePermissions: RequestHandler = async (req, res, next) =>
 export const handleUpdateRole: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
-    const { id }                    = req.params as { id: string }
-    const { roleId }                = req.body
+    const { id } = req.params as { id: string }
+    const { roleId } = req.body
     if (!roleId) throw new ApiError(400, "roleId is required", "MISSING_FIELDS")
     const result = await updateAdminUserRole({ adminUserId: id, roleId }, adminUser.id, adminScope)
     return sendSuccess(res, result, "Role updated")
@@ -101,8 +109,8 @@ export const handleUpdateRole: RequestHandler = async (req, res, next) => {
 export const handleUpdateScopes: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
-    const { id }                    = req.params as { id: string }
-    const { scopes }                = req.body
+    const { id } = req.params as { id: string }
+    const { scopes } = req.body
     if (!Array.isArray(scopes) || scopes.length === 0) {
       throw new ApiError(400, "scopes array is required", "MISSING_FIELDS")
     }
@@ -114,8 +122,8 @@ export const handleUpdateScopes: RequestHandler = async (req, res, next) => {
 export const handleSuspendAdminUser: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
-    const { id }                    = req.params as { id: string }
-    const { reason }                = req.body
+    const { id } = req.params as { id: string }
+    const { reason } = req.body
     if (!reason) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
     const result = await suspendAdminUser(id, reason, adminUser.id, adminScope)
     return sendSuccess(res, result, "User suspended")

@@ -7,7 +7,6 @@ datasource db {
   provider = "postgresql"
 }
 
-
 //* ==============ADMIN INFRASTRUCTURE====================
 
 model AdminUser {
@@ -31,6 +30,16 @@ model AdminUser {
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
+  //* Review-workload availability — distinct from isActive/status above.
+  //* isActive/status = "can this admin use the system at all."
+  //* reviewAvailability = "should this admin receive new review work."
+  //* An ACTIVE admin can be UNAVAILABLE (e.g. temporarily heads-down on
+  //* something else) without being deactivated.
+  reviewAvailability  AdminReviewAvailability @default(AVAILABLE)
+  unavailableFrom     DateTime?
+  unavailableUntil    DateTime?
+  unavailableReason   String?
+
   role                AdminRole?      @relation(fields: [roleId], references: [id])
   invitedBy           AdminUser?      @relation("AdminInvitedBy", fields: [invitedById], references: [id])
   invitees            AdminUser[]     @relation("AdminInvitedBy")
@@ -41,8 +50,14 @@ model AdminUser {
 
   @@index([clerkUserId])
   @@index([roleId])
-  @@index([status])           
+  @@index([status])
   @@index([email])
+  @@index([reviewAvailability])
+}
+
+enum AdminReviewAvailability {
+  AVAILABLE
+  UNAVAILABLE
 }
 
 model AdminRole {
@@ -170,16 +185,26 @@ model AuditLogArchive {
 
 /// Predefined reasons for standard admin actions.
 /// Selected by admin when taking an action — stored in AuditLog.metadata.reasonCode.
+///
+/// countryId null = global reason, available to every country.
+/// countryId set  = country-specific override/addition for that code.
+/// Resolution (see resolveActionReason): try [code, countryId] first,
+/// fall back to [code, null]. Same optional-narrower-scope pattern as
+/// DocumentTypeConfig's countryId/cityId — country-specific config is
+/// additive, not mandatory per country.
 model AdminActionReason {
   id          String   @id @default(uuid())
-  code        String   @unique
+  code        String
   label       String
   description String?
   appliesTo   String[]
+  countryId   String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
+  @@unique([code, countryId])
   @@index([isActive])
+  @@index([countryId])
 }
 
 /// Pre-computed summary metrics. Refreshed every 5 minutes by a background job.
@@ -517,11 +542,14 @@ model VendorUser {
   email     String   @unique
   isActive  Boolean  @default(true)
   isDeleted Boolean  @default(false)
+  isBanned  Boolean   @default(false)
+  banReason String?
+  bannedAt  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   vendorAccount VendorAccount?
-  applications  VendorApplication?
+  application  VendorApplication?
 
   @@index([clerkId])
   @@index([email])
@@ -548,7 +576,7 @@ model VendorAccount {
   businessAddress       String
   addressLine2          String?
   postalCode            String?
-  commissionRate        Float?              // null = falls back to country default
+  commissionRate        Float?  
   payoutSchedule        PayoutSchedule  @default(BIWEEKLY)
   nextPayoutDate        DateTime?
   addressVerified       Boolean      @default(false)
@@ -569,7 +597,6 @@ model VendorAccount {
   payoutAccounts        VendorPayoutAccount[]
   vendorProfile         VendorProfile?
 
-  @@unique([userId, countryId])
   @@unique([companyRegNumber, countryId])
   @@unique([taxRegistrationNumber, countryId])
   @@unique([businessPhone, countryId])
@@ -632,27 +659,40 @@ model VendorApplication {
   countryId          String
   vendorTypeId       String
   otherVendorType    String?
-  legalBusinessName  String
+  legalBusinessName  String?
   registrationNumber String?
   taxId              String?
-  businessEmail      String
+  businessEmail      String?
   businessPhone      String?
-  ownerFirstName     String
-  ownerLastName      String
+  ownerFirstName     String?
+  ownerLastName      String?
   ownerPhone         String?
   ownerEmail         String?
-  businessAddress    String
+  businessAddress    String?
   addressLine2       String?
   postalCode         String?
   status             VendorApplicationStatus @default(DRAFT)
   revisionCount      Int                     @default(0)
   rejectionReason    String?
   revisionNotes      String?
+  reasonCode         String?
   submittedAt        DateTime?
   reviewedAt         DateTime?
   approvedAt         DateTime?
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
+
+  //* Reviewer ownership — plain ids, not Prisma relations to AdminUser,
+  //* matching this schema's existing convention for admin-actor
+  //* references (see createdByAdminId on Country/City/VendorType/...).
+  //* assignedReviewerId = current owner (null = unclaimed). Persists
+  //* through NEEDS_REVISION -> vendor resubmit -> back to review —
+  //* never cleared except by explicit reassignment.
+  //* reviewedById = who performed the latest substantive review action
+  //* (may differ from assignedReviewerId after a reassignment).
+  assignedReviewerId String?
+  assignedAt         DateTime?
+  reviewedById       String?
 
   vendorAccount VendorAccount? @relation("ApplicationToAccount")
   country       Country        @relation(fields: [countryId], references: [id])
@@ -660,9 +700,9 @@ model VendorApplication {
   vendorType    VendorType     @relation(fields: [vendorTypeId], references: [id])
   documents     VendorDocument[]
 
-  @@unique([userId, countryId], name: "application_user_country_unique")
   @@index([status])
   @@index([countryId])
+  @@index([assignedReviewerId, status])
 }
 
 model VendorDocument {
@@ -1092,7 +1132,6 @@ enum ConsumerStatus {
 enum VendorStatus {
   ACTIVE
   SUSPENDED
-  BANNED
 }
 
 enum VendorTypeStatus {
@@ -1104,6 +1143,7 @@ enum VendorApplicationStatus {
   DRAFT
   SUBMITTED
   UNDER_REVIEW
+  NEEDS_REVISION
   APPROVED
   REJECTED
 }

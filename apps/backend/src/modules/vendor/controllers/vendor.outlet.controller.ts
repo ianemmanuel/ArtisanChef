@@ -23,7 +23,6 @@ type idParam = { id: string }
 export const handleListOutlets = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const outlets = await listOutlets(auth.vendorAccount.id)
     return sendSuccess(res, outlets, "Outlets fetched successfully")
@@ -37,7 +36,6 @@ export const handleListOutlets = async (req: Request, res: Response, next: NextF
 export const handleGetOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const outlet = await getOutlet(auth.vendorAccount.id, id)
@@ -50,7 +48,6 @@ export const handleGetOutlet = async (req: Request, res: Response, next: NextFun
 export const handleCreateOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const {
       name, addressLine1, addressLine2, cityId, neighborhood,
@@ -80,7 +77,6 @@ export const handleCreateOutlet = async (req: Request, res: Response, next: Next
 export const handleUpdateOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const {
@@ -115,7 +111,6 @@ export const handleUpdateOutlet = async (req: Request, res: Response, next: Next
 export const handleDeactivateOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as { id: string }
     const result = await deactivateOutlet(auth.vendorAccount.id, id)
@@ -128,7 +123,6 @@ export const handleDeactivateOutlet = async (req: Request, res: Response, next: 
 export const handleReactivateOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const result = await reactivateOutlet(auth.vendorAccount.id, id)
@@ -141,7 +135,6 @@ export const handleReactivateOutlet = async (req: Request, res: Response, next: 
 export const handleCloseOutletTemporarily = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id }       = req.params as idParam
     const { reopenAt } = req.body
@@ -163,7 +156,6 @@ export const handleCloseOutletTemporarily = async (req: Request, res: Response, 
 export const handleReopenOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const result = await reopenOutlet(auth.vendorAccount.id, id)
@@ -176,7 +168,6 @@ export const handleReopenOutlet = async (req: Request, res: Response, next: Next
 export const handleSetPrimaryOutlet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const result = await setPrimaryOutlet(auth.vendorAccount.id, id)
@@ -189,7 +180,6 @@ export const handleSetPrimaryOutlet = async (req: Request, res: Response, next: 
 export const handleSetOperatingHours = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id }    = req.params as idParam
     const { hours } = req.body

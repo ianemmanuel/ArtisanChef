@@ -1,4 +1,4 @@
-/**
+/*
  * Field-level validation detail — populated when an ApiError is built
  * from a ZodError. Shared with helpers/api-response/response.ts so
  * both sides of the response envelope agree on the shape.
@@ -8,7 +8,7 @@ export interface ApiErrorDetail {
   message: string
 }
 
-/**
+/*
  * Application error with HTTP status code and optional machine-readable code.
  * Throw this anywhere in route handlers or services:
  *

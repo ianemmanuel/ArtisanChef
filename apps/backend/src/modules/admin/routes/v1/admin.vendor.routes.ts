@@ -6,7 +6,11 @@ import {
   handleGetApplication,
   handleApproveApplication,
   handleRejectApplication,
+  handleMarkApplicationNeedsRevision,
   handleMarkUnderReview,
+  handleClaimApplication,
+  handleReassignApplication,
+  handleEscalateApplication,
   handleListVendorAccounts,
   handleGetVendorAccount,
   handleSuspendVendor,
@@ -25,8 +29,32 @@ const vendorRouter: Router = Router()
 vendorRouter.get("/applications", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_READ ), handleListApplications)
 vendorRouter.get("/applications/:id", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_READ ), handleGetApplication)
 vendorRouter.post("/applications/:id/review", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW ), handleMarkUnderReview)
-vendorRouter.post("/applications/:id/approve", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_APPROVE), handleApproveApplication)
-vendorRouter.post("/applications/:id/reject", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REJECT), handleRejectApplication)
+// review = fundamental capability to participate in vendor application review.
+// The specific-action permission (approve/reject/claim) stays as an additional
+// gate on top — vendors_ops admins granted only e.g. discount/promo permissions
+// via the individual AdminUserPermission mechanism must not be able to act here
+// even though the vendor_ops role's pool includes these keys.
+vendorRouter.post(
+  "/applications/:id/approve",
+  requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW),
+  requirePermission(AdminPermissions.VENDORS_APPLICATIONS_APPROVE),
+  handleApproveApplication,
+)
+vendorRouter.post(
+  "/applications/:id/reject",
+  requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW),
+  requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REJECT),
+  handleRejectApplication,
+)
+vendorRouter.post("/applications/:id/needs-revision", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW), handleMarkApplicationNeedsRevision)
+vendorRouter.post(
+  "/applications/:id/claim",
+  requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW),
+  requirePermission(AdminPermissions.VENDORS_APPLICATIONS_CLAIM),
+  handleClaimApplication,
+)
+vendorRouter.post("/applications/:id/reassign", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REASSIGN), handleReassignApplication)
+vendorRouter.post("/applications/:id/escalate", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_ESCALATE), handleEscalateApplication)
 
 // Accounts
 vendorRouter.get("/accounts", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_READ ), handleListVendorAccounts)

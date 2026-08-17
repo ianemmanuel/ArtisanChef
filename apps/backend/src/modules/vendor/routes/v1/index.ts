@@ -1,15 +1,26 @@
 import { Request, Response, Router } from "express"
 import applicationRouter from './vendor.application.routes'
 import documentRouter from './vendor.documents.routes'
-import storageBucketRouter from "./vendor.storage-bucket.routes"
 import outletRouter from "./vendor.outlet.routes"
+import payoutRouter from "./vendor.payout.routes"
+import authRouter from "../vendor.auth.routes"
+import { requireVendorState, NON_BANNED_STATES } from "../../middlewares"
 
 const v1Router: Router = Router()
 
+// Session must stay reachable even for a banned vendor, so it's
+// mounted before the ban gate below, not after.
+v1Router.use('/auth', authRouter)
+
+// Every other vendor route requires a non-banned identity. Beyond
+// that, state-appropriateness for application/document mutations is
+// already enforced at the service layer (ensureApplicationEditable).
+v1Router.use(requireVendorState(...NON_BANNED_STATES))
+
 v1Router.use('/application', applicationRouter)
 v1Router.use('/documents', documentRouter)
-v1Router.use('/storage-bucket',storageBucketRouter)
 v1Router.use('/outlets',outletRouter)
+v1Router.use('/payouts',payoutRouter)
 
 // Vendor module info endpoint (optional)
 v1Router.get('/', (req: Request, res: Response) => {

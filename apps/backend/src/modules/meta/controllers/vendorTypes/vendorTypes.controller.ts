@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express"
 import { prisma, GeoStatus, VendorTypeStatus } from "@repo/db"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { getVendorUser } from "@/helpers/auth/vendorAuth"
-import { ApiError } from "@/middleware/error"
 
 
 /**
@@ -19,8 +18,7 @@ export const getOnboardingVendorTypes = async (
 ) => {
   try {
 
-    const auth = await getVendorUser(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
+    await getVendorUser(req)
 
     const { countryId } = req.query
 

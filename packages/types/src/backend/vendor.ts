@@ -1,10 +1,25 @@
 //* src/backend/vendor.ts
 //! NEVER import this file in frontend apps — it depends on Express types.
 
+import type { Request } from "express"
+import type { 
+  VendorSessionApplication, 
+  VendorSessionAccount, 
+  VendorLifecycleState 
+} from "../domain/vendor"
 
 export type {
   VendorType,
   VendorTypeCountry,
+  CreateVendorTypeRequest,
+  UpdateVendorTypeRequest,
+  AssignVendorTypeToCountryRequest,
+  DocumentTypeConfig,
+  DocumentTypeVendorType,
+  CreateDocumentTypeRequest,
+  UpdateDocumentTypeRequest,
+  AssignDocumentTypeToVendorTypeRequest,
+  VendorUser,
   VendorApplication,
   VendorApplicationWithDetails,
   VendorAccount,
@@ -12,9 +27,15 @@ export type {
   VendorProfile,
   VendorDocument,
   OutletSummary,
+  VendorLifecycleState,
+  VendorSessionApplication,
+  VendorSessionAccount,
+  VendorSessionData,
   ApplicationResponse,
   ApplicationDocumentSummary,
-  UpsertApplicationRequest,
+  CreateVendorApplicationRequest,
+  UpdateVendorApplicationRequest,
+  ChangeVendorApplicationScopeRequest,
   DocumentRequirement,
   UploadedDocumentInfo,
   DocumentRequirementsResponse,
@@ -23,9 +44,40 @@ export type {
   PresignUploadResponse,
   UpsertDocumentRequest,
   UpsertDocumentResponse,
-  CreateOutletInput,
-  UpdateOutletInput,
+  CreateOutletRequest,
+  UpdateOutletRequest,
   OperatingHoursEntry,
-  AddPayoutAccountInput,
+  AddPayoutAccountRequest,
   idParam,
 } from "../domain/vendor"
+
+//* STEP 1 output — set by verifyVendorToken, before VendorUser is loaded.
+export interface AuthenticatedVendorRequest extends Request {
+  vendorClerkUserId: string
+}
+
+/*
+  * Request-context shape populated by loadVendorContext. Same field
+  * shapes as VendorSessionData's application/vendorAccount (the slim,
+  * loadVendorContext-loaded versions) — not the richer *WithDetails
+  * types, which only the dedicated GET /application and GET
+  * /vendor-account endpoints fetch.
+*/
+export interface VendorContext {
+  user: {
+    id       : string
+    email    : string
+    isActive : boolean
+    isBanned : boolean
+    banReason: string | null
+    bannedAt : string | null
+  }
+  application: VendorSessionApplication | null
+  account    : VendorSessionAccount | null
+  state      : VendorLifecycleState
+}
+
+//* After the full chain runs — what controllers receive.
+export interface VendorRequest extends AuthenticatedVendorRequest {
+  vendor: VendorContext
+}

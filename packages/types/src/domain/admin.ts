@@ -1,8 +1,9 @@
 import {
-  AdminScopeType, 
-  AdminPermissionKey, 
-  AdminUserStatus, 
-  AdminRoleName 
+  AdminScopeType,
+  AdminPermissionKey,
+  AdminUserStatus,
+  AdminRoleName,
+  AdminReviewAvailability,
 } from "../enums/admin"
 
 import { PaginationParams, DateRangeParams }  from "../shared/common"
@@ -56,11 +57,16 @@ export interface AdminUser {
   isActive : boolean
   invitedById : string | null
   invitationSentCount : number
-  invitationSentAt : Date | null   
-  lastSeenAt : Date | null   
-  deactivatedAt : Date | null   
+  invitationSentAt : Date | null
+  lastSeenAt : Date | null
+  deactivatedAt : Date | null
   deactivationReason : string | null
-  createdAt : Date          
+  //* Review-workload availability — independent of isActive/status above.
+  reviewAvailability : AdminReviewAvailability
+  unavailableFrom    : Date | null
+  unavailableUntil   : Date | null
+  unavailableReason  : string | null
+  createdAt : Date
   updatedAt : Date
 }
 
@@ -257,9 +263,32 @@ export interface ApproveApplicationResponse {
 }
 
 export interface RejectApplicationRequest {
-  rejectionReason : string  
+  reasonCode      : string   // AdminActionReason.code — mandatory, the vendor-facing primary reason
+  rejectionReason?: string   // optional case-specific free text, supplementary to reasonCode
   revisionNotes?  : string
-  reasonCode? : string
+}
+
+export interface MarkApplicationNeedsRevisionRequest {
+  reasonCode      : string   // AdminActionReason.code — mandatory
+  rejectionReason?: string
+  revisionNotes?  : string
+}
+
+//* ─── Reviewer ownership / claim / reassign / escalate ──────────────────────
+
+export interface ClaimApplicationResponse {
+  id                : string
+  assignedReviewerId: string
+  assignedAt         : string
+}
+
+export interface ReassignApplicationRequest {
+  targetAdminId: string
+  reason?      : string
+}
+
+export interface EscalateApplicationRequest {
+  reason: string
 }
 
 
@@ -295,4 +324,52 @@ export interface SuspendVendorRequest {
   reason : string
   reasonCode?    : string   // AdminActionReason.code
   suspensionUntil?: string  // ISO date — null = indefinite
+}
+
+//* ─── Reviewer availability ──────────────────────────────────────────────────
+
+export interface SetReviewAvailabilityRequest {
+  availability     : AdminReviewAvailability
+  unavailableFrom? : string   // ISO date
+  unavailableUntil?: string   // ISO date
+  unavailableReason?: string
+}
+
+export interface UnavailableReviewerCaseload {
+  adminUserId  : string
+  firstName    : string
+  lastName     : string
+  email        : string
+  unavailableFrom  : string | null
+  unavailableUntil : string | null
+  unavailableReason: string | null
+  assignedApplicationCount: number
+}
+
+//* ─── Standardized action reasons (AdminActionReason) ────────────────────────
+
+export interface AdminActionReason {
+  id         : string
+  code       : string
+  label      : string
+  description: string | null
+  appliesTo  : string[]
+  countryId  : string | null
+  isActive   : boolean
+  createdAt  : Date
+}
+
+export interface CreateActionReasonRequest {
+  code       : string
+  label      : string
+  description?: string
+  appliesTo  : string[]
+  countryId? : string   // omit for a global reason
+}
+
+export interface UpdateActionReasonRequest {
+  label?      : string
+  description?: string
+  appliesTo?  : string[]
+  isActive?   : boolean
 }

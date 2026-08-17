@@ -22,8 +22,10 @@ export function createRateLimiter({ windowMs, max, message }: RateLimiterConfig)
     message: { status: "error", message },
     standardHeaders: true,
     legacyHeaders: false,
-    //? Authenticated requests are keyed by Clerk user ID so rotating IPs while logged in can't be used to dodge the limit.
-    keyGenerator: (req: any) => req.auth?.clerkUserId ?? ipKeyGenerator(req),
+    //? Authenticated requests are keyed by a stable per-identity id so rotating IPs while logged in can't be used to dodge the limit.
+    //? req.auth is set by the generic clerk.middleware.ts path (admin/meta/courier/customer); req.vendor is set by
+    //? vendorAuthChain on vendor routes, which no longer sets req.auth — check both.
+    keyGenerator: (req: any) => req.auth?.clerkUserId ?? req.vendor?.user?.id ?? ipKeyGenerator(req),
     // Webhooks (Svix-signature verified) have their own trust model —
     // they shouldn't share limiter budget with normal API traffic.
     skip: (req) => req.path.startsWith("/webhooks"),

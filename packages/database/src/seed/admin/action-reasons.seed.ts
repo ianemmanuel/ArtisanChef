@@ -31,29 +31,41 @@ const ACTION_REASONS = [
         description: "Documents are expired, invalid, or have not been submitted.",   
         appliesTo: ["vendor_account.suspended"] 
     },
-    {   
+    {
         code: "INCOMPLETE_DOCUMENTS",
-        label: "Incomplete documents",     
-        description: "Required documents are missing or have not been uploaded.",     
-        appliesTo: ["vendor_application.rejected"] 
+        label: "Incomplete documents",
+        description: "Required documents are missing or have not been uploaded.",
+        appliesTo: ["vendor_application.rejected", "vendor_application.needs_revision"]
     },
-    {   
-        code: "DOCUMENT_EXPIRED",    
-        label: "Expired documents",        
-        description: "One or more submitted documents have expired.",                 
-        appliesTo: ["vendor_application.rejected"] 
+    {
+        code: "DOCUMENT_EXPIRED",
+        label: "Expired documents",
+        description: "One or more submitted documents have expired.",
+        appliesTo: ["vendor_application.rejected", "vendor_application.needs_revision"]
     },
-    {   
-        code: "INVALID_INFORMATION", 
-        label: "Invalid business info",    
-        description: "Business details cannot be verified or are inconsistent.",      
-        appliesTo: ["vendor_application.rejected"] 
+    {
+        code: "INVALID_INFORMATION",
+        label: "Invalid business info",
+        description: "Business details cannot be verified or are inconsistent.",
+        appliesTo: ["vendor_application.rejected", "vendor_application.needs_revision"]
     },
-    {   
-        code: "INELIGIBLE_TYPE",     
+    {
+        code: "INELIGIBLE_TYPE",
         label: "Vendor type not supported",
-        description: "This vendor type is not supported in the selected country.",    
-        appliesTo: ["vendor_application.rejected"] 
+        description: "This vendor type is not supported in the selected country.",
+        appliesTo: ["vendor_application.rejected"]
+    },
+    {
+        code: "INVALID_BUSINESS_REGISTRATION",
+        label: "Invalid Business Registration Document",
+        description: "The submitted business registration document could not be verified.",
+        appliesTo: ["vendor_application.needs_revision"]
+    },
+    {
+        code: "TAX_DOCUMENT_UNCLEAR",
+        label: "Tax Document Unclear",
+        description: "The submitted tax document is illegible, incomplete, or does not match the business details provided.",
+        appliesTo: ["vendor_application.needs_revision"]
     },
     { 
         code: "REFUND_POLICY",       
@@ -79,13 +91,29 @@ const ACTION_REASONS = [
     },
 ] as const
 
+/*
+ * All seeded reasons here are global (countryId: null) — country-specific
+ * reasons are admin-configured data, not seed data (see admin.actionReason
+ * service). findFirst + create/update, not upsert — Prisma's compound
+ * unique input type requires a non-null countryId even though the column
+ * is nullable, same workaround as DocumentTypeConfig's seed/service.
+ */
 export async function seedActionReasons(): Promise<number> {
   for (const reason of ACTION_REASONS) {
-    await prisma.adminActionReason.upsert({
-      where : { code: reason.code },
-      update: { label: reason.label, description: reason.description, appliesTo: [...reason.appliesTo] },
-      create: { code: reason.code, label: reason.label, description: reason.description, appliesTo: [...reason.appliesTo] },
+    const existing = await prisma.adminActionReason.findFirst({
+      where: { code: reason.code, countryId: null },
     })
+
+    if (existing) {
+      await prisma.adminActionReason.update({
+        where: { id: existing.id },
+        data : { label: reason.label, description: reason.description, appliesTo: [...reason.appliesTo] },
+      })
+    } else {
+      await prisma.adminActionReason.create({
+        data: { code: reason.code, label: reason.label, description: reason.description, appliesTo: [...reason.appliesTo] },
+      })
+    }
   }
   return ACTION_REASONS.length
 }

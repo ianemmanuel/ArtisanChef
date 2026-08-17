@@ -3,9 +3,9 @@ import { ZodError } from "zod"
 
 import { logger } from "@/lib/pino/logger"
 import { sendError } from "@/helpers/api-response/response"
-import { ApiError } from "@/errors/apiError"
-import { zodErrorToApiError } from "@/errors/zodError"
-import { mapPrismaError } from "@/errors/prismaError"
+import { ApiError } from "@/errors/ApiError"
+import { zodErrorToApiError } from "@/errors/ZodError"
+import { mapPrismaError } from "@/errors/PrismaError"
 
 const errorLog = logger.child({ module: "error-handler" })
 

@@ -6,30 +6,34 @@ import {
   HeadObjectCommand,
 } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
-import crypto from "crypto"
+import crypto from "node:crypto"
+
+import { env } from "@/env"
 
 const r2 = new S3Client({
   region: "auto",
-  endpoint: process.env.R2_ENDPOINT!,
+  endpoint: env.R2_ENDPOINT,
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    accessKeyId    : env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
   },
 })
 
-const BUCKET = process.env.R2_BUCKET_NAME!
-const UPLOAD_EXPIRY = Number(process.env.R2_UPLOAD_EXPIRY_SECONDS ?? 300)
-const VIEW_EXPIRY = Number(process.env.R2_VIEW_EXPIRY_SECONDS ?? 120)
+const BUCKET = env.R2_BUCKET_NAME
+const UPLOAD_EXPIRY = env.R2_UPLOAD_EXPIRY_SECONDS
+const VIEW_EXPIRY   = env.R2_VIEW_EXPIRY_SECONDS
 
 export const R2Service = {
+  //* Keyed by vendorUserId. 
+   
   generateStorageKey(
-    applicationId: string,
+    vendorUserId  : string,
     documentTypeId: string,
-    extension: string
+    extension     : string
   ) {
     const uuid = crypto.randomUUID()
 
-    return `vendor-applications/${applicationId}/documents/${documentTypeId}/${uuid}.${extension}`
+    return `vendors/${vendorUserId}/documents/${documentTypeId}/${uuid}.${extension}`
   },
 
   async generateUploadUrl(storageKey: string, contentType: string) {

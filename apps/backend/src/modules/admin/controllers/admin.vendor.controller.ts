@@ -2,24 +2,28 @@ import { RequestHandler } from "express"
 import { VendorApplicationStatus, VendorStatus } from "@repo/db"
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
-import { ApiError } from "@/middleware/error"
+import { ApiError } from "@/errors/ApiError"
 import {
   listApplications,
   getApplication,
   approveApplication,
   rejectApplication,
+  markApplicationNeedsRevision,
   markUnderReview,
+  claimApplication,
+  reassignApplication,
+  escalateApplication,
   listVendorAccounts,
   getVendorAccount,
   suspendVendor,
   reinstateVendor,
   banVendor,
+  approveDocument,
+  rejectDocument,
 } from "../services/admin.vendor.service"
 
-import { approveDocument, rejectDocument } from "../services/admin.vendor.service"
+//* Application
 
-//*Application
- 
 export const handleListApplications: RequestHandler = async (req, res, next) => {
   try {
     const { adminScope } = req as unknown as AdminRequest
@@ -27,11 +31,11 @@ export const handleListApplications: RequestHandler = async (req, res, next) => 
 
     const result = await listApplications(
       {
-        status    : status     as VendorApplicationStatus | undefined,
-        countrySlug: countrySlug  as string,
-        search    : search     as string | undefined,
-        page      : page       ? parseInt(page     as string) : undefined,
-        pageSize  : pageSize   ? parseInt(pageSize as string) : undefined,
+        status     : status      as VendorApplicationStatus | undefined,
+        countrySlug: countrySlug as string,
+        search     : search      as string | undefined,
+        page       : page        ? parseInt(page     as string) : undefined,
+        pageSize   : pageSize    ? parseInt(pageSize as string) : undefined,
       },
       adminScope,
     )
@@ -50,32 +54,88 @@ export const handleGetApplication: RequestHandler = async (req, res, next) => {
 
 export const handleApproveApplication: RequestHandler = async (req, res, next) => {
   try {
-    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
     const { id }                    = req.params as { id: string }
-    const result = await approveApplication(id, adminUser.id, adminScope)
+    const result = await approveApplication(id, adminUser.id, adminScope, adminPermissions)
     return sendSuccess(res, result, "Application approved")
   } catch (err) { next(err) }
 }
 
 export const handleRejectApplication: RequestHandler = async (req, res, next) => {
   try {
-    const { adminUser, adminScope }          = req as unknown as AdminRequest
-    const { id }                             = req.params as { id: string }
-    const { rejectionReason, revisionNotes } = req.body
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { reasonCode, rejectionReason, revisionNotes } = req.body
 
-    if (!rejectionReason) throw new ApiError(400, "rejectionReason is required", "MISSING_FIELDS")
+    if (!reasonCode) throw new ApiError(400, "reasonCode is required", "MISSING_FIELDS")
 
-    const result = await rejectApplication(id, rejectionReason, revisionNotes, adminUser.id, adminScope)
+    const result = await rejectApplication(
+      id, reasonCode, rejectionReason, revisionNotes, adminUser.id, adminScope, adminPermissions,
+    )
     return sendSuccess(res, result, "Application rejected")
+  } catch (err) { next(err) }
+}
+
+//* Soft, resubmittable outcome — distinct from reject. Same request
+//* shape as reject (a mandatory reason code + optional notes).
+export const handleMarkApplicationNeedsRevision: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { reasonCode, rejectionReason, revisionNotes } = req.body
+
+    if (!reasonCode) throw new ApiError(400, "reasonCode is required", "MISSING_FIELDS")
+
+    const result = await markApplicationNeedsRevision(
+      id, reasonCode, rejectionReason, revisionNotes, adminUser.id, adminScope, adminPermissions,
+    )
+    return sendSuccess(res, result, "Application marked as needing revision")
   } catch (err) { next(err) }
 }
 
 export const handleMarkUnderReview: RequestHandler = async (req, res, next) => {
   try {
-    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
     const { id }                    = req.params as { id: string }
-    const result = await markUnderReview(id, adminUser.id, adminScope)
+    const result = await markUnderReview(id, adminUser.id, adminScope, adminPermissions)
     return sendSuccess(res, result, "Application marked under review")
+  } catch (err) { next(err) }
+}
+
+//* Claim / reassign / escalate
+
+export const handleClaimApplication: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const result = await claimApplication(id, adminUser.id, adminScope, adminUser.reviewAvailability)
+    return sendSuccess(res, result, "Application claimed")
+  } catch (err) { next(err) }
+}
+
+export const handleReassignApplication: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { targetAdminId, reason } = req.body as { targetAdminId?: string; reason?: string }
+
+    if (!targetAdminId?.trim()) throw new ApiError(400, "targetAdminId is required", "MISSING_FIELDS")
+
+    const result = await reassignApplication(id, targetAdminId, reason, adminUser.id, adminScope)
+    return sendSuccess(res, result, "Application reassigned")
+  } catch (err) { next(err) }
+}
+
+export const handleEscalateApplication: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { reason } = req.body as { reason?: string }
+
+    if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
+
+    const result = await escalateApplication(id, reason, adminUser.id, adminScope)
+    return sendSuccess(res, result, "Application escalated")
   } catch (err) { next(err) }
 }
 
@@ -112,7 +172,7 @@ export const handleRejectDocument: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-//* Vendor accounts 
+//* Vendor accounts
 
 export const handleListVendorAccounts: RequestHandler = async (req, res, next) => {
   try {
@@ -121,11 +181,11 @@ export const handleListVendorAccounts: RequestHandler = async (req, res, next) =
 
     const result = await listVendorAccounts(
       {
-        status   : status    as VendorStatus | undefined,
+        status     : status      as VendorStatus | undefined,
         countrySlug: countrySlug as string,
-        search   : search    as string | undefined,
-        page     : page      ? parseInt(page     as string) : undefined,
-        pageSize : pageSize  ? parseInt(pageSize as string) : undefined,
+        search     : search      as string | undefined,
+        page       : page        ? parseInt(page     as string) : undefined,
+        pageSize   : pageSize    ? parseInt(pageSize as string) : undefined,
       },
       adminScope,
     )

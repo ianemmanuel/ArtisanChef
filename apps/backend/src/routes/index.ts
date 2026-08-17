@@ -1,21 +1,28 @@
 import { Router } from 'express'
 import vendorRoutes from '../modules/vendor/routes'
 import metaRoutes from '@/modules/meta/routes'
-import { clerkAuthMiddleware, requireApp } from '@/middleware/auth'
+import { vendorAuthChain } from '@/modules/vendor/middlewares'
 import adminRoutes from '../modules/admin/routes'
 const router: Router = Router()
 
 
+// vendorAuthChain (verifyVendorToken + loadVendorContext) is the sole
+// vendor auth path — it already asserts app === "vendor" internally,
+// making requireApp("vendor") redundant here, and it resolves
+// req.vendor (incl. isDeleted/isActive/isBanned) so every vendor route
+// sees current DB state on every request, not just identity.
 router.use(
   '/vendor',
-  clerkAuthMiddleware, 
-  requireApp("vendor"),
+  ...vendorAuthChain,
   vendorRoutes
 )
+// /meta is vendor-app-scoped (onboarding country/vendor-type lookups)
+// and its controllers call getVendorUser(req), which now resolves off
+// req.vendor — so it needs the same chain as /vendor, not the old
+// clerkAuthMiddleware+requireApp pair.
 router.use(
   '/meta',
-  clerkAuthMiddleware, 
-  requireApp("vendor"), 
+  ...vendorAuthChain,
   metaRoutes
 )
 router.use("/admin", adminRoutes)

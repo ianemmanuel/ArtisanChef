@@ -1,6 +1,6 @@
 
 import { Response } from "express"
-import type { ApiErrorDetail } from "@/errors/apiError"
+import type { ApiErrorDetail } from "@/errors/ApiError"
 
 export const sendSuccess = <T>(
   res: Response,

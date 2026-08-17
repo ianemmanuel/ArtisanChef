@@ -17,7 +17,6 @@ import type { AddPayoutAccountRequest, idParam } from "@repo/types/backend"
 export const handleGetAvailablePayoutMethods = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const methods = await getAvailablePayoutMethods(auth.vendorAccount.id)
     return sendSuccess(res, methods, "Available payout methods fetched")
@@ -29,7 +28,6 @@ export const handleGetAvailablePayoutMethods = async (req: Request, res: Respons
 export const handleListPayoutAccounts = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const accounts = await listPayoutAccounts(auth.vendorAccount.id)
     return sendSuccess(res, accounts, "Payout accounts fetched")
@@ -41,7 +39,6 @@ export const handleListPayoutAccounts = async (req: Request, res: Response, next
 export const handleGetPayoutAccount = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const account = await getPayoutAccount(auth.vendorAccount.id, id)
@@ -54,7 +51,6 @@ export const handleGetPayoutAccount = async (req: Request, res: Response, next: 
 export const handleAddPayoutAccount = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const {
       countryPaymentMethodId, accountHolderName,
@@ -84,7 +80,6 @@ export const handleAddPayoutAccount = async (req: Request, res: Response, next: 
 export const handleSetDefaultPayoutAccount = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const result = await setDefaultPayoutAccount(auth.vendorAccount.id, id)
@@ -97,7 +92,6 @@ export const handleSetDefaultPayoutAccount = async (req: Request, res: Response,
 export const handleRemovePayoutAccount = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const auth = await getVendorAccount(req)
-    if (!auth.ok) return next(new ApiError(auth.status, auth.message))
 
     const { id } = req.params as idParam
     const result = await removePayoutAccount(auth.vendorAccount.id, id)

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import type { AuthenticatedAdminRequest } from "@repo/types/backend"
 
 import { verifyClerkJwt } from "@/lib/clerk"
-import { ApiError } from "@/errors/apiError"
+import { ApiError } from "@/errors/ApiError"
 import { HttpStatus } from "@/constants/httpStatus"
 import { logger } from "@/lib/pino/logger"
 

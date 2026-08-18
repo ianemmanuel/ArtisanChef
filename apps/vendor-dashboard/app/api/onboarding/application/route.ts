@@ -1,98 +1,36 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { NextRequest } from "next/server"
+import { backendFetch } from "@/lib/api/server"
+import { proxyBackendCall } from "@/lib/api/route-handler"
+import type {
+  VendorApplicationDetail,
+  CreateVendorApplicationRequest,
+  UpdateVendorApplicationRequest,
+} from "@repo/types/vendor-app"
 
-
-export async function GET(request: NextRequest) {
-  try {
-    const { userId, getToken } = await auth()
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    const token = await getToken()
-
-    if(!token){
-        return NextResponse.json(
-            {error:"Unauthorized"},
-            {status: 401}
-        )
-    }
-
-    const backendUrl = process.env.BACKEND_API_URL!
-
-    const response = await fetch(`${backendUrl}/vendor/v1/application`, 
-    {       
-      method:'GET',
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.message || "Failed to fetch application" },
-        { status: response.status }
-      )
-    }
-
-    return NextResponse.json(data, { status:response.status })
-  } catch (error) {
-    console.error("Error fetching application:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+export async function GET() {
+  return proxyBackendCall(() =>
+    backendFetch<VendorApplicationDetail>("/vendor/v1/application/get"),
+  )
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const { userId, getToken } = await auth()
+export async function POST(req: NextRequest) {
+  const body = (await req.json()) as CreateVendorApplicationRequest
 
-    const token = await getToken()
-
-    if (!userId || !token) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
-    }
-
-    const body = await request.json()
-
-    const backendUrl = process.env.BACKEND_API_URL!
-
-    const response = await fetch(`${backendUrl}/vendor/v1/application/upsert-application`, {
+  return proxyBackendCall(() =>
+    backendFetch<VendorApplicationDetail>("/vendor/v1/application/create", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify(body),
-    })
+    }),
+  )
+}
 
-    const data = await response.json()
+export async function PATCH(req: NextRequest) {
+  const body = (await req.json()) as UpdateVendorApplicationRequest
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.message || "Failed to save application" },
-        { status: response.status }
-      )
-    }
-
-    return NextResponse.json(data)
-  } catch (error) {
-    console.error("Error saving application:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+  return proxyBackendCall(() =>
+    backendFetch<VendorApplicationDetail>("/vendor/v1/application/update", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  )
 }

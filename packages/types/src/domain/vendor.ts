@@ -2,6 +2,7 @@ import { VendorStatus, VendorApplicationStatus, VendorTypeStatus } from "../enum
 import { GeoStatus } from "../enums/geography"
 
 import { DocumentStatus, DocumentScope, DocumentTypeStatus } from "../enums/document"
+import type { Country } from "./country"
 
 
 export interface VendorUser {
@@ -166,6 +167,10 @@ export interface VendorApplication {
 export interface VendorApplicationWithDetails extends VendorApplication {
   vendorType : VendorType
   documents  : VendorDocument[]
+  //* Scalar country fields only — matches what `include: { country: true }`
+  //* actually returns (no cities/_count relations, unlike domain Country's
+  //* full shape used elsewhere for the admin-facing entity).
+  country    : Pick<Country, "id" | "name" | "code" | "currency" | "currencySymbol" | "phoneCode">
 }
 
 export interface VendorAccount {

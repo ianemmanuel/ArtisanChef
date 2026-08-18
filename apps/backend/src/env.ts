@@ -26,7 +26,11 @@ const envSchema = z.object({
   CLERK_ADMIN_PUBLISHABLE_KEY: z.string().min(1),
   CLERK_ADMIN_SECRET_KEY: z.string().min(1),
   CLERK_ADMIN_WEBHOOK_SECRET: z.string().min(1),
-  CLERK_ADMIN_INVITE_REDIRECT_URL: z.string().url(),
+  // Only consumed by admin.user.service.ts's sendAdminInvitation — an
+  // admin-only feature unrelated to vendor/customer/courier startup.
+  // Required in production (checked below), optional in dev so working
+  // on another module doesn't require every module's env to be complete.
+  CLERK_ADMIN_INVITE_REDIRECT_URL: z.string().url().optional(),
 
   //* Object storage (Cloudflare R2)
   R2_ACCOUNT_ID: z.string().min(1),
@@ -76,6 +80,11 @@ function loadEnv() {
 
   if (parsed.data.NODE_ENV === "production" && !parsed.data.CORS_ORIGINS) {
     console.error("✗ CORS_ORIGINS is required when NODE_ENV=production")
+    process.exit(1)
+  }
+
+  if (parsed.data.NODE_ENV === "production" && !parsed.data.CLERK_ADMIN_INVITE_REDIRECT_URL) {
+    console.error("✗ CLERK_ADMIN_INVITE_REDIRECT_URL is required when NODE_ENV=production")
     process.exit(1)
   }
 

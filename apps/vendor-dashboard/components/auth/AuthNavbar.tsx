@@ -23,19 +23,12 @@ export default function AuthNavbar() {
         {/* Navigation */}
         <div className="flex items-center gap-6">
           <Link
-            href="/"
+            href="mailto:support@dailybread.com"
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <Home className="h-4 w-4" />
-            <span className="hidden sm:inline">Home</span>
+            <span className="hidden sm:inline">Help</span>
           </Link>
-          <Link
-            href="/support"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Help
-          </Link>
-          <div className="h-6 w-px bg-border" />
         </div>
       </div>
     </header>

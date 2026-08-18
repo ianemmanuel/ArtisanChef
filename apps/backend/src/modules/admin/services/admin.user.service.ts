@@ -194,6 +194,12 @@ export async function sendAdminInvitation(
   actorId    : string,
   actorScope : AdminScopeContext,
 ) {
+  // Optional at startup (see env.ts) since it's only this one admin-only
+  // feature — but genuinely required to actually send an invitation.
+  if (!env.CLERK_ADMIN_INVITE_REDIRECT_URL) {
+    throw new ApiError(500, "Admin invitations are not configured on this environment", "INVITE_NOT_CONFIGURED")
+  }
+
   const adminUser = await prisma.adminUser.findUnique({
     where  : { id: adminUserId },
     include: { role: true, scopes: true },

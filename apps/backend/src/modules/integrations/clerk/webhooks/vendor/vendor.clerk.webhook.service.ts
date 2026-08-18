@@ -7,9 +7,9 @@ import {
   WEBHOOK_EVENTS,
 } from "../shared/clerk.webhook.utils"
 
-//* ─── Entry point ──────────────────────────────────────────────────────────────
 
-/**
+
+/*
  * Processes an inbound webhook from the Vendor Clerk application.
  *
  * Supported events:
@@ -40,13 +40,15 @@ export async function processVendorClerkWebhook(req: Request): Promise<void> {
   }
 }
 
-// ─── user.created ─────────────────────────────────────────────────────────────
-
 async function handleVendorUserCreated(data: any): Promise<void> {
   const clerkId  = data.id as string
   const rawEmail = extractPrimaryEmail(data)
 
   if (!clerkId || !rawEmail) {
+    // Logged with the raw payload so a real recurrence (as opposed to a
+    // one-off malformed test event from the Clerk dashboard) can be
+    // root-caused from the exact shape Clerk actually sent.
+    console.error("[webhook:vendor] user.created payload missing id or primary email:", JSON.stringify(data))
     throw new Error("[webhook:vendor] user.created payload missing id or primary email")
   }
 
@@ -63,7 +65,6 @@ async function handleVendorUserCreated(data: any): Promise<void> {
   console.info(`[webhook:vendor] Created/confirmed vendor user: ${email}`)
 }
 
-//* ─── user.deleted ─────────────────────────────────────────────────────────────
 
 async function handleVendorUserDeleted(clerkId: string): Promise<void> {
   if (!clerkId) {

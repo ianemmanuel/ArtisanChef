@@ -1,37 +1,38 @@
-import { ReactNode } from 'react'
-import { OnboardingNavbar } from '@/components/onboarding/layout'
-import { OnboardingFooter } from '@/components/onboarding/layout'
+import { redirect } from "next/navigation"
+import { backendFetch } from "@/lib/api/server"
+import { OnboardingShell } from "@/components/onboarding/OnboardingShell"
+import { AccountStatusNotice } from "@/components/onboarding/AccountStatusNotice"
+import type { VendorSessionData } from "@repo/types/vendor-app"
 
 /*
-  ONBOARDING LAYOUT — SERVER COMPONENT
+ * Coarse, server-side routing gate for the entire /onboarding tree.
+ * The backend's session `state` is the single source of truth — a
+ * vendor who's already ACTIVE has no business in the onboarding flow
+ * and is redirected straight to the real dashboard. Fine-grained
+ * routing between onboarding sub-steps (get-started vs business vs
+ * pending) is each page's own concern.
+ */
+export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
+  const session = await backendFetch<VendorSessionData>("/vendor/v1/auth/session")
 
-  Auth is not checked here. Each sub-page (business-details, documents, review)
-  runs its own auth() + fetch independently, which is correct because:
-  - They each need different data from the backend anyway
-  - Checking auth in the layout AND each page would hit Clerk twice per request
-  - Next.js deduplicates auth() calls within a request via React cache, but
-    the application fetch here was not cached and was being thrown away unused
+  if (session.state === "ACTIVE") {
+    redirect("/dashboard")
+  }
 
-  The previous version fetched /vendor/v1/application on every layout render
-  and then never used the result — the application data cannot be passed to
-  children from a layout. That fetch has been removed entirely.
-*/
-export default function OnboardingLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <OnboardingNavbar />
+  if (session.state === "PENDING_REVIEW" || session.state === "REJECTED") {
+    redirect("/application/pending")
+  }
 
-      {/*
-        max-w-3xl gives BusinessDetailsForm enough room for its 3-column grid
-        without needing the negative-margin breakout hack that was in the form.
-        Onboarding pages are intentionally narrower than the dashboard (max-w-7xl)
-        — forms need focus, not breadth.
-      */}
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
-        {children}
-      </main>
+  if (session.state === "BANNED" || session.state === "SUSPENDED") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <AccountStatusNotice
+          variant={session.state}
+          reason={session.state === "BANNED" ? session.vendorUser.banReason : session.vendorAccount?.suspensionReason ?? null}
+        />
+      </div>
+    )
+  }
 
-      <OnboardingFooter />
-    </div>
-  )
+  return <OnboardingShell state={session.state}>{children}</OnboardingShell>
 }

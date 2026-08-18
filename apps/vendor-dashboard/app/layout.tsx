@@ -1,10 +1,11 @@
 import type { Metadata } from "next"
 import { ClerkProvider } from '@clerk/nextjs'
-import { Toaster } from "@repo/ui/components/sonner"
+import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
 
 import { Inter, IBM_Plex_Mono, Playfair_Display } from 'next/font/google'
 import { ThemeProvider } from "@/components/themes/theme-provider"
+import { Providers } from "./providers"
 
 const inter = Inter({
   subsets: ['latin'],
@@ -52,13 +53,15 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            {children}
-            <Toaster
-              position="top-right"
-              richColors
-              closeButton
-              duration={4000}
-            /> 
+            <Providers>
+              {children}
+              <Toaster
+                position="top-right"
+                richColors
+                closeButton
+                duration={4000}
+              />
+            </Providers>
           </ThemeProvider>
         </body>
       </html>

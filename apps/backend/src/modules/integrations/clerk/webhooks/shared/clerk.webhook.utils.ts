@@ -56,14 +56,20 @@ export function verifyWebhookRequest(req: Request, secret: string): ClerkWebhook
 
 /**
  * Extracts the primary email from a Clerk user.created payload.
- * Uses primary_email_address_id to find the correct entry —
- * index 0 is NOT guaranteed to be the primary address.
+ * Uses primary_email_address_id to find the correct entry — index 0 is
+ * NOT guaranteed to be the primary address. Falls back to the first
+ * address on the account if the primary pointer doesn't resolve to one
+ * (seen with some social-login signups) — better to sync with *an*
+ * email than drop the vendor's signup entirely over a pointer mismatch.
  */
 export function extractPrimaryEmail(data: ClerkUserCreatedData): string | null {
+  if (!data.email_addresses?.length) return null
+
   const primary = data.email_addresses.find(
     (e) => e.id === data.primary_email_address_id
   )
-  return primary?.email_address ?? null
+
+  return primary?.email_address ?? data.email_addresses[0]?.email_address ?? null
 }
 
 /**

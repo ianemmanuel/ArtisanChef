@@ -26,6 +26,21 @@ import {
   REQUIRED_APPLICATION_FIELDS,
 } from "../schemas/vendor.application.schema"
 
+/*
+ * Reviewer ownership (assignedReviewerId/reviewedById) is an internal
+ * admin-side accountability mechanism — see admin.vendor.service.ts's
+ * claimApplication/reassignApplication. The vendor who owns this
+ * application has no use for another admin's internal id and should
+ * never see it, so every vendor-facing read of the full application
+ * strips these two fields before returning.
+ */
+function omitInternalReviewerFields<T extends { assignedReviewerId: string | null; reviewedById: string | null }>(
+  application: T,
+) {
+  const { assignedReviewerId, reviewedById, ...vendorSafe } = application
+  return vendorSafe
+}
+
 //* Full, richly-included application — for the GET endpoint only.
 export async function getApplication(vendorUserId: string) {
   const application = await prisma.vendorApplication.findFirst({
@@ -42,7 +57,7 @@ export async function getApplication(vendorUserId: string) {
 
   if (!application) throw new ApiError(404, "No application found", "VENDOR_APPLICATION_NOT_FOUND")
 
-  return application
+  return omitInternalReviewerFields(application)
 }
 
 /*
@@ -98,6 +113,7 @@ export async function updateApplication(
       ...(wasNeedsRevision && {
         rejectionReason: null,
         revisionNotes  : null,
+        reasonCode     : null,
         reviewedAt     : null,
       }),
     },
@@ -180,7 +196,14 @@ export async function previewApplication(applicationId: string) {
     missingFields.length === 0 &&
     (application.status === VendorApplicationStatus.DRAFT || application.status === VendorApplicationStatus.NEEDS_REVISION)
 
-  return { application, requirements, progress, missingRequired, missingFields, canSubmit }
+  return {
+    application: omitInternalReviewerFields(application),
+    requirements,
+    progress,
+    missingRequired,
+    missingFields,
+    canSubmit,
+  }
 }
 
 //* Completeness is checked against the persisted row here

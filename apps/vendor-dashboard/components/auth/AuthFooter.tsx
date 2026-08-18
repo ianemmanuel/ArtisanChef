@@ -24,20 +24,8 @@ export default function AuthFooter() {
 
         {/* Right */}
         <div className="flex items-center gap-6">
-          <Link 
-            href="/privacy" 
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Privacy
-          </Link>
-          <Link 
-            href="/terms" 
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Terms
-          </Link>
-          <Link 
-            href="mailto:support@artisanbakery.com"
+          <Link
+            href="mailto:support@dailybread.com"
             className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Mail className="h-3 w-3" />

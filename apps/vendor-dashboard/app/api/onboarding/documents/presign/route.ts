@@ -1,46 +1,15 @@
-import { NextResponse, type NextRequest } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { NextRequest } from "next/server"
+import { backendFetch } from "@/lib/api/server"
+import { proxyBackendCall } from "@/lib/api/route-handler"
+import type { PresignUploadRequest, PresignUploadResponse } from "@repo/types/vendor-app"
 
-export async function POST(request: NextRequest) {
-  try {
-    const { userId, getToken } = await auth()
-    const token = await getToken()
+export async function POST(req: NextRequest) {
+  const body = (await req.json()) as PresignUploadRequest
 
-    if (!userId || !token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const body = await request.json()
-
-    const backendUrl = process.env.BACKEND_API_URL!
-
-    const response = await fetch(
-      `${backendUrl}/vendor/v1/documents/presign`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    )
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.message || "Failed to generate presigned URL" },
-        { status: response.status }
-      )
-    }
-
-    return NextResponse.json(data)
-  } catch (error) {
-    console.error("Error generating presigned URL:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+  return proxyBackendCall(() =>
+    backendFetch<PresignUploadResponse>("/vendor/v1/documents/presign", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  )
 }

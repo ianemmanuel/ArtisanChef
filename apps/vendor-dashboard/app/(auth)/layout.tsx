@@ -40,8 +40,8 @@ export default function AuthLayout({
             <div className="mt-8 text-center">
               <p className="text-sm text-muted-foreground">
                 Need help?{' '}
-                <Link 
-                  href="mailto:support@breadbowl.com" 
+                <Link
+                  href="mailto:support@dailybread.com"
                   className="text-foreground hover:text-peach-600 dark:hover:text-peach-400 transition-colors font-medium"
                 >
                   Contact support

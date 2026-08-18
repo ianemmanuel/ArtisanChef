@@ -1,93 +1,21 @@
-import { NextResponse, type NextRequest } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { backendFetch } from "@/lib/api/server"
+import { proxyBackendCall } from "@/lib/api/route-handler"
+import type { DocumentProgress } from "@repo/types/vendor-app"
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { userId, getToken } = await auth()
-    const token = await getToken()
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
 
-    if (!userId || !token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { id } = await params
-    const backendUrl = process.env.BACKEND_API_URL!
-
-    const response = await fetch(
-      `${backendUrl}/vendor/v1/documents/delete/${id}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    )
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.message || "Failed to delete document" },
-        { status: response.status }
-      )
-    }
-
-    return NextResponse.json(data)
-  } catch (error) {
-    console.error("Error deleting document:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+  return proxyBackendCall(() =>
+    backendFetch<{ progress: DocumentProgress }>(`/vendor/v1/documents/delete/${id}`, {
+      method: "DELETE",
+    }),
+  )
 }
 
-//* ================= PREVIEW ================= 
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { userId, getToken } = await auth()
-    const token = await getToken()
-
-    if (!userId || !token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { id } = await params
-    const backendUrl = process.env.BACKEND_API_URL!
-
-    const response = await fetch(
-      `${backendUrl}/vendor/v1/documents/${id}/preview`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    )
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data.message || "Failed to preview document" },
-        { status: response.status }
-      )
-    }
-
-    return NextResponse.json(data)
-  } catch (error) {
-    console.error("Error previewing document:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
-  }
+  return proxyBackendCall(() =>
+    backendFetch<{ url: string }>(`/vendor/v1/documents/${id}/preview`),
+  )
 }

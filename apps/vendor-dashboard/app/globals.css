@@ -1,6 +1,31 @@
 @import "tailwindcss";
 @import "@repo/ui/styles/tokens.css";
+@import "@repo/ui/styles/base.css";
 
+/* ── Vendor-dashboard personality — light: warm cream, dark: warm charcoal ──
+   base.css's light mode is already neutral+amber; these overrides push the
+   vendor app further into "restaurant/hospitality" warmth than the neutral
+   admin baseline, per the design references. `--deep` is a vendor-only
+   token (rich espresso-brown) used sparingly for high-emphasis surfaces —
+   the onboarding step rail, the requirements "get ready" hero. */
+:root {
+  --background:         oklch(0.975 0.008 70);
+  --card:                oklch(0.995 0.004 70);
+  --muted:               oklch(0.955 0.012 68);
+  --sidebar:             oklch(0.995 0.004 70);
+  --sidebar-active-bg:   var(--color-brand-50);
+
+  --deep:                oklch(0.260 0.045 45);
+  --deep-foreground:     var(--color-neutral-0);
+
+  --shadow-card: oklch(0.400 0.060 45 / 8%);
+}
+
+.dark {
+  --deep:            oklch(0.870 0.030 60);
+  --deep-foreground: oklch(0.180 0.020 45);
+  --shadow-card:     oklch(0 0 0 / 35%);
+}
 
 @theme {
   --font-sans:    var(--font-inter);
@@ -13,6 +38,8 @@
   --color-card-foreground:           var(--card-foreground);
   --color-primary:                   var(--primary);
   --color-primary-foreground:        var(--primary-foreground);
+  --color-primary-subtle:            var(--primary-subtle);
+  --color-primary-subtle-fg:         var(--primary-subtle-fg);
   --color-secondary:                 var(--secondary);
   --color-secondary-foreground:      var(--secondary-foreground);
   --color-muted:                     var(--muted);
@@ -33,8 +60,15 @@
   --color-sidebar-primary:           var(--sidebar-primary);
   --color-sidebar-border:            var(--sidebar-border);
   --color-success:                   var(--success);
+  --color-success-foreground:        var(--success-foreground);
+  --color-success-bg:                var(--success-bg);
   --color-warning:                   var(--warning);
+  --color-warning-foreground:        var(--warning-foreground);
+  --color-warning-bg:                var(--warning-bg);
   --color-info:                      var(--info);
+  --color-info-foreground:           var(--info-foreground);
+  --color-info-bg:                   var(--info-bg);
+  --color-destructive-bg:            var(--destructive-bg);
 
   /* Radius scale */
   --radius-sm:   calc(var(--radius) - 6px);

@@ -1,56 +1,34 @@
-import AuthAside from "@/components/auth/AuthAside"
+import { redirect } from "next/navigation"
+import { auth } from "@clerk/nextjs/server"
 import AuthNavbar from "@/components/auth/AuthNavbar"
 import AuthFooter from "@/components/auth/AuthFooter"
-import Link from "next/link"
 
-export default function AuthLayout({
+/*
+ * A signed-in visitor who lands on /sign-in or /sign-up gets bounced to
+ * "/" here, server-side, before <SignIn>/<SignUp> ever mounts — "/" is
+ * the one place that knows where an authenticated vendor actually
+ * belongs (see app/page.tsx). Without this, Clerk's own client-side
+ * "already signed in" guard does the same redirect a beat later, after
+ * rendering the form for a frame and logging a dev-only console notice.
+ */
+export default async function AuthLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const { userId } = await auth()
+  if (userId) redirect("/")
+
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-background">
       <AuthNavbar />
 
-      {/* Main content */}
-      <main className="flex flex-1">
-        {/* Left aside panel (desktop only) */}
-        <div className="hidden lg:flex lg:w-[42%] border-r border-border">
-          <AuthAside />
-        </div>
-
-        {/* Auth form area */}
-        <div className="flex w-full lg:w-[58%] items-center justify-center p-6 md:p-8 lg:p-12">
-          <div className="w-full max-w-md">
-            {/* Mobile welcome message */}
-            <div className="lg:hidden mb-8">
-              <h1 className="text-3xl font-bold text-foreground mb-3">
-                Welcome back
-              </h1>
-              <p className="text-base text-muted-foreground">
-                Sign in to manage your dashboard
-              </p>
-            </div>
-
-            {/* Clerk form - clean wrapper */}
-            <div className="w-full">
-              {children}
-            </div>
-
-            <div className="mt-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                Need help?{' '}
-                <Link
-                  href="mailto:support@dailybread.com"
-                  className="text-foreground hover:text-peach-600 dark:hover:text-peach-400 transition-colors font-medium"
-                >
-                  Contact support
-                </Link>
-              </p>
-            </div>
-          </div>
+      <main className="flex flex-1 items-center justify-center px-4 py-12 sm:px-6">
+        <div className="w-full max-w-md">
+          {children}
         </div>
       </main>
+
       <AuthFooter />
     </div>
   )

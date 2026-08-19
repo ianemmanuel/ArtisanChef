@@ -1,5 +1,7 @@
-import { Clock, Search, XCircle } from "lucide-react"
+import Link from "next/link"
+import { Clock, Mail, Search, XCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { ApplicationStatusBadge } from "@/components/onboarding/StatusBadge"
 import { humanizeReasonCode } from "@/lib/utils/reason-code"
 import type { VendorSessionApplication } from "@repo/types/vendor-app"
@@ -22,10 +24,16 @@ const COPY: Record<string, { icon: typeof Clock; title: string; body: string }> 
   },
 }
 
+function formatDate(value: string | null): string | null {
+  if (!value) return null
+  return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+}
+
 export function ApplicationStatusCard({ application }: { application: VendorSessionApplication }) {
   const copy = COPY[application.status] ?? COPY.SUBMITTED!
   const Icon = copy.icon
   const isRejected = application.status === "REJECTED"
+  const submittedOn = formatDate(application.submittedAt)
 
   return (
     <Card className="w-full">
@@ -44,6 +52,9 @@ export function ApplicationStatusCard({ application }: { application: VendorSess
 
         <h1 className="font-display text-xl font-semibold text-foreground">{copy.title}</h1>
         <p className="max-w-sm text-sm text-muted-foreground">{copy.body}</p>
+        {submittedOn && !isRejected && (
+          <p className="text-xs text-muted-foreground">Submitted on {submittedOn}</p>
+        )}
 
         {isRejected && (application.reasonCode || application.rejectionReason) && (
           <div className="mt-2 w-full rounded-lg border border-border bg-muted/40 p-4 text-left">
@@ -54,6 +65,14 @@ export function ApplicationStatusCard({ application }: { application: VendorSess
               <p className="mt-1 text-sm text-muted-foreground">{application.rejectionReason}</p>
             )}
           </div>
+        )}
+
+        {isRejected && (
+          <Button asChild variant="outline" className="mt-2 w-full sm:w-auto">
+            <Link href="mailto:support@dailybread.com">
+              <Mail className="size-4" /> Contact support
+            </Link>
+          </Button>
         )}
       </CardContent>
     </Card>

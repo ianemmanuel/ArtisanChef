@@ -40,7 +40,7 @@ export function ReviewSummary({ preview }: { preview: ApplicationPreview }) {
   async function handleSubmit() {
     try {
       await submit.mutateAsync()
-      router.push("/application/pending")
+      router.push("/application/status")
     } catch (err) {
       toast.error(err instanceof ClientApiError ? err.message : "Couldn't submit your application.")
     }

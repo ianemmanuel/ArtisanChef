@@ -12,7 +12,7 @@ export default async function BusinessPage() {
   // so a vendor who lands here mid-review sees the right page instead
   // of a form that would reject their save.
   if (application.status !== "DRAFT" && application.status !== "NEEDS_REVISION") {
-    redirect("/application/pending")
+    redirect("/application/status")
   }
 
   return (

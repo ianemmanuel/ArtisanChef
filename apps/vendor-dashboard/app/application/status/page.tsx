@@ -9,7 +9,7 @@ import type { VendorSessionData } from "@repo/types/vendor-app"
  * state actually routes — rather than this page hardcoding a second copy
  * of that table.
  */
-export default async function ApplicationPendingPage() {
+export default async function ApplicationStatusPage() {
   let session: VendorSessionData
 
   try {

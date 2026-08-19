@@ -1,10 +1,11 @@
 import Link from "next/link"
 import { UserButton } from "@clerk/nextjs"
 import { UtensilsCrossed } from "lucide-react"
+import AuthFooter from "@/components/auth/AuthFooter"
 
 export default function ApplicationLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="glow-primary relative min-h-screen bg-background">
+    <div className="glow-primary relative flex min-h-screen flex-col bg-background">
       <header className="border-b border-border/60 bg-card/60 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-display text-lg font-semibold">
@@ -17,9 +18,11 @@ export default function ApplicationLayout({ children }: { children: React.ReactN
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-5xl items-center justify-center px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-10">
         <main className="fade-up w-full">{children}</main>
       </div>
+
+      <AuthFooter />
     </div>
   )
 }

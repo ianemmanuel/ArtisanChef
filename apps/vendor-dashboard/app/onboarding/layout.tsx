@@ -20,7 +20,7 @@ export default async function OnboardingLayout({ children }: { children: React.R
   }
 
   if (session.state === "PENDING_REVIEW" || session.state === "REJECTED") {
-    redirect("/application/pending")
+    redirect("/application/status")
   }
 
   if (session.state === "BANNED" || session.state === "SUSPENDED") {
@@ -34,5 +34,5 @@ export default async function OnboardingLayout({ children }: { children: React.R
     )
   }
 
-  return <OnboardingShell state={session.state}>{children}</OnboardingShell>
+  return <OnboardingShell>{children}</OnboardingShell>
 }

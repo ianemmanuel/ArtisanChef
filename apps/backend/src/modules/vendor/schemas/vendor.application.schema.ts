@@ -14,6 +14,16 @@ export const createApplicationSchema = z.object({
 export type CreateApplicationInput = z.infer<typeof createApplicationSchema>
 
 /*
+ * The frontend's businessFormSchema renders ownerPhone/ownerEmail as
+ * genuinely optional inputs, which — like any blank HTML input —
+ * submit as "" rather than being omitted from the payload. "" must
+ * therefore be treated the same as "not provided", not run through
+ * the format validator (an empty string is neither a 5-char phone
+ * number nor a valid email).
+ */
+const blankToUndefined = (val: unknown) => (val === "" ? undefined : val)
+
+/*
  * Used by every subsequent form page to save its own slice of the
  * application. Every field is optional at this layer — a page only
  * sends what it owns — but each field is still format-validated
@@ -29,8 +39,8 @@ export const updateApplicationSchema = z
     businessPhone: z.string().trim().min(5).max(30).optional(),
     ownerFirstName: z.string().trim().min(1).max(100).optional(),
     ownerLastName: z.string().trim().min(1).max(100).optional(),
-    ownerPhone: z.string().trim().min(5).max(30).optional(),
-    ownerEmail: z.string().trim().email().optional(),
+    ownerPhone: z.preprocess(blankToUndefined, z.string().trim().min(5).max(30).optional()),
+    ownerEmail: z.preprocess(blankToUndefined, z.string().trim().email().optional()),
     businessAddress: z.string().trim().min(1).max(300).optional(),
     addressLine2: z.string().trim().max(300).optional(),
     postalCode: z.string().trim().max(20).optional(),

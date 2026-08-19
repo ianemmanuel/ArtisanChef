@@ -74,6 +74,10 @@
   --status-delivery:        var(--color-status-delivery);
   --status-cancelled:       var(--color-status-cancelled);
 
+  --shadow-primary:         color-mix(in oklch, var(--primary) 35%, transparent);
+  --chart-1:                var(--color-brand-500);
+  --chart-2:                var(--color-info);
+
   --radius:                 var(--radius-base);
 }
 
@@ -140,6 +144,10 @@
   --destructive:            oklch(0.630 0.190 22);
   --destructive-foreground: var(--color-dark-bg);
   --destructive-bg:         oklch(0.630 0.190 22 / 14%);
+
+  --shadow-primary:         color-mix(in oklch, var(--primary) 45%, transparent);
+  --chart-1:                var(--color-brand-500);
+  --chart-2:                oklch(0.640 0.130 240);
 
   --radius:                 var(--radius-base);
 }

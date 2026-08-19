@@ -6,7 +6,6 @@ import {
 
 const countryRouter: Router = Router()
 
-//* /api/vendors/v1/meta/countries
 countryRouter.get("/", getOnboardingCountries)
 
 

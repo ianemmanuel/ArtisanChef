@@ -6,7 +6,7 @@ import {
 
 const vendorTypeRouter: Router = Router()
 
-//* /api/vendors/v1/meta/vendor-types
+//* /api/meta/v1/vendor-types
 vendorTypeRouter.get("/", getOnboardingVendorTypes)
 
 

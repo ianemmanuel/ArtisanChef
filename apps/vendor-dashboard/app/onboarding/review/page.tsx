@@ -7,7 +7,7 @@ export default async function ReviewPage() {
   const preview = await backendFetch<ApplicationPreview>("/vendor/v1/application/preview")
 
   if (preview.application.status !== "DRAFT" && preview.application.status !== "NEEDS_REVISION") {
-    redirect("/application/pending")
+    redirect("/application/status")
   }
 
   return (

@@ -14,5 +14,13 @@ export function zodErrorToApiError(err: ZodError): ApiError {
     message: issue.message,
   }))
 
-  return new ApiError(400, "Validation failed.", "VALIDATION_ERROR", errors)
+  // Name the offending fields in the top-level message itself, so a
+  // client that only surfaces `message` (a toast, a log line) still
+  // tells the user something actionable instead of just "failed".
+  const fields = [...new Set(errors.map((e) => e.field).filter(Boolean))] as string[]
+  const message = fields.length
+    ? `Validation failed for: ${fields.join(", ")}.`
+    : "Validation failed."
+
+  return new ApiError(400, message, "VALIDATION_ERROR", errors)
 }

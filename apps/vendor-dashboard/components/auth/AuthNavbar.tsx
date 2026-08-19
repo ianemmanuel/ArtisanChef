@@ -1,35 +1,20 @@
-import { Coffee, Home } from 'lucide-react'
 import Link from 'next/link'
 
 export default function AuthNavbar() {
   return (
-    <header className="sticky top-0 z-40 h-16 border-b border-border/40 bg-card/80 backdrop-blur-md supports-backdrop-filter:bg-card/60">
-      <div className="container mx-auto flex h-full items-center justify-between px-6">
-        {/* Logo */}
-        <Link href="/" className="group flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-espresso-600 to-espresso-700 shadow-sm transition-all group-hover:shadow-md group-hover:scale-105">
-            <Coffee className="h-5 w-5 text-dark" />
+    <header className="border-b border-border/60 bg-card/60 backdrop-blur-sm">
+      <div className="mx-auto flex h-16 max-w-5xl items-center px-4 sm:px-6">
+        <Link href="/" className="flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary shadow-[0_2px_10px_var(--shadow-primary)]">
+            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M10 2C6.5 2 4 5 4 8c0 2 1 3.5 2 4.5V15h8v-2.5C15 11.5 16 10 16 8c0-3-2.5-6-6-6z" fill="currentColor" className="text-primary-foreground" fillOpacity="0.95" />
+              <path d="M7 15h6v1.5a1 1 0 01-1 1H8a1 1 0 01-1-1V15z" fill="currentColor" className="text-primary-foreground" fillOpacity="0.65" />
+            </svg>
           </div>
-          <div>
-            <div className="text-lg font-bold text-foreground tracking-tight">
-              Daily Bread
-            </div>
-            <div className="text-xs text-muted-foreground font-medium">
-              Vendor Portal
-            </div>
-          </div>
+          <span className="font-display text-lg font-bold tracking-tight text-foreground">
+            Daily<span className="text-primary">Bread</span>
+          </span>
         </Link>
-
-        {/* Navigation */}
-        <div className="flex items-center gap-6">
-          <Link
-            href="mailto:support@dailybread.com"
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Home className="h-4 w-4" />
-            <span className="hidden sm:inline">Help</span>
-          </Link>
-        </div>
       </div>
     </header>
   )

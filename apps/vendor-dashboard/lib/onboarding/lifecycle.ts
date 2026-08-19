@@ -15,7 +15,7 @@ export function onboardingRouteForState(state: VendorLifecycleState): string {
       return "/onboarding/business"
     case "PENDING_REVIEW":
     case "REJECTED":
-      return "/application/pending"
+      return "/application/status"
     case "ACTIVE":
     case "SUSPENDED":
     case "BANNED":
@@ -33,18 +33,3 @@ export const ONBOARDING_STEPS = [
 ] as const
 
 export type OnboardingStepKey = (typeof ONBOARDING_STEPS)[number]["key"]
-
-export function stepIndexForState(state: VendorLifecycleState): number {
-  switch (state) {
-    case "NOT_STARTED":
-      return 0
-    case "DRAFT":
-    case "NEEDS_REVISION":
-      return 2
-    case "PENDING_REVIEW":
-    case "REJECTED":
-      return 3
-    default:
-      return 3
-  }
-}

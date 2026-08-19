@@ -28,10 +28,21 @@ interface FormSection {
     label: string
     type?: string
     span?: "full" | "half"
+    required?: boolean
   }>
 }
 
-const SECTIONS: FormSection[] = [
+// businessFormSchema is the source of truth for what's required — this
+// list only drives the "(optional)" label, kept alongside so a schema
+// change is visible here too, not silently out of sync.
+const OPTIONAL_FIELDS = new Set<keyof BusinessFormInput>([
+  "ownerPhone",
+  "ownerEmail",
+  "addressLine2",
+  "postalCode",
+])
+
+const RAW_SECTIONS: FormSection[] = [
   {
     title: "Business information",
     description: "Your registered business identity.",
@@ -55,8 +66,8 @@ const SECTIONS: FormSection[] = [
     fields: [
       { name: "ownerFirstName", label: "First name" },
       { name: "ownerLastName", label: "Last name" },
-      { name: "ownerPhone", label: "Owner phone (optional)", type: "tel" },
-      { name: "ownerEmail", label: "Owner email (optional)", type: "email" },
+      { name: "ownerPhone", label: "Owner phone", type: "tel" },
+      { name: "ownerEmail", label: "Owner email", type: "email" },
     ],
   },
   {
@@ -64,11 +75,16 @@ const SECTIONS: FormSection[] = [
     description: "Where the business is legally located.",
     fields: [
       { name: "businessAddress", label: "Street address", span: "full" },
-      { name: "addressLine2", label: "Address line 2 (optional)", span: "full" },
-      { name: "postalCode", label: "Postal code (optional)" },
+      { name: "addressLine2", label: "Address line 2", span: "full" },
+      { name: "postalCode", label: "Postal code" },
     ],
   },
 ]
+
+const SECTIONS: FormSection[] = RAW_SECTIONS.map((section) => ({
+  ...section,
+  fields: section.fields.map((field) => ({ ...field, required: !OPTIONAL_FIELDS.has(field.name) })),
+}))
 
 export function BusinessForm({ application }: { application: VendorApplicationDetail }) {
   const router = useRouter()
@@ -77,6 +93,7 @@ export function BusinessForm({ application }: { application: VendorApplicationDe
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<BusinessFormInput>({
     resolver: zodResolver(businessFormSchema),
@@ -96,11 +113,29 @@ export function BusinessForm({ application }: { application: VendorApplicationDe
     },
   })
 
+  const FIELD_NAMES = new Set(SECTIONS.flatMap((s) => s.fields.map((f) => f.name)))
+
   const onSubmit = handleSubmit(async (values) => {
     try {
       await updateApplication.mutateAsync(values)
       router.push("/onboarding/review")
     } catch (err) {
+      if (err instanceof ClientApiError && err.errors?.length) {
+        let matched = 0
+        for (const { field, message } of err.errors) {
+          if (field && FIELD_NAMES.has(field as keyof BusinessFormInput)) {
+            setError(field as keyof BusinessFormInput, { type: "server", message })
+            matched++
+          }
+        }
+        toast.error(
+          matched
+            ? "Please fix the highlighted field" + (matched === 1 ? "" : "s") + " below."
+            : err.message,
+        )
+        return
+      }
+
       toast.error(err instanceof ClientApiError ? err.message : "Couldn't save your application. Try again.")
     }
   })
@@ -120,7 +155,14 @@ export function BusinessForm({ application }: { application: VendorApplicationDe
                   key={field.name}
                   className={field.span === "full" ? "sm:col-span-2 space-y-2" : "space-y-2"}
                 >
-                  <Label htmlFor={field.name}>{field.label}</Label>
+                  <Label htmlFor={field.name}>
+                    {field.label}
+                    {field.required ? (
+                      <span className="text-destructive" aria-hidden="true"> *</span>
+                    ) : (
+                      <span className="text-muted-foreground font-normal"> (optional)</span>
+                    )}
+                  </Label>
                   <Input id={field.name} type={field.type ?? "text"} {...register(field.name)} />
                   {errors[field.name] && (
                     <p className="text-sm text-destructive">{errors[field.name]?.message}</p>

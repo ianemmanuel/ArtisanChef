@@ -36,12 +36,18 @@ export class BackendApiError extends Error {
 /*
  * Every vendor-dashboard call to the backend goes through this one
  * function — Server Component reads and Route Handler writes alike.
- * cache: "no-store" is deliberate: application/session state changes
- * from admin actions (approve/reject/needs-revision) need to be visible
- * on the vendor's very next request, not served from a stale Next.js
- * data cache — the backend, not this cache layer, is the source of truth.
+ * Default is cache: "no-store", since most of what this app reads
+ * (session/application state) changes from admin actions and must
+ * never be served stale. Callers reading genuinely slow-changing,
+ * admin-curated reference data (countries, vendor types, document
+ * requirements) can opt in with `revalidate` to skip the round trip
+ * for that long instead — the backend remains the source of truth
+ * either way, this only controls how long Next.js may reuse a response.
  */
-export async function backendFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function backendFetch<T>(
+  path: string,
+  init?: RequestInit & { revalidate?: number },
+): Promise<T> {
   const { getToken } = await auth()
   const token = await getToken()
 
@@ -49,14 +55,16 @@ export async function backendFetch<T>(path: string, init?: RequestInit): Promise
     throw new BackendApiError(401, "UNAUTHENTICATED", "Not signed in")
   }
 
+  const { revalidate, ...rest } = init ?? {}
+
   const res = await fetch(`${BACKEND_API_URL}${path}`, {
-    ...init,
+    ...rest,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      ...init?.headers,
+      ...rest.headers,
     },
-    cache: "no-store",
+    ...(revalidate !== undefined ? { next: { revalidate } } : { cache: "no-store" }),
   })
 
   const body = (await res.json().catch(() => null)) as ApiEnvelope<T> | null

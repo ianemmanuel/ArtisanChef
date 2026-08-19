@@ -2,12 +2,19 @@
 @import "@repo/ui/styles/tokens.css";
 @import "@repo/ui/styles/base.css";
 
-/* ── Vendor-dashboard personality — light: warm cream, dark: warm charcoal ──
+/* ── Vendor-dashboard personality — warm cream, light-only ──────────────
    base.css's light mode is already neutral+amber; these overrides push the
    vendor app further into "restaurant/hospitality" warmth than the neutral
    admin baseline, per the design references. `--deep` is a vendor-only
    token (rich espresso-brown) used sparingly for high-emphasis surfaces —
-   the onboarding step rail, the requirements "get ready" hero. */
+   the onboarding step rail, the requirements "get ready" hero.
+
+   Vendor-dashboard is light-only by product decision (an indoor,
+   in-session vendor tool has little use for a dark theme) — the
+   RootLayout ThemeProvider is forced to "light" (see app/layout.tsx), so
+   base.css's .dark block never activates here. Dark mode stays available
+   to other apps (e.g. admin-dashboard) that opt into it themselves — it's
+   an app-level decision, not something this shared package enforces. */
 :root {
   --background:         oklch(0.975 0.008 70);
   --card:                oklch(0.995 0.004 70);
@@ -21,12 +28,6 @@
   --shadow-card: oklch(0.400 0.060 45 / 8%);
 }
 
-.dark {
-  --deep:            oklch(0.870 0.030 60);
-  --deep-foreground: oklch(0.180 0.020 45);
-  --shadow-card:     oklch(0 0 0 / 35%);
-}
-
 @theme {
   --font-sans:    var(--font-inter);
   --font-display: var(--font-playfair);
@@ -36,6 +37,8 @@
   --color-foreground:                var(--foreground);
   --color-card:                      var(--card);
   --color-card-foreground:           var(--card-foreground);
+  --color-popover:                   var(--popover);
+  --color-popover-foreground:        var(--popover-foreground);
   --color-primary:                   var(--primary);
   --color-primary-foreground:        var(--primary-foreground);
   --color-primary-subtle:            var(--primary-subtle);
@@ -134,6 +137,10 @@
 
 
 /* ── Badge base shape ── */
+
+  .badge-base {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
 
   .badge-primary {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;

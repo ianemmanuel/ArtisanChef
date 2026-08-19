@@ -40,7 +40,28 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      appearance={{
+        variables: {
+          colorPrimary: 'var(--primary)',
+          colorBackground: 'var(--card)',
+          colorText: 'var(--foreground)',
+          colorTextSecondary: 'var(--muted-foreground)',
+          colorInputBackground: 'var(--input)',
+          colorInputText: 'var(--foreground)',
+          colorDanger: 'var(--destructive)',
+          borderRadius: 'var(--radius-md)',
+          fontFamily: 'var(--font-inter)',
+        },
+        elements: {
+          // Clerk's own OS-level color-scheme detection can otherwise leave
+          // these looking transparent — pin them explicitly since the app
+          // itself is light-only.
+          socialButtonsBlockButton: 'bg-card border border-border shadow-xs',
+          dividerLine: 'bg-border',
+        },
+      }}
+    >
       <html
         lang="en"
         className={`${inter.variable} ${ibmPlexMono.variable} ${playfair.variable}`}
@@ -49,8 +70,9 @@ export default function RootLayout({
         <body className="font-sans antialiased">
           <ThemeProvider
             attribute="class"
-            defaultTheme="system"
-            enableSystem
+            defaultTheme="light"
+            forcedTheme="light"
+            enableSystem={false}
             disableTransitionOnChange
           >
             <Providers>

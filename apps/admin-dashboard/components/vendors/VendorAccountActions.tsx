@@ -14,7 +14,11 @@ import { suspendVendorSchema } from "@/lib/zod/vendor"
 interface Props {
   vendorId     : string
   currentStatus: string
+  /** VENDORS_ACCOUNTS_SUSPEND */
   canSuspend   : boolean
+  /** VENDORS_ACCOUNTS_REINSTATE — distinct from canSuspend; the backend checks it separately */
+  canReinstate : boolean
+  /** VENDORS_ACCOUNTS_BAN */
   canBan       : boolean
 }
 
@@ -25,7 +29,7 @@ type ActiveForm = "suspend" | "ban" | null
  * Each destructive action requires a reason before confirming.
  * Reinstate is a single click (no reason required).
  */
-export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canBan }: Props) {
+export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canReinstate, canBan }: Props) {
     const router = useRouter()
     const [activeForm, setActive] = useState<ActiveForm>(null)
     const [isPending, startTransition] = useTransition()
@@ -51,7 +55,7 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canB
         validators   : { onSubmit: suspendVendorSchema },
         onSubmit: async ({ value }) => {
             const action = activeForm === "ban" ? "ban" : "suspend"
-            const res = await fetch(`/api/admin/vendors/accounts/${vendorId}/${action}`, {
+            const res = await fetch(`/api/vendors/accounts/${vendorId}/${action}`, {
                 method : "POST",
                 headers: { "Content-Type": "application/json" },
                 body   : JSON.stringify({ reason: value.reason }),
@@ -67,7 +71,7 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canB
         },
     })
 
-  if (!canSuspend && !canBan) return null
+  if (!canSuspend && !canReinstate && !canBan) return null
 
   return (
     <div className="flex flex-col gap-3">
@@ -76,20 +80,20 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canB
         <div className="flex flex-wrap gap-2">
           {canSuspend && currentStatus === "ACTIVE" && (
             <Button size="sm" variant="outline"
-              className="border-warning/40 text-warning hover:bg-warning/5"
+              className="rounded-full border-warning/40 text-warning hover:bg-warning-bg"
               onClick={() => setActive("suspend")}>
               <ShieldAlert className="mr-2 h-4 w-4" />
               Suspend
             </Button>
           )}
-          {canSuspend && currentStatus === "SUSPENDED" && (
-            <Button size="sm" variant="outline" disabled={isPending} onClick={doReinstate}>
+          {canReinstate && currentStatus === "SUSPENDED" && (
+            <Button size="sm" variant="outline" className="rounded-full" disabled={isPending} onClick={doReinstate}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {isPending ? "Reinstating…" : "Reinstate"}
             </Button>
           )}
           {canBan && currentStatus !== "BANNED" && (
-            <Button size="sm" variant="destructive" onClick={() => setActive("ban")}>
+            <Button size="sm" variant="destructive" className="rounded-full" onClick={() => setActive("ban")}>
               <Ban className="mr-2 h-4 w-4" />
               Ban
             </Button>
@@ -101,7 +105,7 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canB
       {activeForm !== null && (
         <form
           onSubmit={(e) => { e.preventDefault(); reasonForm.handleSubmit() }}
-          className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+          className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive-bg p-4"
         >
           <p className="text-sm font-semibold text-destructive capitalize">
             {activeForm === "ban" ? "Ban Vendor" : "Suspend Vendor"}
@@ -144,10 +148,10 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canB
           <reasonForm.Subscribe selector={(s) => ({ isSubmitting: s.isSubmitting })}>
             {({ isSubmitting }) => (
               <div className="flex gap-2">
-                <Button size="sm" variant="destructive" type="submit" disabled={isSubmitting}>
+                <Button size="sm" variant="destructive" className="rounded-full" type="submit" disabled={isSubmitting}>
                   {isSubmitting ? "Confirming…" : `Confirm ${activeForm === "ban" ? "Ban" : "Suspend"}`}
                 </Button>
-                <Button size="sm" variant="ghost" type="button" onClick={() => setActive(null)}>
+                <Button size="sm" variant="ghost" className="rounded-full" type="button" onClick={() => setActive(null)}>
                   Cancel
                 </Button>
               </div>

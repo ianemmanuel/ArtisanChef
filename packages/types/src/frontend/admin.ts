@@ -25,6 +25,15 @@ export type {
 } from "../domain/kpi"
 
 export type { RegionBreakdown, RegionSummaryResult } from "../domain/region"
+
+//* Vendor applications — review workflow (Vendor Applications vertical slice)
+export type {
+    AdminActionReason,
+    RejectApplicationRequest,
+    MarkApplicationNeedsRevisionRequest,
+    ApproveApplicationResponse,
+} from "../domain/admin"
+
 //* ENUMS
 export type { AdminPermissionKey } from "../enums/admin"
 export { AdminPermissions } from "../enums/admin"
@@ -32,6 +41,8 @@ export type { AdminRoleName } from "../enums/admin"
 export { AdminRoleNames } from "../enums/admin"
 export { AdminUserStatus } from "../enums/admin"
 export { AdminScopeType } from "../enums/admin"
+export { VendorApplicationStatus } from "../enums/vendor"
+export { DocumentStatus } from "../enums/document"
 
 export type { ServiceAreaMode } from "../enums/geography"
 export type { GeoStatus } from "../enums/geography"
@@ -41,13 +52,33 @@ export type { BoundarySource } from "../enums/geography"
 //* DOMAIN TYPES
 
 //* Geography
-export type { Country } from "../domain/country"
-export type { 
-    City, 
-    CityDetail, 
-    CityBoundaryData, 
-    CityBoundary, 
-    OsmPreviewResult   
+export type {
+    Country,
+    CountrySummaryResult,
+    CountryListResult,
+    CountryWithCities,
+    CountryVendorSnapshot,
+    CountryOnboardingLeaderboardEntry,
+    UpdateCountryRequest,
+} from "../domain/country"
+
+//* Vendor types
+export type {
+    VendorTypeSummary,
+    VendorTypeListResult,
+    VendorTypeStats,
+} from "../domain/vendor"
+export type { VendorTypeStatus } from "../enums/vendor"
+export type {
+    City,
+    CityDetail,
+    CityBoundaryData,
+    CityBoundary,
+    OsmPreviewResult,
+    CreateCityRequest,
+    UpdateCityRequest,
+    CityOutletSnapshot,
+    CityOutletLeaderboardEntry,
 } from "../domain/city"
 
 export type { ServiceArea } from "../domain/geography"

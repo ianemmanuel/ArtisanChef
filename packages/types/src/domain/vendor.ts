@@ -57,6 +57,30 @@ export interface AssignVendorTypeToCountryRequest {
   vendorTypeId: string
 }
 
+export interface VendorTypeSummary {
+  id         : string
+  name       : string
+  description: string | null
+  status     : VendorTypeStatus
+  createdAt  : string
+  _count     : { countries: number }
+}
+
+export interface VendorTypeListResult {
+  vendorTypes: VendorTypeSummary[]
+  total      : number
+  page       : number
+  pageSize   : number
+  totalPages : number
+}
+
+/** Real vendor-account counts for one vendor type, scope-filtered — no revenue (mock, generated on the frontend). */
+export interface VendorTypeStats {
+  total    : number
+  active   : number
+  suspended: number
+}
+
 //* ─── Admin: document type configuration ────────────────────────────────────
 //* Given country X + vendor type Y, DocumentTypeVendorType is the join that
 //* answers "what documents must this vendor provide" — see

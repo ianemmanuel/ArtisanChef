@@ -46,6 +46,14 @@ export interface CountrySummaryResult {
   }
 }
 
+export interface CountryListResult {
+  countries : CountrySummaryResult[]
+  total     : number
+  page      : number
+  pageSize  : number
+  totalPages: number
+}
+
 export interface CreateCountryRequest {
   name : string
   code : string
@@ -58,26 +66,6 @@ export interface CreateCountryRequest {
 
 export interface CountryWithCities extends Country {
   cities: City[]
-}
-
-export interface CountrySummaryResult {
-  id:        string
-  name:      string
-  slug:      string
-  code:      string
-  currency:  string
-  phoneCode: string
-  status:    string
-  createdAt: Date
-  region?: {
-    id:   string
-    name: string
-    code: string
-  } | null
-  _count: {
-    cities:  number
-    vendors: number
-  }
 }
 
 export interface CountryVendorSnapshot {
@@ -99,4 +87,15 @@ export interface CountryVendorSnapshot {
     name:  string
     count: number
   }>
+}
+
+//* Ranks active countries within scope by vendor applications submitted in
+//* a given quarter — powers the /countries insights leaderboard. Always
+//* returns every in-scope active country (ranked), so the frontend can
+//* either slice to a top-5 or show all when there are fewer than 5.
+export interface CountryOnboardingLeaderboardEntry {
+  countryId: string
+  name:      string
+  slug:      string
+  count:     number
 }

@@ -1,102 +1,172 @@
-// app/(dashboard)/cities/page.tsx
-import { MapPin } from "lucide-react"
-import { PageHeader } from "@/components/dashboard/layout/PageHeader"
-import { CreateCityButton } from "@/components/cities/CreateCityButton"
-import { CityTable } from "@/components/cities/CityTable"
-import { CountryTable } from "@/components/countries/countryTable"
+import type { Metadata } from "next"
+import { redirect } from "next/navigation"
+import Link from "next/link"
+import { Building2, CheckCircle, XCircle, MapPin } from "lucide-react"
+import { adminFetch } from "@/lib/api"
+import { getAdminSession } from "@/lib/auth/session"
+import { CitiesListTable } from "@/components/cities/CitiesListTable"
+import { CreateCityDialog } from "@/components/cities/CreateCityDialog"
+import { TopCitiesWidget } from "@/components/cities/TopCitiesWidget"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { TableFilterBar } from "@/components/shared/TableFilterBar"
+import { AdminPermissions } from "@repo/types/admin-app"
+import type { CountryListResult, CityOutletLeaderboardEntry } from "@repo/types/admin-app"
+import type { CityListResult } from "@/types/city.types"
 
-// Mock data based on the Country + City models
-const MOCK_CITIES = [
-  { id: "1", name: "Lagos", code: "LOS", timezone: "Africa/Lagos", status: "ACTIVE", country: { id: "ng", name: "Nigeria", code: "NG", phoneCode: "+234" } },
-  { id: "2", name: "Abuja", code: "ABV", timezone: "Africa/Lagos", status: "ACTIVE", country: { id: "ng", name: "Nigeria", code: "NG", phoneCode: "+234" } },
-  { id: "3", name: "Port Harcourt", code: "PHC", timezone: "Africa/Lagos", status: "ACTIVE", country: { id: "ng", name: "Nigeria", code: "NG", phoneCode: "+234" } },
-  { id: "4", name: "Kano", code: "KAN", timezone: "Africa/Lagos", status: "ACTIVE", country: { id: "ng", name: "Nigeria", code: "NG", phoneCode: "+234" } },
-  { id: "5", name: "Ibadan", code: "IBA", timezone: "Africa/Lagos", status: "ACTIVE", country: { id: "ng", name: "Nigeria", code: "NG", phoneCode: "+234" } },
-  { id: "6", name: "Benin City", code: "BNI", timezone: "Africa/Lagos", status: "ACTIVE", country: { id: "ng", name: "Nigeria", code: "NG", phoneCode: "+234" } },
-  { id: "7", name: "Nairobi", code: "NBO", timezone: "Africa/Nairobi", status: "ACTIVE", country: { id: "ke", name: "Kenya", code: "KE", phoneCode: "+254" } },
-  { id: "8", name: "Mombasa", code: "MBA", timezone: "Africa/Nairobi", status: "ACTIVE", country: { id: "ke", name: "Kenya", code: "KE", phoneCode: "+254" } },
-  { id: "9", name: "Kisumu", code: "KIS", timezone: "Africa/Nairobi", status: "ACTIVE", country: { id: "ke", name: "Kenya", code: "KE", phoneCode: "+254" } },
-  { id: "10", name: "Nakuru", code: "NKR", timezone: "Africa/Nairobi", status: "ACTIVE", country: { id: "ke", name: "Kenya", code: "KE", phoneCode: "+254" } },
-  { id: "11", name: "Eldoret", code: "EDT", timezone: "Africa/Nairobi", status: "ACTIVE", country: { id: "ke", name: "Kenya", code: "KE", phoneCode: "+254" } },
-  { id: "12", name: "Accra", code: "ACC", timezone: "Africa/Accra", status: "ACTIVE", country: { id: "gh", name: "Ghana", code: "GH", phoneCode: "+233" } },
-  { id: "13", name: "Kumasi", code: "KMS", timezone: "Africa/Accra", status: "ACTIVE", country: { id: "gh", name: "Ghana", code: "GH", phoneCode: "+233" } },
-  { id: "14", name: "Cape Town", code: "CPT", timezone: "Africa/Johannesburg", status: "ACTIVE", country: { id: "za", name: "South Africa", code: "ZA", phoneCode: "+27" } },
-  { id: "15", name: "Johannesburg", code: "JNB", timezone: "Africa/Johannesburg", status: "ACTIVE", country: { id: "za", name: "South Africa", code: "ZA", phoneCode: "+27" } },
-  { id: "16", name: "Durban", code: "DUR", timezone: "Africa/Johannesburg", status: "ACTIVE", country: { id: "za", name: "South Africa", code: "ZA", phoneCode: "+27" } },
-  { id: "17", name: "Pretoria", code: "PTA", timezone: "Africa/Johannesburg", status: "ACTIVE", country: { id: "za", name: "South Africa", code: "ZA", phoneCode: "+27" } },
-  { id: "18", name: "Casablanca", code: "CAS", timezone: "Africa/Casablanca", status: "ACTIVE", country: { id: "ma", name: "Morocco", code: "MA", phoneCode: "+212" } },
-  { id: "19", name: "Marrakech", code: "MRK", timezone: "Africa/Casablanca", status: "ACTIVE", country: { id: "ma", name: "Morocco", code: "MA", phoneCode: "+212" } },
-  { id: "20", name: "Cairo", code: "CAI", timezone: "Africa/Cairo", status: "ACTIVE", country: { id: "eg", name: "Egypt", code: "EG", phoneCode: "+20" } },
-]
+export const metadata: Metadata = { title: "Cities" }
+export const revalidate = 60
 
-// Group and count cities by country
-const getCountryStats = () => {
-  const countryMap = new Map<string, { id: string; name: string; code: string; phoneCode: string; cityCount: number }>()
-  
-  MOCK_CITIES.forEach(city => {
-    const existing = countryMap.get(city.country.id)
-    if (existing) {
-      existing.cityCount++
-    } else {
-      countryMap.set(city.country.id, {
-        id: city.country.id,
-        name: city.country.name,
-        code: city.country.code,
-        phoneCode: city.country.phoneCode,
-        cityCount: 1,
-      })
-    }
-  })
-  
-  return Array.from(countryMap.values()).sort((a, b) => b.cityCount - a.cityCount)
+const PAGE_SIZE = 10
+// Large enough to capture every country for the selector — this populates
+// a dropdown, not a paginated table.
+const COUNTRIES_PAGE_SIZE = 200
+
+interface PageProps {
+  searchParams: Promise<{ country?: string; status?: string; page?: string; search?: string }>
 }
 
-export default async function CitiesPage() {
-  // In a real app, you'd fetch this data:
-  // const cities = await prisma.city.findMany({ include: { country: true } })
-  const cities = MOCK_CITIES
-  const countries = getCountryStats()
+export default async function CitiesPage({ searchParams }: PageProps) {
+  const session = await getAdminSession()
+
+  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_READ)) redirect("/overview")
+
+  const { country: countryParam, status = "", page = "1", search = "" } = await searchParams
+
+  const countriesResult = await adminFetch<CountryListResult>(`/admin/v1/countries?pageSize=${COUNTRIES_PAGE_SIZE}`, {
+    next: { revalidate: 300, tags: ["countries"] },
+  }).catch(() => null)
+  const countries = countriesResult?.countries ?? []
+
+  if (countries.length === 0) {
+    return (
+      <div className="page-content animate-slide-up">
+        <EmptyState
+          icon={Building2}
+          title="No countries available"
+          description="Cities are managed within a country — activate or check with a super admin about seeding countries first."
+        />
+      </div>
+    )
+  }
+
+  const selected = countries.find((c) => c.slug === countryParam)
+    ?? countries.find((c) => c.status === "ACTIVE")
+    ?? countries[0]
+
+  const tableQuery = new URLSearchParams({ page, pageSize: String(PAGE_SIZE) })
+  if (status) tableQuery.set("status", status)
+  if (search) tableQuery.set("search", search)
+
+  const [totalResult, activeResult, tableResult, leaderboard] = await Promise.all([
+    adminFetch<CityListResult>(`/admin/v1/countries/${selected.slug}/cities?page=1&pageSize=1`, {
+      next: { revalidate: 60, tags: [`cities-${selected.slug}`] },
+    }).catch(() => null),
+    adminFetch<CityListResult>(`/admin/v1/countries/${selected.slug}/cities?page=1&pageSize=1&status=ACTIVE`, {
+      next: { revalidate: 60, tags: [`cities-${selected.slug}`] },
+    }).catch(() => null),
+    adminFetch<CityListResult>(`/admin/v1/countries/${selected.slug}/cities?${tableQuery.toString()}`, {
+      next: { revalidate: 60, tags: [`cities-${selected.slug}`] },
+    }).catch(() => null),
+    adminFetch<CityOutletLeaderboardEntry[]>(`/admin/v1/countries/${selected.slug}/cities/leaderboard`, {
+      next: { revalidate: 120, tags: [`cities-leaderboard-${selected.slug}`] },
+    }).catch(() => [] as CityOutletLeaderboardEntry[]),
+  ])
+
+  const totalCount    = totalResult?.total ?? 0
+  const activeCount   = activeResult?.total ?? 0
+  const inactiveCount = totalCount - activeCount
+
+  const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE)
+
+  const statusCards = [
+    { s: "",         label: "Total",    icon: Building2,   count: totalCount,    badgeClass: "icon-badge-primary" },
+    { s: "ACTIVE",   label: "Active",   icon: CheckCircle, count: activeCount,   badgeClass: "icon-badge-success" },
+    { s: "INACTIVE", label: "Inactive", icon: XCircle,     count: inactiveCount, badgeClass: "icon-badge-neutral" },
+  ]
+
+  const countryOptions = countries.map((c) => ({
+    value: c.slug,
+    label: `${c.name} · ${c._count.cities} ${c._count.cities === 1 ? "city" : "cities"}`,
+  }))
+  const statusFilterOptions = [
+    { value: "all",      label: "All statuses" },
+    { value: "ACTIVE",   label: "Active",   dot: "bg-success" },
+    { value: "INACTIVE", label: "Inactive", dot: "bg-muted-foreground" },
+  ]
 
   return (
-    <>
-      <PageHeader
-        title="Cities"
-        description="Manage delivery zones, service areas, and city configurations"
-        icon={MapPin}
-        actions={<CreateCityButton />}
-        divider
+    <div className="page-content animate-slide-up">
+      <div className="admin-card flex flex-wrap items-center gap-4">
+        <div className="icon-badge icon-badge-primary h-12 w-12">
+          <MapPin className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Cities</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Managing cities in{" "}
+            <Link href={`/countries/${selected.slug}`} className="font-medium text-primary hover:underline">
+              {selected.name}
+            </Link>
+          </p>
+        </div>
+        {canWrite && (
+          <CreateCityDialog
+            countrySlug={selected.slug}
+            countryName={selected.name}
+            disabled={selected.status !== "ACTIVE"}
+            disabledHint="Activate this country before adding cities."
+          />
+        )}
+      </div>
+
+      <TableFilterBar
+        showSearch
+        searchPlaceholder="Search cities by name or code…"
+        defaultSearch={search}
+        countryOptions={countryOptions}
+        defaultCountry={selected.slug}
+        statusOptions={statusFilterOptions}
+        defaultStatus={status}
       />
 
-      {/* Two-column layout: Country sidebar + Main city table */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-12">
-        {/* Left sidebar - Country summary */}
-        <div className="lg:col-span-3">
-          <div className="sticky top-24 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-                Countries
-              </h3>
-              <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                {countries.length} total
-              </span>
-            </div>
-            <CountryTable countries={countries} itemsPerPage={5} />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {statusCards.map(({ s, label, icon: Icon, count, badgeClass }) => {
+              const cardParams = new URLSearchParams({ country: selected.slug })
+              if (s) cardParams.set("status", s)
+              if (search) cardParams.set("search", search)
+              return (
+                <Link
+                  key={label}
+                  href={`/cities?${cardParams.toString()}`}
+                  className={["stat-card", status === s ? "border-primary/50" : ""].join(" ")}
+                >
+                  <div className={`icon-badge h-12 w-12 ${badgeClass}`}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="stat-card-value">{count}</p>
+                    <p className="stat-card-label">{label}</p>
+                  </div>
+                </Link>
+              )
+            })}
           </div>
+
+          <CitiesListTable
+            result={tableResult}
+            page={page}
+            countrySlug={selected.slug}
+            status={status}
+            search={search}
+            countryStatus={selected.status}
+            canWrite={canWrite}
+          />
         </div>
 
-        {/* Main content - Cities table */}
-        <div className="space-y-3 lg:col-span-9">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-              All Cities
-            </h3>
-            <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-              {cities.length} cities across {countries.length} countries
-            </span>
-          </div>
-          <CityTable cities={cities} itemsPerPage={10} />
-        </div>
+        <TopCitiesWidget entries={leaderboard} />
       </div>
-    </>
+    </div>
   )
 }

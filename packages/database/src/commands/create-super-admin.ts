@@ -14,13 +14,19 @@
  *   7. User accepts → webhook fires → status: active, clerkUserId populated
  *
  * Usage:
- *   pnpm --filter @repo/db create-super-admin \
- *     -- --email admin@dailybread.co.ke \
- *        --first "Your First Name" \
- *        --last  "Your Last Name"
+ *   pnpm db:super-admin -- --email admin@dailybread.co.ke --name "Your Name"
+ *
+ * or, equivalently, from the repo root:
+ *   pnpm --filter @repo/db db:super-admin -- --email admin@dailybread.co.ke \
+ *     --first "Your First Name" --last "Your Last Name"
  *
  * Optional:
  *        --middle "Middle Name"
+ *
+ * If an AdminUser already exists for the email but hasn't activated yet
+ * (status pending/invited — e.g. they never finished signup, or their
+ * Clerk account was deleted before the webhook fired), this offers to
+ * resend the invitation to the existing account instead of failing.
  */
 
 import { input, confirm }          from "@inquirer/prompts"
@@ -39,8 +45,15 @@ if (missing.length > 0) {
   process.exit(1)
 }
 
+// Where Clerk sends the invited admin after they click the invite email —
+// must match how the "invite another admin" flow in the app is configured
+// (sendAdminInvitation, apps/backend), so both paths land the invitee on
+// the same page. Falls back to the local dev default if unset.
+const inviteRedirectUrl = process.env.CLERK_ADMIN_INVITE_REDIRECT_URL || "http://localhost:3002/sign-up"
+
 console.log("✓ DATABASE_URL:", process.env.DATABASE_URL!.replace(/:([^:@]+)@/, ":****@"))
-console.log("✓ CLERK_ADMIN_SECRET_KEY: loaded\n")
+console.log("✓ CLERK_ADMIN_SECRET_KEY: loaded")
+console.log("✓ Invite redirect URL:", inviteRedirectUrl, "\n")
 
 // ─── CLI arg parser ───────────────────────────────────────────────────────────
 //
@@ -129,13 +142,71 @@ function printSummary(email: string, name: NameParts) {
   console.log()
 }
 
+// ─── Resend invitation to an already-existing, not-yet-activated user ─────────
+//
+// Handles the "tried to bootstrap the same email twice" case gracefully:
+// the first attempt's Clerk account may have been deleted, the invite may
+// have expired, or the webhook may never have reached the backend (e.g.
+// no tunnel configured yet in local dev). Rather than forcing manual DB
+// cleanup, this just resends the invitation to the existing row.
+async function resendExistingInvitation(existing: {
+  id: string
+  email: string
+  firstName: string
+  middleName: string | null
+  lastName: string
+  role: { name: string; displayName: string } | null
+}) {
+  const displayName = formatDisplayName(existing)
+
+  console.log(`\n🔁 Resending invitation to: ${displayName} <${existing.email}>\n`)
+
+  const clerk = createClerkClient({ secretKey: process.env.CLERK_ADMIN_SECRET_KEY! })
+
+  try {
+    const invitation = await clerk.invitations.createInvitation({
+      emailAddress  : existing.email,
+      redirectUrl   : inviteRedirectUrl,
+      publicMetadata: {
+        adminUserId    : existing.id,
+        role           : existing.role?.name ?? "super_admin",
+        roleDisplayName: existing.role?.displayName ?? "Super Admin",
+        displayName,
+        inviteMessage: `You've been invited to join DailyBread Admin as ${existing.role?.displayName ?? "Super Admin"}.`,
+      },
+      notify: true,
+    })
+
+    await prisma.adminUser.update({
+      where: { id: existing.id },
+      data : {
+        status              : AdminUserStatus.invited,
+        invitationSentAt    : new Date(),
+        invitationSentCount : { increment: 1 },
+      },
+    })
+
+    console.log(`   ✓ Invitation sent  (Clerk id: ${invitation.id})`)
+    console.log(`   ✓ Status: ${existing.email} → invited\n`)
+    console.log("  Next steps:")
+    console.log("  1. Accept the invitation from your email")
+    console.log(`  2. Sign up at: ${inviteRedirectUrl}`)
+    console.log("  3. The webhook will activate the account automatically\n")
+  } catch (err: any) {
+    const msg = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? String(err)
+    console.error(`\n❌ Clerk invitation failed: ${msg}\n`)
+    process.exit(1)
+  }
+}
+
+function formatDisplayName(user: { firstName: string; middleName: string | null; lastName: string }): string {
+  return [user.firstName, user.middleName, user.lastName].filter(Boolean).join(" ")
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   const email = await resolveEmail()
-  const name  = await resolveName()
-  const { firstName, middleName, lastName } = name
-  const displayName = [firstName, middleName, lastName].filter(Boolean).join(" ")
 
   // 1. Verify seed has been run
   const superAdminRole = await prisma.adminRole.findUnique({
@@ -159,12 +230,37 @@ async function main() {
   }
 
   // 2. Check for duplicate
-  const existing = await prisma.adminUser.findUnique({ where: { email } })
+  const existing = await prisma.adminUser.findUnique({
+    where  : { email },
+    include: { role: true },
+  })
+
   if (existing) {
-    console.error(`❌ An admin user already exists for ${email}`)
-    console.error(`   id: ${existing.id}, status: ${existing.status}\n`)
-    process.exit(1)
+    if (existing.status === AdminUserStatus.active) {
+      console.error(`❌ An active admin user already exists for ${email}`)
+      console.error(`   id: ${existing.id}\n`)
+      process.exit(1)
+    }
+
+    console.log(`⚠  An admin user already exists for ${email} but hasn't activated yet.`)
+    console.log(`   id: ${existing.id}, status: ${existing.status}, role: ${existing.role?.name ?? "—"}\n`)
+
+    const resend = await confirm({
+      message: "Resend the Clerk invitation to this existing account instead of creating a new one?",
+      default: true,
+    })
+    if (!resend) {
+      console.log("\nAborted — nothing changed.\n")
+      process.exit(0)
+    }
+
+    await resendExistingInvitation(existing)
+    process.exit(0)
   }
+
+  const name = await resolveName()
+  const { firstName, middleName, lastName } = name
+  const displayName = formatDisplayName(name)
 
   // 3. Confirm before writing anything
   printSummary(email, name)
@@ -245,10 +341,8 @@ async function main() {
 
   try {
     const invitation = await clerk.invitations.createInvitation({
-      emailAddress: email,
-      redirectUrl : process.env.ADMIN_APP_URL
-        ? `${process.env.ADMIN_APP_URL}/sign-up`
-        : "http://localhost:3002/sign-up",
+      emailAddress  : email,
+      redirectUrl   : inviteRedirectUrl,
       publicMetadata: {
         adminUserId     : adminUser.id,
         role            : "super_admin",
@@ -308,7 +402,7 @@ async function main() {
   console.log()
   console.log("  Next steps:")
   console.log("  1. Accept the invitation from your email")
-  console.log("  2. Sign up at:", process.env.ADMIN_APP_URL ?? "http://localhost:3002")
+  console.log("  2. Sign up at:", inviteRedirectUrl)
   console.log("  3. The webhook will activate your account automatically")
   console.log()
 }

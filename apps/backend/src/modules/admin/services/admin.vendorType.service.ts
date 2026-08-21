@@ -1,4 +1,4 @@
-import { prisma, GeoStatus, VendorTypeStatus } from "@repo/db"
+import { prisma, GeoStatus, VendorStatus, VendorTypeStatus } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
@@ -25,18 +25,89 @@ function assertGlobalScope(scope: AdminScopeContext): void {
   }
 }
 
-export async function listVendorTypes() {
-  return prisma.vendorType.findMany({
-    orderBy: { name: "asc" },
-    select : {
-      id              : true,
-      name            : true,
-      description     : true,
-      status          : true,
-      createdAt       : true,
-      _count          : { select: { countries: true } },
-    },
+export interface ListVendorTypesParams {
+  page?    : number
+  pageSize?: number
+  search?  : string
+  status?  : VendorTypeStatus
+  /**
+   * Narrow to vendor types available in one country. Ignored for
+   * non-global admins — their own scope.countryIds is always used
+   * instead, so a country-tier admin can never widen their own view by
+   * passing a different countryId.
+   */
+  countryId?: string
+}
+
+/*
+ * Scope-aware catalog list. Country-tier admins only ever see vendor
+ * types enabled (VendorTypeCountry.status ACTIVE) in their own
+ * country/countries — the same "vendor types available where I am"
+ * framing as listVendorTypesForCountry, just folded into the one list
+ * endpoint the frontend calls regardless of tier. Global admins see the
+ * full catalog unless they explicitly narrow via countryId.
+ */
+export async function listVendorTypes(scope: AdminScopeContext, params: ListVendorTypesParams = {}) {
+  const { page = 1, pageSize = 10, search, status } = params
+  const skip = (page - 1) * pageSize
+
+  const scopedCountryIds = scope.isGlobal
+    ? (params.countryId ? [params.countryId] : undefined)
+    : scope.countryIds
+
+  const where: any = {
+    ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+    ...(status ? { status } : {}),
+    ...(scopedCountryIds
+      ? { countries: { some: { countryId: { in: scopedCountryIds }, status: GeoStatus.ACTIVE } } }
+      : {}),
+  }
+
+  const [vendorTypes, total] = await Promise.all([
+    prisma.vendorType.findMany({
+      where,
+      skip,
+      take   : pageSize,
+      orderBy: { name: "asc" },
+      select : {
+        id              : true,
+        name            : true,
+        description     : true,
+        status          : true,
+        createdAt       : true,
+        _count          : { select: { countries: true } },
+      },
+    }),
+    prisma.vendorType.count({ where }),
+  ])
+
+  return { vendorTypes, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+}
+
+/*
+ * Real vendor-account counts for one vendor type, scope-filtered — used
+ * by the vendor-type detail page's headline stats. No revenue here (no
+ * Order/Payment model exists yet); revenue stays mock, generated
+ * separately in lib/mock on the frontend.
+ */
+export async function getVendorTypeStats(vendorTypeId: string, scope: AdminScopeContext) {
+  const where: any = {
+    vendorTypeId,
+    deletedAt: null,
+    ...(scope.isGlobal ? {} : { countryId: { in: scope.countryIds } }),
+  }
+
+  const grouped = await prisma.vendorAccount.groupBy({
+    by: ["status"],
+    where,
+    _count: { _all: true },
   })
+
+  const total = grouped.reduce((sum, g) => sum + g._count._all, 0)
+  const active = grouped.find((g) => g.status === VendorStatus.ACTIVE)?._count._all ?? 0
+  const suspended = grouped.find((g) => g.status === VendorStatus.SUSPENDED)?._count._all ?? 0
+
+  return { total, active, suspended }
 }
 
 export async function getVendorType(id: string) {

@@ -78,6 +78,11 @@ export const PERMISSIONS = [
     description: "Escalate a vendor application for higher-level attention",
   },
   {
+    key        : "vendors:applications:receive_escalation",
+    module     : "vendors",
+    description: "Receive and act on vendor applications escalated by other reviewers",
+  },
+  {
     key        : "vendors:reviewers:manage_availability",
     module     : "vendors",
     description: "Change another admin's vendor-application review availability",

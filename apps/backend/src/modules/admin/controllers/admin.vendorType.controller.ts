@@ -12,12 +12,32 @@ import {
   listVendorTypesForCountry,
   assignVendorTypeToCountry,
   removeVendorTypeFromCountry,
+  getVendorTypeStats,
 } from "../services/admin.vendorType.service"
+import type { VendorTypeStatus } from "@repo/db"
 
-export const handleListVendorTypes: RequestHandler = async (_req, res, next) => {
+export const handleListVendorTypes: RequestHandler = async (req, res, next) => {
   try {
-    const data = await listVendorTypes()
+    const { adminScope } = req as unknown as AdminRequest
+    const { page, pageSize, search, status, countryId } = req.query
+
+    const data = await listVendorTypes(adminScope, {
+      page     : page     ? parseInt(page as string) : undefined,
+      pageSize : pageSize ? parseInt(pageSize as string) : undefined,
+      search   : search   as string | undefined,
+      status   : status   as VendorTypeStatus | undefined,
+      countryId: countryId as string | undefined,
+    })
     return sendSuccess(res, data, "Vendor types fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleGetVendorTypeStats: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { vendorTypeId } = req.params as { vendorTypeId: string }
+    const data = await getVendorTypeStats(vendorTypeId, adminScope)
+    return sendSuccess(res, data, "Vendor type stats fetched")
   } catch (err) { next(err) }
 }
 

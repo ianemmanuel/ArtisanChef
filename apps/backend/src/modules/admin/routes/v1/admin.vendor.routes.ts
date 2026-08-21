@@ -11,6 +11,7 @@ import {
   handleClaimApplication,
   handleReassignApplication,
   handleEscalateApplication,
+  handleListEligibleReviewTargets,
   handleListVendorAccounts,
   handleGetVendorAccount,
   handleSuspendVendor,
@@ -55,6 +56,10 @@ vendorRouter.post(
 )
 vendorRouter.post("/applications/:id/reassign", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REASSIGN), handleReassignApplication)
 vendorRouter.post("/applications/:id/escalate", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_ESCALATE), handleEscalateApplication)
+// ?for=escalate returns admins with RECEIVE_ESCALATION instead of REVIEW —
+// gated on the base REVIEW permission since both dialogs need this list
+// and neither necessarily implies the other.
+vendorRouter.get("/applications/:id/eligible-reviewers", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW), handleListEligibleReviewTargets)
 
 // Accounts
 vendorRouter.get("/accounts", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_READ ), handleListVendorAccounts)

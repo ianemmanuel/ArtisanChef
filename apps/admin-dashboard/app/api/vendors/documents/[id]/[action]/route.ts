@@ -55,7 +55,7 @@ export async function POST(
       // so the status badge on the detail page reflects the new doc status.
       // We don't know the applicationId here, so we bust the broad tag.
       // If you store applicationId on the document row you can be more specific.
-      revalidateTag("vendor-applications", "default")
+      revalidateTag("vendor-applications", {})
     }
 
     return NextResponse.json(data, { status: res.status })

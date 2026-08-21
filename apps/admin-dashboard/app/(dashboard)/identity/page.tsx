@@ -5,7 +5,7 @@ import { auth } from "@clerk/nextjs/server"
 import { Plus, Clock, Users, ShieldOff } from "lucide-react"
 import { adminFetch } from "@/lib/api"
 import { Button } from "@repo/ui/components/button"
-import { UsersTableFilters } from "@/components/identity/UsersTableFilters"
+import { TableFilterBar, type FilterStatusOption } from "@/components/shared/TableFilterBar"
 import { AdminUsersTable } from "@/components/identity/AdminUsersTable"
 import type { AdminSessionData, ApiSuccess } from "@repo/types/admin-app"
 import { AdminPermissions } from "@repo/types/admin-app"
@@ -17,6 +17,15 @@ export const revalidate = 60
 interface PageProps {
   searchParams: Promise<{ page?: string; search?: string; status?: string }>
 }
+
+const STATUS_OPTIONS: FilterStatusOption[] = [
+  { value: "all",         label: "All statuses",        dot: "bg-muted-foreground/40" },
+  { value: "pending",     label: "Pending invitation",  dot: "bg-info" },
+  { value: "invited",     label: "Invited — awaiting",  dot: "bg-warning" },
+  { value: "active",      label: "Active",               dot: "bg-success" },
+  { value: "suspended",   label: "Suspended",            dot: "bg-warning" },
+  { value: "deactivated", label: "Deactivated",          dot: "bg-muted-foreground" },
+]
 
 export default async function IdentityPage({ searchParams }: PageProps) {
   const { getToken, userId } = await auth()
@@ -99,7 +108,7 @@ export default async function IdentityPage({ searchParams }: PageProps) {
         </div>
 
         <Link href="/identity?status=pending" className="admin-card flex items-center gap-3 hover:border-primary/40 transition-colors group">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-info/10 dark:bg-info/15">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-info/10">
             <Clock className="h-5 w-5 text-info" />
           </div>
           <div>
@@ -111,7 +120,7 @@ export default async function IdentityPage({ searchParams }: PageProps) {
         </Link>
 
         <Link href="/identity?status=invited" className="admin-card flex items-center gap-3 hover:border-primary/40 transition-colors group">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/10 dark:bg-warning/15">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning/10">
             <ShieldOff className="h-5 w-5 text-warning" />
           </div>
           <div>
@@ -124,7 +133,12 @@ export default async function IdentityPage({ searchParams }: PageProps) {
       </div>
 
       {/* Filters */}
-      <UsersTableFilters defaultSearch={search} defaultStatus={status} />
+      <TableFilterBar
+        searchPlaceholder="Search by name, email, or employee ID…"
+        defaultSearch={search}
+        statusOptions={STATUS_OPTIONS}
+        defaultStatus={status}
+      />
 
       {/* Table — separate component */}
       <AdminUsersTable

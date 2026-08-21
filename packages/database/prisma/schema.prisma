@@ -694,6 +694,18 @@ model VendorApplication {
   assignedAt         DateTime?
   reviewedById       String?
 
+  //* Escalation — a permanent, non-clearing marker (unlike assignedReviewerId,
+  //* which reassignment happily overwrites). escalatedByAdminId is the one
+  //* fact that must survive every future claim/reassign: the escalating
+  //* admin is locked out of acting on this application again, forever, by
+  //* assertReviewerOwnership. A null assignedReviewerId alongside a set
+  //* escalatedByAdminId means "open pool" — only admins holding
+  //* vendors:applications:receive_escalation may claim it from there,
+  //* instead of the normal "anyone with review" rule for unclaimed apps.
+  escalatedByAdminId String?
+  escalatedAt        DateTime?
+  escalationReason   String?
+
   vendorAccount VendorAccount? @relation("ApplicationToAccount")
   country       Country        @relation(fields: [countryId], references: [id])
   user          VendorUser?    @relation(fields: [userId], references: [id])

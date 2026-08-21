@@ -1,5 +1,5 @@
 import Link                      from "next/link"
-import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, ArrowRight, Inbox } from "lucide-react"
 import { Button }                from "@repo/ui/components/button"
 import {
   Table,
@@ -10,16 +10,20 @@ import {
   TableRow,
 } from "@repo/ui/components/table"
 import { VendorApplicationStatusBadge } from "@/components/vendors/VendorApplicationStatusBadge"
-import type { ApplicationListResult } from "@/types"  
+import { EmptyState } from "@/components/shared/EmptyState"
+import { TablePagination } from "@/components/shared/TablePagination"
+import { getInitials } from "@/lib/initials"
+import type { ApplicationListResult } from "@/types"
 
 interface Props {
-  result     : ApplicationListResult | null
-  page       : string
-  search     : string
-  status     : string
-  sort       : string
-  dir        : string
-  canApprove : boolean
+  result    : ApplicationListResult | null
+  page      : string
+  search    : string
+  status    : string
+  sort      : string
+  dir       : string
+  /** VENDORS_APPLICATIONS_REVIEW — the base capability to open and act on an application */
+  canReview : boolean
 }
 
 function buildHref(params: Record<string, string>) {
@@ -27,7 +31,7 @@ function buildHref(params: Record<string, string>) {
 }
 
 export function VendorApplicationsTable({
-  result, page, search, status, sort, dir, canApprove,
+  result, page, search, status, sort, dir, canReview,
 }: Props) {
   const baseParams = { page: "1", search, status, sort, dir }
 
@@ -45,10 +49,11 @@ export function VendorApplicationsTable({
 
   if (!result || result.applications.length === 0) {
     return (
-      <div className="admin-card flex flex-col items-center justify-center py-16 text-center">
-        <p className="text-sm font-medium text-foreground">No applications found</p>
-        <p className="mt-1 text-xs text-muted-foreground">Try adjusting your search or filter criteria.</p>
-      </div>
+      <EmptyState
+        icon={Inbox}
+        title="No applications found"
+        description="Try adjusting your search or filter criteria."
+      />
     )
   }
 
@@ -57,64 +62,64 @@ export function VendorApplicationsTable({
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/30 hover:bg-muted/30">
-              <TableHead>
-                <Link href={sortHref("legalBusinessName")} className="inline-flex items-center text-xs uppercase tracking-wide hover:text-foreground">
+            <TableRow className="border-border/60 bg-muted/40 hover:bg-muted/40">
+              <TableHead className="py-3">
+                <Link href={sortHref("legalBusinessName")} className="inline-flex items-center text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground">
                   Business <SortIcon column="legalBusinessName" />
                 </Link>
               </TableHead>
-              <TableHead className="hidden text-xs uppercase tracking-wide sm:table-cell">Type</TableHead>
-              <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Country</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              <TableHead className="hidden text-xs uppercase tracking-wide lg:table-cell">
+              <TableHead className="hidden text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:table-cell">
+                Type &amp; Country
+              </TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</TableHead>
+              <TableHead className="hidden text-xs font-semibold uppercase tracking-wider text-muted-foreground lg:table-cell">
                 <Link href={sortHref("submittedAt")} className="inline-flex items-center hover:text-foreground">
                   Submitted <SortIcon column="submittedAt" />
                 </Link>
               </TableHead>
-              <TableHead className="hidden text-xs uppercase tracking-wide xl:table-cell">
-                <Link href={sortHref("createdAt")} className="inline-flex items-center hover:text-foreground">
-                  Created <SortIcon column="createdAt" />
-                </Link>
-              </TableHead>
-              {canApprove && (
-                <TableHead className="text-right text-xs uppercase tracking-wide">Review</TableHead>
-              )}
+              {canReview && <TableHead className="w-px" />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {result.applications.map((app) => (
-              <TableRow key={app.id} className="hover:bg-muted/10">
-                <TableCell>
-                  <Link href={`/vendors/applications/${app.id}`} className="group block">
-                    <p className="font-medium text-foreground transition-colors group-hover:text-primary">
-                      {app.legalBusinessName}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{app.businessEmail}</p>
+              <TableRow key={app.id} className="group border-border/50 hover:bg-muted/20">
+                <TableCell className="py-3.5">
+                  <Link href={`/vendors/applications/${app.id}`} className="flex items-center gap-3">
+                    <div className="avatar-circle h-9 w-9 text-xs">
+                      {getInitials(app.legalBusinessName)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-foreground transition-colors group-hover:text-primary">
+                        {app.legalBusinessName}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">{app.businessEmail}</p>
+                    </div>
                   </Link>
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">
-                  <span className="text-sm text-muted-foreground">{app.vendorType?.name ?? "—"}</span>
-                </TableCell>
-                <TableCell className="hidden md:table-cell">
-                  <span className="text-sm text-muted-foreground">{app.country?.name ?? "—"}</span>
+                  <p className="text-sm text-foreground">{app.vendorType?.name ?? "—"}</p>
+                  <p className="text-xs text-muted-foreground">{app.country?.name ?? "—"}</p>
                 </TableCell>
                 <TableCell>
                   <VendorApplicationStatusBadge status={app.status} />
                 </TableCell>
                 <TableCell className="hidden lg:table-cell">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {app.submittedAt ? new Date(app.submittedAt).toLocaleDateString() : "—"}
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {app.submittedAt ? new Date(app.submittedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"}
                   </span>
                 </TableCell>
-                <TableCell className="hidden xl:table-cell">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {new Date(app.createdAt).toLocaleDateString()}
-                  </span>
-                </TableCell>
-                {canApprove && (
+                {canReview && (
                   <TableCell className="text-right">
-                    <Button asChild variant="ghost" size="sm">
-                      <Link href={`/vendors/applications/${app.id}`}>Review</Link>
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 rounded-full border-border/70 bg-card text-xs text-foreground shadow-[var(--shadow-xs)] transition-all hover:-translate-y-px hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                    >
+                      <Link href={`/vendors/applications/${app.id}`} aria-label={`Review ${app.legalBusinessName}`}>
+                        Review
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
                     </Button>
                   </TableCell>
                 )}
@@ -124,24 +129,14 @@ export function VendorApplicationsTable({
         </Table>
       </div>
 
-      {result.totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
-          <p className="text-xs text-muted-foreground">{result.total} applications</p>
-          <div className="flex items-center gap-2">
-            {parseInt(page) > 1 && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href={buildHref({ ...baseParams, page: String(parseInt(page) - 1) })}>Previous</Link>
-              </Button>
-            )}
-            <span className="text-xs text-muted-foreground">Page {page} of {result.totalPages}</span>
-            {parseInt(page) < result.totalPages && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href={buildHref({ ...baseParams, page: String(parseInt(page) + 1) })}>Next</Link>
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
+      <TablePagination
+        total={result.total}
+        page={page}
+        totalPages={result.totalPages}
+        basePath="/vendors/applications"
+        params={{ search, status, sort, dir }}
+        itemLabel="applications"
+      />
     </div>
   )
 }

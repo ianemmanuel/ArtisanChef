@@ -16,6 +16,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { navSections } from "@/utils/constants/nav-items"
+import { useAdminSession } from "@/providers/admin-session-provider"
+import { getScopeTier } from "@/lib/auth/scope-tier"
 
 interface SidebarNavProps {
   collapsed?: boolean
@@ -24,6 +26,18 @@ interface SidebarNavProps {
 
 export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavProps) {
   const pathname = usePathname()
+  const session  = useAdminSession()
+  const tier     = getScopeTier(session)
+
+  const visibleSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) =>
+        !(item.hideForCityTier && tier === "CITY") &&
+        !(item.requiresGlobalTier && tier !== "GLOBAL")
+      ),
+    }))
+    .filter((section) => section.items.length > 0)
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(
     () => Object.fromEntries(navSections.map((s) => [s.title, true]))
@@ -35,14 +49,27 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
   const isItemActive = (href: string) =>
     href === "/overview"
       ? pathname === "/overview" || pathname === "/"
-      : pathname.startsWith(href)
+      // "/vendors" is both the Vendors home link and a prefix of every
+      // other vendors route — needs an exact match so "Home" doesn't
+      // light up while actually viewing Applications/Accounts.
+      : href === "/vendors"
+        ? pathname === "/vendors"
+        // "/countries" is a prefix of "/countries/activation" and
+        // "/countries/revenue", which have their own nav entries — don't
+        // double-light more than one Locations item at once.
+        : href === "/countries"
+          ? pathname === "/countries" ||
+            (pathname.startsWith("/countries/") &&
+              !pathname.startsWith("/countries/activation") &&
+              !pathname.startsWith("/countries/revenue"))
+          : pathname.startsWith(href)
 
   const isCollapsed = collapsed && !isMobile
 
   return (
     <nav className="flex h-full flex-col overflow-y-auto overflow-x-hidden px-3 py-4">
       <div className="flex flex-col gap-5">
-        {navSections.map((section) => {
+        {visibleSections.map((section) => {
           const sectionOpen    = openSections[section.title] ?? true
           const sectionHasActive = section.items.some((item) => isItemActive(item.href))
           const GroupIcon      = section.items[0]?.icon

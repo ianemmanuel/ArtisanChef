@@ -28,7 +28,7 @@ interface Props {
  *   - Identity admin (country-scoped): can only assign COUNTRY or CITY
  *     within their own countries
  *
- * Countries and cities are fetched from the backend geography endpoints.
+ * Countries and cities are fetched via /api/countries and /api/countries/:id/cities.
  * This component is only shown during user creation — existing scopes are
  * edited via UpdateScopesForm on the user detail page.
  */
@@ -37,7 +37,7 @@ export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange }
   const [cities,    setCities]    = useState<Record<string, City[]>>({})
 
   useEffect(() => {
-    fetch("/api/admin/geography/countries")
+    fetch("/api/countries")
       .then((r) => r.json())
       .then((d) => {
         const all: Country[] = d.data ?? []
@@ -49,7 +49,7 @@ export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange }
 
   async function fetchCities(countryId: string) {
     if (cities[countryId]) return
-    const res  = await fetch(`/api/admin/geography/countries/${countryId}/cities`)
+    const res  = await fetch(`/api/countries/${countryId}/cities`)
     const data = await res.json()
     setCities((prev) => ({ ...prev, [countryId]: data.data ?? [] }))
   }

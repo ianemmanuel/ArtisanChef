@@ -1,5 +1,4 @@
 import Link from "next/link"
-import { Button } from "@repo/ui/components/button"
 import {
   Table,
   TableBody,
@@ -10,6 +9,7 @@ import {
 } from "@repo/ui/components/table"
 import { UserStatusBadge }  from "@/components/identity/UserStatusBadge"
 import { UserActionsMenu }  from "@/components/identity/UserActionsMenu"
+import { TablePagination } from "@/components/shared/TablePagination"
 import type { ListAdminUsersResult } from "@/types"
 
 interface Props {
@@ -100,33 +100,17 @@ export function AdminUsersTable({ result, page, search, status, canInvite, canMa
         </Table>
       </div>
 
-      {/* Pagination */}
-      {result.totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            {result.total} user{result.total !== 1 ? "s" : ""}
-          </p>
-          <div className="flex items-center gap-2">
-            {parseInt(page) > 1 && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/identity?page=${parseInt(page) - 1}&search=${search}&status=${status}`}>
-                  Previous
-                </Link>
-              </Button>
-            )}
-            <span className="text-xs text-muted-foreground">
-              Page {page} of {result.totalPages}
-            </span>
-            {parseInt(page) < result.totalPages && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/identity?page=${parseInt(page) + 1}&search=${search}&status=${status}`}>
-                  Next
-                </Link>
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
+      <TablePagination
+        total={result.total}
+        page={page}
+        totalPages={result.totalPages}
+        basePath="/identity"
+        params={{
+          ...(search ? { search } : {}),
+          ...(status ? { status } : {}),
+        }}
+        itemLabel="users"
+      />
     </div>
   )
 }

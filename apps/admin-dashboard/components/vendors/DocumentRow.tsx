@@ -15,12 +15,14 @@ import {
 } from "lucide-react"
 import { Button }              from "@repo/ui/components/button"
 import { TableCell, TableRow } from "@repo/ui/components/table"
+import { DocumentStatus }      from "@repo/types/admin-app"
 import type { Doc, ViewerState } from "@/types/vendor.types"
 
 interface DocumentRowProps {
-  doc           : Doc
-  canApprove?   : boolean
-  applicationId : string
+  doc               : Doc
+  /** VENDORS_DOCUMENTS_VIEW — the permission the backend checks for approve/reject on a document */
+  canActOnDocuments?: boolean
+  applicationId     : string
   /**
    * Fired after a successful approve or reject so the parent (DocumentsSection)
    * can re-evaluate whether all documents are APPROVED and unlock the
@@ -31,7 +33,7 @@ interface DocumentRowProps {
 
 export function DocumentRow({
   doc,
-  canApprove,
+  canActOnDocuments,
   applicationId,
   onStatusChange,
 }: DocumentRowProps) {
@@ -139,9 +141,9 @@ export function DocumentRow({
         setActionError(msg)
         toast.error("Approval failed", { description: msg })
       } else {
-        setDocStatus("APPROVED")
+        setDocStatus(DocumentStatus.APPROVED)
         setActionSuccess("Document approved successfully.")
-        onStatusChange?.(doc.id, "APPROVED")
+        onStatusChange?.(doc.id, DocumentStatus.APPROVED)
         toast.success("Document approved", {
           description: `"${docName}" has been marked as approved.`,
         })
@@ -172,12 +174,12 @@ export function DocumentRow({
         setActionError(msg)
         toast.error("Rejection failed", { description: msg })
       } else {
-        setDocStatus("REJECTED")
+        setDocStatus(DocumentStatus.REJECTED)
         setActionSuccess("Document rejected.")
         setShowRejectForm(false)
         setRejectionReason("")
         setRevisionNotes("")
-        onStatusChange?.(doc.id, "REJECTED")
+        onStatusChange?.(doc.id, DocumentStatus.REJECTED)
         toast.error("Document rejected", {
           description: `"${docName}" has been rejected. The vendor will need to resubmit.`,
         })
@@ -198,11 +200,18 @@ export function DocumentRow({
     EXPIRED  : "badge-warning",
     WITHDRAWN: "badge-neutral",
   }
+  const statusLabel: Record<string, string> = {
+    APPROVED : "Approved",
+    REJECTED : "Rejected",
+    PENDING  : "Pending",
+    EXPIRED  : "Expired",
+    WITHDRAWN: "Withdrawn",
+  }
 
   const isPending  = docStatus === "PENDING"
   const isApproved = docStatus === "APPROVED"
   const isRejected = docStatus === "REJECTED"
-  const canAct     = canApprove && isPending
+  const canAct     = canActOnDocuments && isPending
 
   return (
     <>
@@ -212,11 +221,13 @@ export function DocumentRow({
         onClick={() => setExpanded((v) => !v)}
       >
         <TableCell>
-          <div className="flex items-center gap-2">
-            {isPdf
-              ? <FileText  className="h-4 w-4 shrink-0 text-muted-foreground" />
-              : <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            }
+          <div className="flex items-center gap-3">
+            <div className="icon-badge icon-badge-neutral h-9 w-9">
+              {isPdf
+                ? <FileText  className="h-4 w-4" />
+                : <ImageIcon className="h-4 w-4" />
+              }
+            </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">{doc.documentType?.name}</p>
               {doc.documentName && (
@@ -231,7 +242,7 @@ export function DocumentRow({
         </TableCell>
 
         <TableCell>
-          <span className={statusCls[docStatus] ?? "badge-neutral"}>{docStatus}</span>
+          <span className={statusCls[docStatus] ?? "badge-neutral"}>{statusLabel[docStatus] ?? docStatus}</span>
         </TableCell>
 
         <TableCell className="text-right pr-4">
@@ -281,7 +292,7 @@ export function DocumentRow({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 gap-1.5 border-destructive/40 px-2 text-xs text-destructive hover:bg-destructive/10"
+                        className="h-7 gap-1.5 rounded-full border-destructive/40 px-2.5 text-xs text-destructive hover:bg-destructive-bg"
                         disabled={!!acting}
                         onClick={(e) => { e.stopPropagation(); setShowRejectForm((v) => !v) }}
                       >
@@ -292,7 +303,7 @@ export function DocumentRow({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 gap-1.5 border-green-500/40 px-2 text-xs text-green-600 hover:bg-green-500/10"
+                        className="h-7 gap-1.5 rounded-full border-success/40 px-2.5 text-xs text-success hover:bg-success-bg"
                         disabled={!!acting}
                         onClick={handleApprove}
                       >
@@ -306,7 +317,7 @@ export function DocumentRow({
                   )}
 
                   {isApproved && (
-                    <span className="flex items-center gap-1 text-xs text-green-600">
+                    <span className="flex items-center gap-1 text-xs text-success">
                       <CheckCircle2 className="h-3.5 w-3.5" /> Approved
                     </span>
                   )}
@@ -321,7 +332,7 @@ export function DocumentRow({
               {/* Inline reject form */}
               {showRejectForm && canAct && (
                 <div
-                  className="border-b border-border/40 bg-destructive/5 px-4 py-3 space-y-2"
+                  className="border-b border-border/40 bg-destructive-bg px-4 py-3 space-y-2"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <p className="text-xs font-semibold text-destructive">Reject document</p>
@@ -332,7 +343,7 @@ export function DocumentRow({
                     </label>
                     <input
                       type="text"
-                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-destructive/50"
+                      className="w-full rounded-xl border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-destructive/50"
                       placeholder="e.g. Document is expired or unreadable"
                       value={rejectionReason}
                       onChange={(e) => setRejectionReason(e.target.value)}
@@ -345,7 +356,7 @@ export function DocumentRow({
                     </label>
                     <input
                       type="text"
-                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-border"
+                      className="w-full rounded-xl border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-border"
                       placeholder="e.g. Please re-upload a clearer scan"
                       value={revisionNotes}
                       onChange={(e) => setRevisionNotes(e.target.value)}
@@ -356,7 +367,7 @@ export function DocumentRow({
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-3 text-xs"
+                      className="h-7 rounded-full px-3 text-xs"
                       disabled={!!acting}
                       onClick={(e) => { e.stopPropagation(); setShowRejectForm(false) }}
                     >
@@ -364,7 +375,7 @@ export function DocumentRow({
                     </Button>
                     <Button
                       size="sm"
-                      className="h-7 gap-1.5 bg-destructive px-3 text-xs text-destructive-foreground hover:bg-destructive/90"
+                      className="h-7 gap-1.5 rounded-full bg-destructive px-3 text-xs text-destructive-foreground hover:bg-destructive/90"
                       disabled={!rejectionReason.trim() || !!acting}
                       onClick={handleReject}
                     >

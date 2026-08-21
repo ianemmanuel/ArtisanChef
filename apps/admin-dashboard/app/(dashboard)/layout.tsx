@@ -1,12 +1,10 @@
 import type { Metadata } from "next"
-import { auth } from "@clerk/nextjs/server"
-import { redirect } from "next/navigation"
 import { AdminSessionProvider } from "@/providers/admin-session-provider"
 import { Sidebar } from "@/components/dashboard/sidebar/Sidebar"
 import { Navbar } from "@/components/dashboard/navbar/Navbar"
 import { Footer } from "@/components/dashboard/layout/Footer"
-import type { AdminSessionData, ApiSuccess } from "@repo/types/admin-app"
 import { SidebarProvider } from "@/providers/sidebar-provider"
+import { getAdminSession } from "@/lib/auth/session"
 
 export const metadata: Metadata = {
   title: {
@@ -21,22 +19,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { getToken, userId } = await auth()
-  if (!userId) redirect("/sign-in")
-
-  const token = await getToken()
-
-  const sessionRes = await fetch(
-    `${process.env.BACKEND_API_URL}/admin/v1/auth/session`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-      next: { revalidate: 300 },
-    }
-  )
-
-  if (!sessionRes.ok) redirect("/sign-in")
-
-  const { data: session }: ApiSuccess<AdminSessionData> = await sessionRes.json()
+  const session = await getAdminSession()
 
   return (
       <AdminSessionProvider session={session}>

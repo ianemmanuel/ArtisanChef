@@ -13,18 +13,36 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
   }
 }
 
-export async function listDocumentTypesForCountry(countryId: string, scope: AdminScopeContext) {
+export async function listDocumentTypesForCountry(
+  countryId: string,
+  scope: AdminScopeContext,
+  params: { page?: number; pageSize?: number; search?: string } = {},
+) {
   assertCountryInScope(countryId, scope)
 
-  return prisma.documentTypeConfig.findMany({
-    where  : { countryId },
-    include: {
-      vendorTypeConfigs: {
-        include: { vendorType: { select: { id: true, name: true } } },
+  const { page = 1, pageSize = 10, search } = params
+  const skip = (page - 1) * pageSize
+  const where = {
+    countryId,
+    ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
+  }
+
+  const [documentTypes, total] = await Promise.all([
+    prisma.documentTypeConfig.findMany({
+      where,
+      skip,
+      take   : pageSize,
+      include: {
+        vendorTypeConfigs: {
+          include: { vendorType: { select: { id: true, name: true } } },
+        },
       },
-    },
-    orderBy: { name: "asc" },
-  })
+      orderBy: { name: "asc" },
+    }),
+    prisma.documentTypeConfig.count({ where }),
+  ])
+
+  return { documentTypes, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
 }
 
 export async function getDocumentType(id: string, scope: AdminScopeContext) {

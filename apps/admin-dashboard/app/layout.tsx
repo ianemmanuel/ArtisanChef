@@ -3,25 +3,30 @@ import "./globals.css"
 import { ClerkProvider } from "@clerk/nextjs"
 import { Toaster }  from "@/components/ui/sonner"
 import {
-  DM_Sans,
-  Fraunces,
-  IBM_Plex_Mono, Geist } from "next/font/google"
+  Geist,
+  Newsreader,
+  IBM_Plex_Mono,
+} from "next/font/google"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ADMIN_THEME } from "@/config/theme"
-import { ThemeProvider } from "@/components/shared/theme/theme-provider"
+import { QueryProvider } from "@/providers/query-provider"
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
-
-const dmSans = DM_Sans({
+// Body/UI — purpose-built for software interfaces (dense tables, forms,
+// data-heavy screens), more precise and less "marketing-soft" than DM Sans.
+const geist = Geist({
   subsets: ["latin"],
-  variable: "--font-dm-sans",
+  variable: "--font-geist",
   display: "swap",
 })
 
-const fraunces = Fraunces({
+// Display — an elegant, editorial serif for headings, with the full weight
+// range DM Sans/Fraunces had (so `font-semibold` headings still work).
+// Swapped in for Fraunces, which read as playful/hospitality rather than
+// the more restrained, professional tone an ops admin tool wants.
+const newsreader = Newsreader({
   subsets: ["latin"],
-  variable: "--font-fraunces",
+  variable: "--font-newsreader",
   display: "swap",
 })
 
@@ -44,32 +49,23 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width       : "device-width",
   initialScale: 1,
-  themeColor  : [
-    { media: "(prefers-color-scheme: light)", color: ADMIN_THEME.lightBg },
-    { media: "(prefers-color-scheme: dark)",  color: ADMIN_THEME.darkBg },
-  ],
+  themeColor  : ADMIN_THEME.background,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
-      className={cn(dmSans.variable, fraunces.variable, ibmMono.variable, "font-sans", geist.variable)}
-      suppressHydrationWarning
+      className={cn(geist.variable, newsreader.variable, ibmMono.variable, "font-sans")}
     >
       <body className="font-sans antialiased bg-background text-foreground min-h-screen">
         <ClerkProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
+          <QueryProvider>
             <TooltipProvider>
               {children}
             </TooltipProvider>
             <Toaster position="top-right" richColors closeButton duration={4000} />
-          </ThemeProvider>
+          </QueryProvider>
         </ClerkProvider>
 
       </body>

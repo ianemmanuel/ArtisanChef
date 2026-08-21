@@ -2,13 +2,15 @@
 import { Router } from "express"
 import { AdminPermissions } from "@repo/types/enums"
 import { requirePermission } from "@/modules/admin/middleware"
-import { 
-    handleActivateCountry, 
-    handleDeactivateCountry, 
-    handleGetCountry, 
+import {
+    handleActivateCountry,
+    handleDeactivateCountry,
+    handleGetCountry,
     handleListCities,
     handleGetCountriesByStatus,
     handleGetCountryVendorSnapshot,
+    handleGetVendorOnboardingLeaderboard,
+    handleGetCityOutletLeaderboard,
     handleAssignCountryToRegion,
     handleRemoveCountryFromRegion,
 } from "../../controllers/admin.country.controller"
@@ -31,10 +33,15 @@ const GLOBAL = requirePermission(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE)
 
 
 countryRouter.get("/", READ, handleGetCountriesByStatus)
+// Registered before /:countryRef for readability — Express wouldn't
+// actually confuse the two (this is two path segments), but grouping the
+// fixed insights routes above the param routes keeps the file scannable.
+countryRouter.get("/insights/onboarding", READ, handleGetVendorOnboardingLeaderboard)
 countryRouter.get("/:countryRef", READ, handleGetCountry)
 countryRouter.patch("/:countryRef/activate", GLOBAL, handleActivateCountry)
 countryRouter.patch("/:countryRef/deactivate", GLOBAL, handleDeactivateCountry)
 countryRouter.get ("/:countryRef/cities", READ, handleListCities)
+countryRouter.get ("/:countryRef/cities/leaderboard", READ, handleGetCityOutletLeaderboard)
 countryRouter.post ("/:countryRef/cities", WRITE, handleCreateCity)
 countryRouter.get("/:countryRef/vendors", READ, handleGetCountryVendorSnapshot)
 countryRouter.patch("/:countryRef/region",  WRITE, handleAssignCountryToRegion)

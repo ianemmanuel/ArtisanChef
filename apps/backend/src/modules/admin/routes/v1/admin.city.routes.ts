@@ -3,11 +3,12 @@ import { Router } from "express"
 import { requirePermission } from "@/modules/admin/middleware"
 import { AdminPermissions } from "@repo/types/enums"
 import {
-    handleActivateCity, 
-    handleCreateCity, 
-    handleDeactivateCity, 
-    handleGetCity,  
-    handleUpdateCity 
+    handleActivateCity,
+    handleCreateCity,
+    handleDeactivateCity,
+    handleGetCity,
+    handleUpdateCity,
+    handleGetCityOutletSnapshot,
 } from "../../controllers/admin.city.controller"
 import { 
     handleClearCityBoundary,   
@@ -26,6 +27,7 @@ const GLOBAL = requirePermission(AdminPermissions.SETTINGS_GEOGRAPHY_READ)
 
 
 cityRouter.get("/:cityRef", READ, handleGetCity)
+cityRouter.get("/:cityRef/outlets-snapshot", READ, handleGetCityOutletSnapshot)
 cityRouter.patch("/:cityRef", WRITE, handleUpdateCity)
 cityRouter.patch("/:cityRef/activate", WRITE, handleActivateCity)
 cityRouter.patch("/:cityRef/deactivate",WRITE, handleDeactivateCity)

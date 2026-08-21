@@ -19,6 +19,12 @@ export const AdminPermissions = {
   VENDORS_APPLICATIONS_CLAIM    : "vendors:applications:claim",
   VENDORS_APPLICATIONS_REASSIGN : "vendors:applications:reassign",
   VENDORS_APPLICATIONS_ESCALATE : "vendors:applications:escalate",
+  // Distinct from ESCALATE (which anyone in vendor_ops can do) — this is
+  // granted individually to the senior reviewers escalations get routed
+  // to, so an application in the open escalation pool can only be picked
+  // up by someone actually meant to handle escalations, and the admin
+  // who escalated it can never claim/reassign it back to themselves.
+  VENDORS_APPLICATIONS_RECEIVE_ESCALATION: "vendors:applications:receive_escalation",
 
   // ── Vendors — reviewers ───────────────────────────────────────────────────
   VENDORS_REVIEWERS_MANAGE_AVAILABILITY: "vendors:reviewers:manage_availability",

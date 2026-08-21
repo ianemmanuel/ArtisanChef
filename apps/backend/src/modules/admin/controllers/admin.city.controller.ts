@@ -10,6 +10,7 @@ import {
   updateCity,
   activateCity,
   deactivateCity,
+  getCityOutletSnapshot,
   getCityBoundary,
   previewOsmBoundary,
   saveCityBoundary,
@@ -23,6 +24,15 @@ export const handleGetCity: RequestHandler = async (req, res, next) => {
     const { cityRef }     = req.params as { cityRef: string }
     const data = await getCity(cityRef, adminScope)
     return sendSuccess(res, data, "City fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleGetCityOutletSnapshot: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { cityRef }    = req.params as { cityRef: string }
+    const data = await getCityOutletSnapshot(cityRef, adminScope)
+    return sendSuccess(res, data, "Outlet snapshot fetched")
   } catch (err) { next(err) }
 }
 

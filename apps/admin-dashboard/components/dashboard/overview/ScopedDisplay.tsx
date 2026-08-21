@@ -74,7 +74,7 @@ function CountryScope({
 
   if (variant === "badge") {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
         <span aria-hidden="true">{flags[0]}</span>
         {count === 1 ? scope.countryIds[0] : `${count} Countries`}
       </span>
@@ -83,7 +83,7 @@ function CountryScope({
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-lg dark:bg-amber-950/30">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-lg">
         <span aria-hidden="true">{flags[0]}</span>
       </div>
       <div>
@@ -113,7 +113,7 @@ function CityScope({
 
   if (variant === "badge") {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
         <Building2 className="h-3 w-3" aria-hidden="true" />
         {count === 1 ? scope.cityIds[0] : `${count} Cities`}
       </span>
@@ -122,8 +122,8 @@ function CityScope({
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/30">
-        <Building2 className="h-5 w-5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50">
+        <Building2 className="h-5 w-5 text-blue-600" aria-hidden="true" />
       </div>
       <div>
         <p className="text-sm font-semibold text-foreground">

@@ -8,6 +8,7 @@ import {
   handleUpdateVendorType,
   handleActivateVendorType,
   handleDeactivateVendorType,
+  handleGetVendorTypeStats,
 } from "../../controllers/admin.vendorType.controller"
 
 const vendorTypeRouter: Router = Router()
@@ -18,6 +19,7 @@ const WRITE = requirePermission(AdminPermissions.SETTINGS_VENDOR_TYPES_WRITE)
 vendorTypeRouter.get("/", READ, handleListVendorTypes)
 vendorTypeRouter.post("/", WRITE, handleCreateVendorType)
 vendorTypeRouter.get("/:vendorTypeId", READ, handleGetVendorType)
+vendorTypeRouter.get("/:vendorTypeId/stats", READ, handleGetVendorTypeStats)
 vendorTypeRouter.patch("/:vendorTypeId", WRITE, handleUpdateVendorType)
 vendorTypeRouter.patch("/:vendorTypeId/activate", WRITE, handleActivateVendorType)
 vendorTypeRouter.patch("/:vendorTypeId/deactivate", WRITE, handleDeactivateVendorType)

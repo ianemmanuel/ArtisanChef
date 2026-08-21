@@ -18,11 +18,17 @@ import {
 export const handleListDocumentTypesForCountry: RequestHandler = async (req, res, next) => {
   try {
     const { adminScope } = req as unknown as AdminRequest
-    const { countryId } = req.query as { countryId?: string }
+    const { countryId, page, pageSize, search } = req.query as {
+      countryId?: string; page?: string; pageSize?: string; search?: string
+    }
 
     if (!countryId?.trim()) throw new ApiError(400, "countryId is required", "MISSING_FIELDS")
 
-    const data = await listDocumentTypesForCountry(countryId, adminScope)
+    const data = await listDocumentTypesForCountry(countryId, adminScope, {
+      page    : page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+      search,
+    })
     return sendSuccess(res, data, "Document types fetched")
   } catch (err) { next(err) }
 }

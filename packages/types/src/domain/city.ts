@@ -88,3 +88,24 @@ export interface SaveCityBoundaryRequest {
   osmId?    : string    // include if this originated from an OSM search
   source    : "OSM" | "MANUAL"
 }
+
+//* Vendors themselves are country-scoped (VendorAccount/VendorApplication
+//* have no cityId) — Outlet is the city-scoped entity (a vendor's physical
+//* storefront in a given city). City-level "vendor presence" metrics are
+//* therefore outlet counts, not vendor account counts.
+export interface CityOutletSnapshot {
+  outlets: {
+    total     : number
+    active    : number
+    suspended : number
+    banned    : number
+  }
+  documentTypes: number
+}
+
+export interface CityOutletLeaderboardEntry {
+  cityId: string
+  name  : string
+  slug  : string
+  count : number
+}

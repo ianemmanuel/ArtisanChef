@@ -34,11 +34,35 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
  * is the actual "remains responsible unless reassigned" rule.
  */
 function assertReviewerOwnership(
-  application: { assignedReviewerId: string | null },
+  application: { assignedReviewerId: string | null; escalatedByAdminId?: string | null },
   actorId: string,
   actorPermissions: AdminPermissionKey[],
 ): void {
-  if (!application.assignedReviewerId) return
+  // Permanent lock-out — the one rule that survives every future
+  // claim/reassign on this application. Checked first, and unconditionally,
+  // so REASSIGN or RECEIVE_ESCALATION can never be used to route an
+  // escalated application back to the person who escalated it.
+  if (application.escalatedByAdminId === actorId) {
+    throw new ApiError(
+      403,
+      "You escalated this application and can no longer act on it",
+      "ESCALATED_BY_YOU",
+    )
+  }
+
+  if (!application.assignedReviewerId) {
+    // Unclaimed + escalated = the open escalation pool, not the normal
+    // "anyone with review can act" case — only admins who actually
+    // receive escalations may pick it up from here.
+    if (application.escalatedByAdminId && !actorPermissions.includes(AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION)) {
+      throw new ApiError(
+        403,
+        "This application was escalated and is only actionable by admins who receive escalations",
+        "ESCALATION_RECEIVER_ONLY",
+      )
+    }
+    return
+  }
   if (application.assignedReviewerId === actorId) return
   if (actorPermissions.includes(AdminPermissions.VENDORS_APPLICATIONS_REASSIGN)) return
 
@@ -47,6 +71,55 @@ function assertReviewerOwnership(
     "This application is assigned to another reviewer",
     "NOT_ASSIGNED_REVIEWER",
   )
+}
+
+/*
+ * Shared eligibility check for anyone a reviewing responsibility can be
+ * handed to — used by both reassignApplication (any active/available
+ * reviewer with REVIEW capability + scope) and escalateApplication's
+ * optional explicit target (same, plus RECEIVE_ESCALATION). Throws with
+ * the specific reason rather than returning a boolean, since every
+ * caller just wants to propagate a precise 400 anyway.
+ */
+async function assertEligibleReviewTarget(
+  targetAdminId: string,
+  countryId    : string,
+  requireCapability: AdminPermissionKey = AdminPermissions.VENDORS_APPLICATIONS_REVIEW,
+): Promise<void> {
+  const target = await prisma.adminUser.findUnique({
+    where : { id: targetAdminId },
+    select: { id: true, status: true, reviewAvailability: true },
+  })
+  if (!target) throw new ApiError(404, "Target reviewer not found", "TARGET_NOT_FOUND")
+  if (target.status !== AdminUserStatus.active) {
+    throw new ApiError(400, "Target reviewer is not an active admin", "TARGET_INACTIVE")
+  }
+  if (target.reviewAvailability !== AdminReviewAvailability.AVAILABLE) {
+    throw new ApiError(400, "Target reviewer is unavailable", "TARGET_UNAVAILABLE")
+  }
+
+  const hasCapability = await prisma.adminUserPermission.findFirst({
+    where : { adminUserId: targetAdminId, permission: { key: requireCapability, isActive: true } },
+    select: { id: true },
+  })
+  if (!hasCapability) {
+    throw new ApiError(400, "Target reviewer does not have the required capability", "TARGET_NOT_CAPABLE")
+  }
+
+  const targetHasScope = await prisma.adminUserScope.findFirst({
+    where: {
+      adminUserId: targetAdminId,
+      OR: [
+        { scopeType: AdminScopeType.GLOBAL },
+        { scopeType: AdminScopeType.COUNTRY, countryId },
+        { scopeType: AdminScopeType.CITY, countryId },
+      ],
+    },
+    select: { id: true },
+  })
+  if (!targetHasScope) {
+    throw new ApiError(400, "Target reviewer does not have scope covering this application's country", "TARGET_OUT_OF_SCOPE")
+  }
 }
 
 /*
@@ -122,7 +195,7 @@ const ALLOWED_SORT_COLUMNS: Record<string, string> = {
 export async function listApplications(
   filters: {
     status?   : VendorApplicationStatus | VendorApplicationStatus[]
-    countrySlug: string
+    countrySlug?: string
     search?   : string
     sort?     : string
     dir?      : string
@@ -134,19 +207,27 @@ export async function listApplications(
 
   const { status, countrySlug, search, page = 1, pageSize = 20 } = filters
 
-  const countryId = await getCountryIdFromSlug(
-    countrySlug,
-    adminScope,
-  )
+  // countrySlug is optional — most admins browse across their entire scope,
+  // not one country at a time. Only resolve/narrow when one was actually
+  // requested; resolving unconditionally previously meant an unscoped
+  // request silently fell back to Prisma's findFirst() and narrowed every
+  // list to a single arbitrary country.
+  const countryId = countrySlug
+    ? await getCountryIdFromSlug(countrySlug, adminScope)
+    : undefined
   const sortColumn = ALLOWED_SORT_COLUMNS[filters.sort ?? ""] ?? "submittedAt"
   const sortDir    = filters.dir === "asc" ? "asc" : "desc"
   const skip       = (page - 1) * pageSize
 
   const where: any = {
     ...buildVendorScopeFilter(adminScope, countryId),
+    // DRAFT applications are the vendor's own in-progress, unsubmitted
+    // work — not yet visible to admins at all. Without an explicit status
+    // filter, the default "browse everything" view must still exclude
+    // them; an explicit filter (e.g. status=SUBMITTED) already does.
     ...(status
       ? Array.isArray(status) ? { status: { in: status } } : { status }
-      : {}),
+      : { status: { not: VendorApplicationStatus.DRAFT } }),
     ...(search ? {
       OR: [
         { legalBusinessName: { contains: search, mode: "insensitive" } },
@@ -199,11 +280,36 @@ export async function getApplication(applicationId: string, actorScope: AdminSco
 
   if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
 
+  // Same rule as listApplications: a DRAFT is the vendor's own unsubmitted
+  // work-in-progress, not something admins are allowed to open yet — not
+  // even by guessing/reusing an id. Treat it as if it doesn't exist.
+  if (application.status === VendorApplicationStatus.DRAFT) {
+    throw new ApiError(404, "Application not found", "NOT_FOUND")
+  }
+
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(application.countryId)) {
     throw new ApiError(403, "This application is outside your scope", "SCOPE_FORBIDDEN")
   }
 
-  return application
+  // assignedReviewerId/escalatedByAdminId are plain ids, not Prisma
+  // relations to AdminUser (see the schema comment on VendorApplication) —
+  // so the display names the UI needs (Summary card, "assigned to
+  // another reviewer" notice) require a small separate lookup rather than
+  // an `include`.
+  const adminIds = [application.assignedReviewerId, application.escalatedByAdminId].filter((v): v is string => !!v)
+  const admins = adminIds.length > 0
+    ? await prisma.adminUser.findMany({
+        where : { id: { in: adminIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const nameById = new Map(admins.map((a) => [a.id, `${a.firstName} ${a.lastName}`.trim()]))
+
+  return {
+    ...application,
+    assignedReviewerName: application.assignedReviewerId ? nameById.get(application.assignedReviewerId) ?? null : null,
+    escalatedByAdminName: application.escalatedByAdminId ? nameById.get(application.escalatedByAdminId) ?? null : null,
+  }
 }
 
 //* Mark under review
@@ -520,10 +626,11 @@ export async function claimApplication(
   actorId          : string,
   actorScope       : AdminScopeContext,
   actorAvailability: AdminReviewAvailability,
+  actorPermissions : AdminPermissionKey[],
 ) {
   const application = await prisma.vendorApplication.findUnique({
     where : { id: applicationId },
-    select: { id: true, status: true, countryId: true, assignedReviewerId: true },
+    select: { id: true, status: true, countryId: true, assignedReviewerId: true, escalatedByAdminId: true },
   })
   if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
   assertCountryInScope(application.countryId, actorScope)
@@ -531,21 +638,29 @@ export async function claimApplication(
   if (actorAvailability !== AdminReviewAvailability.AVAILABLE) {
     throw new ApiError(403, "You are unavailable and cannot claim new applications", "REVIEWER_UNAVAILABLE")
   }
-  if (application.status !== VendorApplicationStatus.SUBMITTED) {
+  if (application.assignedReviewerId) {
+    throw new ApiError(409, "Application is already claimed", "ALREADY_CLAIMED")
+  }
+
+  const isOpenEscalation = !!application.escalatedByAdminId
+  if (isOpenEscalation) {
+    // Open escalation pool — a different eligibility rule than the normal
+    // claim path (status doesn't have to be SUBMITTED; it's whatever stage
+    // it was escalated from), enforced by the same permanent lock-out and
+    // receiver-only gate as every other action on an escalated application.
+    assertReviewerOwnership(application, actorId, actorPermissions)
+  } else if (application.status !== VendorApplicationStatus.SUBMITTED) {
     throw new ApiError(
       400,
       `Only submitted applications can be claimed (current status: ${application.status})`,
       "INVALID_STATUS",
     )
   }
-  if (application.assignedReviewerId) {
-    throw new ApiError(409, "Application is already claimed", "ALREADY_CLAIMED")
-  }
 
   const assignedAt = new Date()
 
   const result = await prisma.vendorApplication.updateMany({
-    where: { id: applicationId, assignedReviewerId: null, status: VendorApplicationStatus.SUBMITTED },
+    where: { id: applicationId, assignedReviewerId: null, ...(isOpenEscalation ? {} : { status: VendorApplicationStatus.SUBMITTED }) },
     data : { assignedReviewerId: actorId, assignedAt },
   })
 
@@ -576,7 +691,7 @@ export async function reassignApplication(
 ) {
   const application = await prisma.vendorApplication.findUnique({
     where : { id: applicationId },
-    select: { id: true, countryId: true, assignedReviewerId: true },
+    select: { id: true, countryId: true, assignedReviewerId: true, escalatedByAdminId: true },
   })
   if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
   assertCountryInScope(application.countryId, actorScope)
@@ -584,48 +699,21 @@ export async function reassignApplication(
   if (targetAdminId === application.assignedReviewerId) {
     throw new ApiError(400, "Application is already assigned to this reviewer", "NO_CHANGE")
   }
-
-  const target = await prisma.adminUser.findUnique({
-    where : { id: targetAdminId },
-    select: { id: true, status: true, reviewAvailability: true },
-  })
-  if (!target) throw new ApiError(404, "Target reviewer not found", "TARGET_NOT_FOUND")
-  if (target.status !== AdminUserStatus.active) {
-    throw new ApiError(400, "Target reviewer is not an active admin", "TARGET_INACTIVE")
-  }
-  if (target.reviewAvailability !== AdminReviewAvailability.AVAILABLE) {
-    throw new ApiError(400, "Target reviewer is unavailable", "TARGET_UNAVAILABLE")
+  if (targetAdminId === application.escalatedByAdminId) {
+    throw new ApiError(400, "Cannot reassign to the admin who escalated this application", "TARGET_IS_ESCALATOR")
   }
 
-  // "Has vendor-review capability" is checked against the materialized
-  // AdminUserPermission grant (the same thing requirePermission checks
-  // for the acting admin), not the role pool — consistent with how the
-  // rest of the system authorizes. vendors:applications:review, not
-  // :claim — review is the fundamental participation capability; a
-  // target must be permitted to review applications at all, independent
-  // of whether they've separately been granted claim/approve/reject.
-  const hasCapability = await prisma.adminUserPermission.findFirst({
-    where : { adminUserId: targetAdminId, permission: { key: AdminPermissions.VENDORS_APPLICATIONS_REVIEW, isActive: true } },
-    select: { id: true },
-  })
-  if (!hasCapability) {
-    throw new ApiError(400, "Target reviewer does not have vendor application review capability", "TARGET_NOT_CAPABLE")
-  }
-
-  const targetHasScope = await prisma.adminUserScope.findFirst({
-    where: {
-      adminUserId: targetAdminId,
-      OR: [
-        { scopeType: AdminScopeType.GLOBAL },
-        { scopeType: AdminScopeType.COUNTRY, countryId: application.countryId },
-        { scopeType: AdminScopeType.CITY, countryId: application.countryId },
-      ],
-    },
-    select: { id: true },
-  })
-  if (!targetHasScope) {
-    throw new ApiError(400, "Target reviewer does not have scope covering this application's country", "TARGET_OUT_OF_SCOPE")
-  }
+  // An unclaimed application that's sitting in the open escalation pool
+  // has a narrower eligible-target pool than a normal reassign — only
+  // admins who actually receive escalations, otherwise a REASSIGN holder
+  // could route it straight back out to an ordinary reviewer and defeat
+  // the whole point of escalating it.
+  const isOpenEscalationPool = !application.assignedReviewerId && !!application.escalatedByAdminId
+  await assertEligibleReviewTarget(
+    targetAdminId,
+    application.countryId,
+    isOpenEscalationPool ? AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION : AdminPermissions.VENDORS_APPLICATIONS_REVIEW,
+  )
 
   const previousReviewerId = application.assignedReviewerId
   const assignedAt = new Date()
@@ -651,38 +739,134 @@ export async function reassignApplication(
   return { id: applicationId, assignedReviewerId: targetAdminId, assignedAt }
 }
 
-//* Escalate an application — pure audit event, no schema/state change.
-//* See AdminActionReason/AuditLog for why this doesn't need its own
-//* workflow model: escalation is a signal, not a state transition.
+//* List admins eligible to receive an application via reassign/escalate —
+//* powers the target picker in both dialogs. `capability` distinguishes
+//* the two (REVIEW for reassign, RECEIVE_ESCALATION for escalate) since
+//* they're deliberately different pools of people.
 
-export async function escalateApplication(
-  applicationId: string,
-  reason       : string,
-  actorId      : string,
-  actorScope   : AdminScopeContext,
+export async function listEligibleReviewTargets(
+  applicationId   : string,
+  actorScope      : AdminScopeContext,
+  actorId         : string,
+  capability      : AdminPermissionKey = AdminPermissions.VENDORS_APPLICATIONS_REVIEW,
 ) {
   const application = await prisma.vendorApplication.findUnique({
     where : { id: applicationId },
-    select: { id: true, countryId: true, assignedReviewerId: true, status: true },
+    select: { id: true, countryId: true },
   })
   if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
   assertCountryInScope(application.countryId, actorScope)
 
-  serviceLog.warn({ applicationId, actorId, reason }, "Application escalated")
+  // Self is excluded only from the escalation-receiver pool — escalating
+  // to yourself is meaningless and already rejected server-side. Reassign
+  // deliberately keeps the actor in the list: a REASSIGN holder looking
+  // at someone else's claimed application can hand it to themselves
+  // without going through the normal claim flow.
+  const excludeSelf = capability === AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION
+
+  const candidates = await prisma.adminUser.findMany({
+    where: {
+      ...(excludeSelf ? { id: { not: actorId } } : {}),
+      status            : AdminUserStatus.active,
+      reviewAvailability: AdminReviewAvailability.AVAILABLE,
+      permissions       : { some: { permission: { key: capability, isActive: true } } },
+      scopes: {
+        some: {
+          OR: [
+            { scopeType: AdminScopeType.GLOBAL },
+            { scopeType: AdminScopeType.COUNTRY, countryId: application.countryId },
+            { scopeType: AdminScopeType.CITY, countryId: application.countryId },
+          ],
+        },
+      },
+    },
+    select: { id: true, firstName: true, lastName: true, email: true },
+    orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+  })
+
+  return candidates
+}
+
+//* Escalate an application — hands it to a superior/receiving team and
+//* permanently locks the escalating admin out of acting on it again
+//* (enforced by assertReviewerOwnership, not by anything here). With no
+//* targetAdminId it goes into the open pool: unclaimed, pickable only by
+//* an admin holding RECEIVE_ESCALATION (see claimApplication). With a
+//* targetAdminId it's assigned directly, same as reassign, but the
+//* target must additionally hold RECEIVE_ESCALATION.
+
+export async function escalateApplication(
+  applicationId   : string,
+  reason          : string,
+  actorId         : string,
+  actorScope      : AdminScopeContext,
+  actorPermissions: AdminPermissionKey[],
+  targetAdminId?  : string,
+) {
+  const application = await prisma.vendorApplication.findUnique({
+    where : { id: applicationId },
+    select: { id: true, countryId: true, assignedReviewerId: true, status: true, escalatedByAdminId: true },
+  })
+  if (!application) throw new ApiError(404, "Application not found", "NOT_FOUND")
+  assertCountryInScope(application.countryId, actorScope)
+  // Only the current assignee (or a REASSIGN holder) may escalate — same
+  // ownership rule as every other action, so a random ESCALATE-permitted
+  // admin can't hand off someone else's claimed application out from
+  // under them.
+  assertReviewerOwnership(application, actorId, actorPermissions)
+
+  if (application.escalatedByAdminId) {
+    throw new ApiError(409, "Application is already escalated", "ALREADY_ESCALATED")
+  }
+  const escalatableStatuses: VendorApplicationStatus[] = [
+    VendorApplicationStatus.SUBMITTED,
+    VendorApplicationStatus.UNDER_REVIEW,
+    VendorApplicationStatus.NEEDS_REVISION,
+  ]
+  if (!escalatableStatuses.includes(application.status)) {
+    throw new ApiError(400, `Applications in ${application.status} cannot be escalated`, "INVALID_STATUS")
+  }
+  if (targetAdminId === actorId) {
+    throw new ApiError(400, "Cannot escalate to yourself", "TARGET_IS_SELF")
+  }
+
+  if (targetAdminId) {
+    await assertEligibleReviewTarget(targetAdminId, application.countryId, AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION)
+  }
+
+  const escalatedAt = new Date()
+  const previousReviewerId = application.assignedReviewerId
+
+  await prisma.vendorApplication.update({
+    where: { id: applicationId },
+    data : {
+      assignedReviewerId: targetAdminId ?? null,
+      assignedAt        : targetAdminId ? escalatedAt : null,
+      escalatedByAdminId: actorId,
+      escalatedAt,
+      escalationReason  : reason,
+    },
+  })
+
+  serviceLog.warn({ applicationId, actorId, targetAdminId, reason }, "Application escalated")
   auditService.log({
     adminUserId: actorId,
     action     : "vendor_application.escalated",
     entityType : "VendorApplication",
     entityId   : applicationId,
-    metadata   : {
+    changes    : {
+      before: { assignedReviewerId: previousReviewerId },
+      after : { assignedReviewerId: targetAdminId ?? null },
+    },
+    metadata: {
       reason,
-      countryId         : application.countryId,
-      assignedReviewerId: application.assignedReviewerId,
-      status            : application.status,
+      countryId : application.countryId,
+      targetAdminId: targetAdminId ?? null,
+      openPool  : !targetAdminId,
     },
   })
 
-  return { success: true }
+  return { id: applicationId, escalatedByAdminId: actorId, escalatedAt, assignedReviewerId: targetAdminId ?? null }
 }
 
 //* Approve a vendor document
@@ -803,26 +987,33 @@ export async function rejectDocument(
 
 export async function listVendorAccounts(
   filters: {
-    status?   : VendorStatus
-    countrySlug: string
-    search?   : string
-    page?     : number
-    pageSize? : number
+    status?      : VendorStatus
+    countrySlug? : string
+    search?      : string
+    vendorTypeId?: string
+    page?        : number
+    pageSize?    : number
   },
   adminScope: AdminScopeContext,
 ) {
-  const { status, countrySlug, search, page = 1, pageSize = 20 } = filters
+  const { status, countrySlug, search, vendorTypeId, page = 1, pageSize = 20 } = filters
 
-  const countryId = await getCountryIdFromSlug(
-    countrySlug,
-    adminScope,
-  )
+  // countrySlug is optional — most admins browse across their entire
+  // scope, not one country at a time. Only resolve/narrow when one was
+  // actually requested; resolving unconditionally (the previous
+  // behavior here) meant an unscoped request silently fell back to
+  // Prisma's findFirst() and narrowed every list to a single arbitrary
+  // country — the same bug listApplications had and was fixed for.
+  const countryId = countrySlug
+    ? await getCountryIdFromSlug(countrySlug, adminScope)
+    : undefined
   const skip = (page - 1) * pageSize
 
   const where: any = {
     deletedAt: null,
     ...buildVendorScopeFilter(adminScope, countryId),
     ...(status ? { status } : {}),
+    ...(vendorTypeId ? { vendorTypeId } : {}),
     ...(search ? {
       OR: [
         { legalBusinessName: { contains: search, mode: "insensitive" } },

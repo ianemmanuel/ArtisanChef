@@ -19,7 +19,8 @@ import type {
 import type {
   CityBoundary,
   CreateCityRequest,
-  UpdateCityRequest 
+  UpdateCityRequest,
+  CityOutletSnapshot,
 } from "@repo/types/backend"
 
 
@@ -270,6 +271,42 @@ export async function deactivateCity(
     })
 
     return { success: true, activeOutletCount }
+}
+
+/**
+ * Vendors (VendorAccount/VendorApplication) are country-scoped in the data
+ * model — a city's "vendor presence" is really its Outlets (a vendor's
+ * physical storefront in that city), so this groups by Outlet.adminStatus
+ * rather than any vendor-account status.
+ */
+export async function getCityOutletSnapshot(
+  idOrSlug: string,
+  scope: AdminScopeContext,
+): Promise<CityOutletSnapshot> {
+  const city = await getCityOrThrow(idOrSlug)
+  assertCountryInScope(city.countryId, scope)
+
+  const [statusGroups, documentTypeCount] = await Promise.all([
+    prisma.outlet.groupBy({
+      by    : ["adminStatus"],
+      where : { cityId: city.id, deletedAt: null },
+      _count: true,
+    }),
+    prisma.documentTypeConfig.count({ where: { cityId: city.id } }),
+  ])
+
+  const findCount = (status: string) => statusGroups.find((g) => g.adminStatus === status)?._count ?? 0
+  const total = statusGroups.reduce((sum, g) => sum + g._count, 0)
+
+  return {
+    outlets: {
+      total,
+      active   : findCount("ACTIVE"),
+      suspended: findCount("SUSPENDED"),
+      banned   : findCount("BANNED"),
+    },
+    documentTypes: documentTypeCount,
+  }
 }
 
 export async function getCityBoundary(

@@ -1,5 +1,6 @@
 import { RequestHandler } from "express"
 import { VendorApplicationStatus, VendorStatus } from "@repo/db"
+import { AdminPermissions } from "@repo/types/enums"
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/errors/ApiError"
@@ -13,6 +14,7 @@ import {
   claimApplication,
   reassignApplication,
   escalateApplication,
+  listEligibleReviewTargets,
   listVendorAccounts,
   getVendorAccount,
   suspendVendor,
@@ -27,13 +29,15 @@ import {
 export const handleListApplications: RequestHandler = async (req, res, next) => {
   try {
     const { adminScope } = req as unknown as AdminRequest
-    const { status, countrySlug, search, page, pageSize } = req.query
+    const { status, countrySlug, search, sort, dir, page, pageSize } = req.query
 
     const result = await listApplications(
       {
         status     : status      as VendorApplicationStatus | undefined,
-        countrySlug: countrySlug as string,
+        countrySlug: countrySlug as string | undefined,
         search     : search      as string | undefined,
+        sort       : sort        as string | undefined,
+        dir        : dir         as string | undefined,
         page       : page        ? parseInt(page     as string) : undefined,
         pageSize   : pageSize    ? parseInt(pageSize as string) : undefined,
       },
@@ -106,9 +110,9 @@ export const handleMarkUnderReview: RequestHandler = async (req, res, next) => {
 
 export const handleClaimApplication: RequestHandler = async (req, res, next) => {
   try {
-    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
     const { id } = req.params as { id: string }
-    const result = await claimApplication(id, adminUser.id, adminScope, adminUser.reviewAvailability)
+    const result = await claimApplication(id, adminUser.id, adminScope, adminUser.reviewAvailability, adminPermissions)
     return sendSuccess(res, result, "Application claimed")
   } catch (err) { next(err) }
 }
@@ -128,14 +132,29 @@ export const handleReassignApplication: RequestHandler = async (req, res, next) 
 
 export const handleEscalateApplication: RequestHandler = async (req, res, next) => {
   try {
-    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
     const { id } = req.params as { id: string }
-    const { reason } = req.body as { reason?: string }
+    const { reason, targetAdminId } = req.body as { reason?: string; targetAdminId?: string }
 
     if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
 
-    const result = await escalateApplication(id, reason, adminUser.id, adminScope)
+    const result = await escalateApplication(id, reason, adminUser.id, adminScope, adminPermissions, targetAdminId?.trim() || undefined)
     return sendSuccess(res, result, "Application escalated")
+  } catch (err) { next(err) }
+}
+
+export const handleListEligibleReviewTargets: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { for: capabilityFor } = req.query as { for?: string }
+
+    const capability = capabilityFor === "escalate"
+      ? AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION
+      : AdminPermissions.VENDORS_APPLICATIONS_REVIEW
+
+    const result = await listEligibleReviewTargets(id, adminScope, adminUser.id, capability)
+    return sendSuccess(res, result, "Eligible reviewers fetched")
   } catch (err) { next(err) }
 }
 
@@ -177,15 +196,16 @@ export const handleRejectDocument: RequestHandler = async (req, res, next) => {
 export const handleListVendorAccounts: RequestHandler = async (req, res, next) => {
   try {
     const { adminScope }  = req as unknown as AdminRequest
-    const { status, countrySlug, search, page, pageSize } = req.query
+    const { status, countrySlug, search, vendorTypeId, page, pageSize } = req.query
 
     const result = await listVendorAccounts(
       {
-        status     : status      as VendorStatus | undefined,
-        countrySlug: countrySlug as string,
-        search     : search      as string | undefined,
-        page       : page        ? parseInt(page     as string) : undefined,
-        pageSize   : pageSize    ? parseInt(pageSize as string) : undefined,
+        status      : status       as VendorStatus | undefined,
+        countrySlug : countrySlug  as string | undefined,
+        search      : search       as string | undefined,
+        vendorTypeId: vendorTypeId as string | undefined,
+        page        : page         ? parseInt(page     as string) : undefined,
+        pageSize    : pageSize     ? parseInt(pageSize as string) : undefined,
       },
       adminScope,
     )

@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { Bell } from "lucide-react"
 import { Button } from "@repo/ui/components/button"
-import { ThemeToggle } from "@/components/shared/theme/theme-toggle"
 import { AdminProfileButton } from "./AdminProfileButton"
 
 export function Navbar() {
@@ -10,8 +9,6 @@ export function Navbar() {
       <div className="flex-1" />
 
       <div className="flex items-center gap-1">
-        <ThemeToggle />
-
         <Button
           asChild
           variant="ghost"

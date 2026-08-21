@@ -16,10 +16,20 @@ function applyOffset(collapsed: boolean) {
 }
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsedState] = useState(() => {
-    if (typeof window === "undefined") return false
-    try { return localStorage.getItem(STORAGE_KEY) === "true" } catch { return false }
-  })
+  // Always starts `false` — matching what the server renders, since it has
+  // no access to localStorage. Reading localStorage in the initializer
+  // (as this used to) makes the client's *first* render disagree with the
+  // server's, which is a hydration mismatch, not just a suppressible
+  // warning — React discards and re-renders the whole subtree when it
+  // happens. The real value is applied a moment later, after mount.
+  const [collapsed, setCollapsedState] = useState(false)
+
+  // Read the persisted preference once, after mount (client-only).
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === "true") setCollapsedState(true)
+    } catch { /* ignore */ }
+  }, [])
 
   // Write CSS var whenever collapsed changes
   useEffect(() => {

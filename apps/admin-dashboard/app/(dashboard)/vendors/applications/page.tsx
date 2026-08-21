@@ -1,14 +1,13 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { auth } from "@clerk/nextjs/server"
-import { FileText, Clock, CheckCircle, XCircle } from "lucide-react"
+import { FileText, Clock, AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { adminFetch }  from "@/lib/api"
+import { getAdminSession } from "@/lib/auth/session"
 import { VendorApplicationsTable } from "@/components/vendors/VendorApplicationsTable"
-import { VendorApplicationFilters } from "@/components/vendors/VendorApplicationFilter"
-import type { AdminSessionData, ApiSuccess } from "@repo/types/admin-app"
+import { TableFilterBar, type FilterStatusOption, type FilterSortOption } from "@/components/shared/TableFilterBar"
 import { AdminPermissions } from "@repo/types/admin-app"
-import type { ApplicationListResult } from "@/types"   // ← was ListAdminUsersResult
+import type { ApplicationListResult } from "@/types"
 
 export const metadata: Metadata = { title: "Vendor Applications" }
 export const revalidate = 60
@@ -25,23 +24,33 @@ interface PageProps {
 }
 
 const STATUS_CARDS = [
-  { status: "SUBMITTED",    label: "Submitted",    icon: FileText,      colorClass: "bg-info/10 text-info dark:bg-info/15" },
-  { status: "UNDER_REVIEW", label: "Under Review", icon: Clock,         colorClass: "bg-warning/10 text-warning dark:bg-warning/15" },
-  { status: "APPROVED",     label: "Approved",     icon: CheckCircle,   colorClass: "bg-success/10 text-success dark:bg-success/15" },
-  { status: "REJECTED",     label: "Rejected",     icon: XCircle,       colorClass: "bg-danger/10 text-danger dark:bg-danger/15" },
+  { status: "SUBMITTED",      label: "Submitted",      icon: FileText,      badgeClass: "icon-badge-info" },
+  { status: "UNDER_REVIEW",   label: "Under Review",   icon: Clock,         badgeClass: "icon-badge-warning" },
+  { status: "NEEDS_REVISION", label: "Needs Revision", icon: AlertTriangle, badgeClass: "icon-badge-warning" },
+  { status: "APPROVED",       label: "Approved",       icon: CheckCircle,   badgeClass: "icon-badge-success" },
+  { status: "REJECTED",       label: "Rejected",       icon: XCircle,       badgeClass: "icon-badge-danger" },
+]
+
+// No DRAFT option here — a draft is the vendor's own unsubmitted
+// work-in-progress and isn't open to admins at all (the backend excludes
+// it from the default list and 404s a direct-id lookup too).
+const STATUS_OPTIONS: FilterStatusOption[] = [
+  { value: "all",            label: "All statuses",   dot: "bg-muted-foreground/40" },
+  { value: "SUBMITTED",      label: "Submitted",      dot: "bg-info" },
+  { value: "UNDER_REVIEW",   label: "Under Review",   dot: "bg-warning" },
+  { value: "NEEDS_REVISION", label: "Needs Revision", dot: "bg-warning" },
+  { value: "APPROVED",       label: "Approved",       dot: "bg-success" },
+  { value: "REJECTED",       label: "Rejected",       dot: "bg-destructive" },
+]
+
+const SORT_OPTIONS: FilterSortOption[] = [
+  { value: "submittedAt",       label: "Date submitted", icon: "updown" },
+  { value: "createdAt",         label: "Date created",   icon: "updown" },
+  { value: "legalBusinessName", label: "Business name",  icon: "az" },
 ]
 
 export default async function VendorApplicationsPage({ searchParams }: PageProps) {
-  const { getToken, userId } = await auth()
-  if (!userId) redirect("/sign-in")
-
-  const token = await getToken()
-  const sessionRes = await fetch(
-    `${process.env.BACKEND_API_URL}/admin/v1/auth/session`,
-    { headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 300 } },
-  )
-  if (!sessionRes.ok) redirect("/sign-in")
-  const { data: session }: ApiSuccess<AdminSessionData> = await sessionRes.json()
+  const session = await getAdminSession()
 
   if (!session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_READ)) {
     redirect("/vendors")
@@ -54,7 +63,11 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
   const countryId = params.countryId ?? ""
   const sort      = params.sort      ?? "submittedAt"
   const dir       = params.dir       ?? "desc"
-  const canApprove = session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_APPROVE)
+  // REVIEW is the base capability to act on an application at all — the
+  // per-row "Review" link should be visible to anyone who can open and
+  // act on an application, not just admins who specifically hold APPROVE
+  // (a reviewer with only reject/needs-revision access still needs it).
+  const canReview = session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_REVIEW)
 
   const qs = new URLSearchParams({
     page, pageSize: "20",
@@ -87,42 +100,52 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
           <span>/</span>
           <span className="text-foreground">Applications</span>
         </nav>
-        <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight text-foreground">
-          Applications
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Review and action vendor applications.
-        </p>
+        <div className="mt-2 flex items-center gap-3">
+          <div className="icon-badge icon-badge-primary h-10 w-10">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+              Applications
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Review and action vendor applications.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Status overview cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {STATUS_CARDS.map(({ status: s, label, icon: Icon, colorClass }, i) => (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {STATUS_CARDS.map(({ status: s, label, icon: Icon, badgeClass }, i) => (
           <Link
             key={s}
             href={`/vendors/applications?status=${s}`}
             className={[
-              "admin-card flex items-center gap-3 transition-colors",
-              status === s ? "border-primary/50" : "hover:border-primary/30",
+              "stat-card",
+              status === s ? "border-primary/50" : "",
             ].join(" ")}
           >
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${colorClass}`}>
+            <div className={`icon-badge h-12 w-12 ${badgeClass}`}>
               <Icon className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-semibold tabular-nums text-foreground">
+              <p className="stat-card-value">
                 {(statusCounts[i] as any)?.total ?? 0}
               </p>
-              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="stat-card-label">{label}</p>
             </div>
           </Link>
         ))}
       </div>
 
       {/* Filters */}
-      <VendorApplicationFilters
+      <TableFilterBar
+        searchPlaceholder="Search business or email…"
         defaultSearch={search}
+        statusOptions={STATUS_OPTIONS}
         defaultStatus={status}
+        sortOptions={SORT_OPTIONS}
         defaultSort={sort}
         defaultDir={dir}
       />
@@ -135,7 +158,7 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
         status={status}
         sort={sort}
         dir={dir}
-        canApprove={canApprove}
+        canReview={canReview}
       />
     </div>
   )

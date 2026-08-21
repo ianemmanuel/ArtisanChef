@@ -4,137 +4,55 @@
 @import "@repo/ui/styles/tokens.css";
 @import "@repo/ui/styles/base.css";
 
-@custom-variant dark (&:is(.dark *));
+/* Tailwind v4's automatic content detection doesn't reliably reach into
+   sibling workspace packages from here — @repo/ui's *own* component
+   classes (Button, Select, Table, ...) happened to keep working only
+   because their classes also appear directly in this app's own files.
+   AlertDialog was the first component whose classes are unique to it
+   (top-[50%], bg-black/50, data-[state=open]:zoom-in-95, ...), and none
+   of them made it into the compiled stylesheet — the dialog was rendering
+   completely unstyled and unpositioned. Explicitly registering the
+   package's source directory fixes it for every @repo/ui component, not
+   just this one. */
+@source "../../../packages/ui/src";
 
 /* ============================================================
    ADMIN DASHBOARD — globals.css
-   Purpose: (1) admin navy theme token overrides, (2) Tailwind
-   @theme bridge, (3) things that can't be done in inline
-   Tailwind (Recharts SVG, scrollbar, skeleton).
+   Light-theme-only. Purpose: (1) admin layout/chart tokens,
+   (2) Tailwind @theme bridge, (3) things that can't be done in
+   inline Tailwind (Recharts SVG, scrollbar).
    All component styling lives in inline Tailwind.
    ============================================================ */
 
+/* Native <button> elements default to cursor:default, unlike <a> — every
+   button in the app should read as clickable. Skips disabled buttons and
+   ARIA-disabled custom controls, which should keep the "not allowed" cue. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
 
-/* ── ADMIN DARK SURFACE PRIMITIVES ──────────────────────────
-   Navy-tinted raw values. Admin-specific — not in tokens.css.
-   Referenced only by the .dark block below.
-*/
 :root {
-  --admin-dark-sidebar:      oklch(0.118 0.018 258);
-  --admin-dark-bg:           oklch(0.148 0.020 258);
-  --admin-dark-card:         oklch(0.178 0.020 258);
-  --admin-dark-card-2:       oklch(0.200 0.020 258);
-  --admin-dark-input:        oklch(0.218 0.018 258);
-  --admin-dark-border:       oklch(0.240 0.018 258);
-  --admin-dark-border-2:     oklch(0.280 0.018 258);
-  --admin-dark-muted:        oklch(0.520 0.012 258);
-  --admin-dark-text:         oklch(0.875 0.006 258);
-  --admin-dark-text-2:       oklch(0.955 0.004 258);
-
   /* Layout dimensions */
   --radius:                  0.625rem;
   --sidebar-width:           240px;
   --sidebar-width-collapsed: 68px;
   --topbar-height:           60px;
 
-  --chart-1: oklch(0.700 0.155 52);    
-  --chart-2: oklch(0.530 0.130 240);   
-  --chart-3: oklch(0.500 0.150 148);   
-  --chart-4: oklch(0.620 0.135 72);    
-  --chart-5: oklch(0.560 0.190 22);    
-  --chart-6: oklch(0.530 0.150 300);   
-  --chart-7: oklch(0.540 0.120 195);   
-  --chart-8: oklch(0.450 0.080 258); 
- 
+  --chart-1: oklch(0.700 0.155 52);
+  --chart-2: oklch(0.530 0.130 240);
+  --chart-3: oklch(0.500 0.150 148);
+  --chart-4: oklch(0.620 0.135 72);
+  --chart-5: oklch(0.560 0.190 22);
+  --chart-6: oklch(0.530 0.150 300);
+  --chart-7: oklch(0.540 0.120 195);
+  --chart-8: oklch(0.450 0.080 258);
+
   --chart-grid:       oklch(0.900 0.000 0);
   --chart-label:      oklch(0.500 0.010 258);
   --chart-tooltip-bg: oklch(1.000 0.000 0);
-}
-
-
-/* ── ADMIN DARK MODE TOKEN OVERRIDES ─────────────────────────
-   Replaces base.css neutral dark tokens with admin navy values.
-   Light mode inherits base.css tokens unchanged.
-   Order matters: this runs after base.css so it wins cleanly.
-*/
-.dark {
-  --background:             var(--admin-dark-bg);
-  --foreground:             var(--admin-dark-text);
-
-  --card:                   var(--admin-dark-card);
-  --card-foreground:        var(--admin-dark-text);
-
-  --popover:                var(--admin-dark-card-2);
-  --popover-foreground:     var(--admin-dark-text);
-
-  --sidebar:                var(--admin-dark-sidebar);
-  --sidebar-foreground:     var(--admin-dark-muted);
-  --sidebar-border:         var(--admin-dark-border);
-  --sidebar-icon:           var(--admin-dark-muted);
-  --sidebar-active-bg:      color-mix(in oklch, var(--color-brand-500) 16%, var(--admin-dark-card));
-  --sidebar-active-fg:      var(--admin-dark-text-2);
-  --sidebar-active-icon:    var(--color-brand-500);
-  --sidebar-hover-bg:       var(--admin-dark-card);
-
-  --primary:                var(--color-brand-500);
-  --primary-foreground:     var(--color-neutral-900);
-  --primary-hover:          var(--color-brand-400);
-  --primary-subtle:         oklch(0.700 0.155 52 / 14%);
-  --primary-subtle-fg:      var(--color-brand-400);
-
-  --secondary:              var(--admin-dark-card-2);
-  --secondary-foreground:   var(--admin-dark-text);
-
-  --muted:                  var(--admin-dark-card);
-  --muted-foreground:       var(--admin-dark-muted);
-
-  --accent:                 var(--admin-dark-card-2);
-  --accent-foreground:      var(--admin-dark-text);
-
-  --border:                 var(--admin-dark-border);
-  --border-strong:          var(--admin-dark-border-2);
-
-  --input:                  var(--admin-dark-input);
-  --input-border:           var(--admin-dark-border);
-  --input-placeholder:      var(--admin-dark-muted);
-
-  --ring:                   var(--color-brand-500);
-
-  --topbar:                 var(--admin-dark-card);
-  --topbar-border:          var(--admin-dark-border);
-
-  --icon-bg:                var(--admin-dark-card-2);
-  --icon-fg:                var(--admin-dark-muted);
-
-  --success:                oklch(0.640 0.150 148);
-  --success-foreground:     var(--admin-dark-bg);
-  --success-bg:             oklch(0.640 0.150 148 / 14%);
-  --warning:                oklch(0.750 0.135 72);
-  --warning-foreground:     var(--admin-dark-bg);
-  --warning-bg:             oklch(0.750 0.135 72 / 14%);
-  --info:                   oklch(0.640 0.130 240);
-  --info-foreground:        var(--admin-dark-bg);
-  --info-bg:                oklch(0.640 0.130 240 / 14%);
-  --destructive:            oklch(0.630 0.190 22);
-  --destructive-foreground: var(--admin-dark-bg);
-  --destructive-bg:         oklch(0.630 0.190 22 / 14%);
-
-  --shadow-card:            none;
-  --shadow-dropdown:        var(--shadow-dark-dropdown);
-  --shadow-modal:           var(--shadow-dark-modal);
-
-  --chart-1:                var(--color-brand-500);
-  --chart-2:                oklch(0.640 0.130 240);
-  --chart-3:                oklch(0.580 0.150 148);
-  --chart-4:                oklch(0.750 0.135 72);
-  --chart-5:                oklch(0.630 0.190 22);
-  --chart-grid:             var(--admin-dark-border);
-  --chart-label:            var(--admin-dark-muted);
-  --chart-tooltip-bg:       var(--admin-dark-card-2);
-  --chart-tooltip-border:   var(--admin-dark-border-2);
-  --chart-6: oklch(0.620 0.150 300);
-  --chart-7: oklch(0.650 0.120 195);   
-  --chart-8: oklch(0.550 0.080 258);   
 }
 
 
@@ -144,9 +62,9 @@
    @theme inline: vars resolve at use-time (respects .dark).
 */
 @theme inline {
-  --font-sans:    var(--font-dm-sans),  "DM Sans",       system-ui, sans-serif;
-  --font-display: var(--font-fraunces), "Fraunces",      Georgia,   serif;
-  --font-mono:    var(--font-ibm-mono), "IBM Plex Mono", monospace;
+  --font-sans:    var(--font-geist),      "Geist",      system-ui, sans-serif;
+  --font-display: var(--font-newsreader), "Newsreader", Georgia,   serif;
+  --font-mono:    var(--font-ibm-mono),   "IBM Plex Mono", monospace;
 
   --color-background:           var(--background);
   --color-foreground:           var(--foreground);
@@ -216,6 +134,132 @@
   --radius-lg:                  var(--radius-lg);
   --radius-xl:                  var(--radius-xl);
   --radius-full:                var(--radius-full);
+}
+
+
+/* ── COMPONENT PATTERNS ───────────────────────────────────────
+   The shared design-system vocabulary for every admin page —
+   cards, badges, icon badges, stat cards, avatars. Centralized
+   here per project convention rather than re-typed inline on
+   every card/badge. New pages should reach for these first
+   before writing bespoke inline Tailwind for the same pattern.
+*/
+@layer components {
+  /* Page-level content stack — the vertical rhythm between a
+     page's header/filters/cards/table. Referenced by every page
+     in the app (`className="page-content animate-slide-up"`)
+     but was never actually defined — fixed here. */
+  .page-content {
+    @apply flex flex-col gap-6;
+  }
+
+  .admin-card {
+    @apply rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-[var(--shadow-xs)];
+  }
+
+  /* ---- Inline status pills ---- */
+  .badge-neutral,
+  .badge-info,
+  .badge-warning,
+  .badge-success,
+  .badge-danger {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium leading-none;
+  }
+
+  .badge-neutral { @apply bg-muted text-muted-foreground; }
+  .badge-info    { background-color: var(--info-bg);        color: var(--info); }
+  .badge-warning { background-color: var(--warning-bg);     color: var(--warning); }
+  .badge-success { background-color: var(--success-bg);     color: var(--success); }
+  .badge-danger  { background-color: var(--destructive-bg); color: var(--destructive); }
+
+  /* ---- Icon badges — larger colored containers for stat cards,
+     row leaders and empty states. Soft two-stop tint rather than
+     a flat wash, for a little more depth/liveliness than a plain
+     10%-opacity fill. ---- */
+  .icon-badge {
+    @apply flex shrink-0 items-center justify-center rounded-2xl;
+  }
+  .icon-badge-primary { background-image: linear-gradient(135deg, color-mix(in oklch, var(--primary) 20%, transparent), color-mix(in oklch, var(--primary) 8%, transparent));           color: var(--primary); }
+  .icon-badge-info    { background-image: linear-gradient(135deg, color-mix(in oklch, var(--info) 20%, transparent), color-mix(in oklch, var(--info) 8%, transparent));                 color: var(--info); }
+  .icon-badge-warning { background-image: linear-gradient(135deg, color-mix(in oklch, var(--warning) 22%, transparent), color-mix(in oklch, var(--warning) 9%, transparent));           color: var(--warning); }
+  .icon-badge-success { background-image: linear-gradient(135deg, color-mix(in oklch, var(--success) 20%, transparent), color-mix(in oklch, var(--success) 8%, transparent));           color: var(--success); }
+  .icon-badge-danger  { background-image: linear-gradient(135deg, color-mix(in oklch, var(--destructive) 20%, transparent), color-mix(in oklch, var(--destructive) 8%, transparent));   color: var(--destructive); }
+  .icon-badge-neutral { @apply bg-muted text-muted-foreground; }
+
+  /* ---- Stat / overview cards — the "hero number" cards used at
+     the top of list pages. Bigger and bolder than a plain
+     .admin-card so the numbers actually read as the headline. ---- */
+  .stat-card {
+    @apply flex items-center gap-4 rounded-2xl border border-border bg-card p-5;
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
+  }
+  a.stat-card:hover {
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+  }
+  .stat-card-value {
+    @apply text-3xl font-bold tabular-nums text-foreground;
+  }
+  .stat-card-label {
+    @apply text-xs font-medium text-muted-foreground;
+  }
+
+  /* ---- Compact stat card — a lighter-weight variant for summary/hub
+     surfaces (e.g. the Vendors landing page) where several groups of
+     cards share the page with other sections and the full .stat-card
+     hero size would overwhelm it. Same visual language, smaller. ---- */
+  .stat-card-compact {
+    @apply flex items-center gap-3 rounded-xl border border-border bg-card p-3.5;
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
+  }
+  a.stat-card-compact:hover {
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+  }
+  .stat-card-value-sm {
+    @apply text-xl font-bold tabular-nums text-foreground;
+  }
+
+  /* ---- Avatar — initials circle for a business/person, used in
+     tables and page headers wherever a photo isn't available. ---- */
+  .avatar-circle {
+    @apply flex shrink-0 items-center justify-center rounded-full font-bold text-primary;
+    background-image: linear-gradient(135deg, color-mix(in oklch, var(--primary) 18%, transparent), color-mix(in oklch, var(--primary) 7%, transparent));
+  }
+
+  /* ---- Section header — "Applications" + "View all →" pattern
+     repeated above every card grid. ---- */
+  .section-head {
+    @apply flex items-center justify-between;
+  }
+
+  /* ---- "View all" pill link — a small elegant affordance used next
+     to section headers, instead of a bare text link. ---- */
+  .view-all-link {
+    @apply inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-all;
+    box-shadow: var(--shadow-xs);
+  }
+  .view-all-link:hover {
+    color: var(--primary);
+    border-color: color-mix(in oklch, var(--primary) 40%, transparent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+@keyframes admin-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: admin-slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up { animation: none; }
 }
 
 

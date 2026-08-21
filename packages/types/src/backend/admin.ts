@@ -60,8 +60,11 @@ export type {
   AddPayoutAccountRequest,
   OperatingHoursEntry,
   idParam,
-  
-} from "../domain/vendor" 
+  VendorTypeSummary,
+  VendorTypeListResult,
+  VendorTypeStats,
+
+} from "../domain/vendor"
 
 
 export type { 
@@ -84,7 +87,9 @@ export type {
   OsmPreviewResult,
   CityWithCountry,
   SaveCityBoundaryRequest,
-  ListCitiesParams
+  ListCitiesParams,
+  CityOutletSnapshot,
+  CityOutletLeaderboardEntry,
 } from "../domain/city"
 
 export type { 
@@ -108,9 +113,11 @@ export type {
   Country,
   UpdateCountryRequest,
   CountrySummaryResult,
+  CountryListResult,
   CreateCountryRequest,
   CountryWithCities,
   CountryVendorSnapshot,
+  CountryOnboardingLeaderboardEntry,
 } from "../domain/country"
 
 export type {

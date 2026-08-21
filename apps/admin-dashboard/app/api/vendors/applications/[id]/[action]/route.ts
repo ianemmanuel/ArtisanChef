@@ -6,7 +6,7 @@ const BACKEND = process.env.BACKEND_API_URL
 
 /**
  * POST /api/vendors/applications/[id]/[action]
- * Actions: review | approve | reject
+ * Actions: review | approve | reject | needs-revision | claim | reassign | escalate
  */
 export async function POST(
   req    : NextRequest,
@@ -18,8 +18,8 @@ export async function POST(
     const token          = await getToken()
 
     if (!token) return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
-      console.log("request before allowedActions")
-    const allowedActions = ["review", "approve", "reject"]
+
+    const allowedActions = ["review", "approve", "reject", "needs-revision", "claim", "reassign", "escalate"]
     if (!allowedActions.includes(action)) {
       return NextResponse.json({ message: "Invalid action" }, { status: 400 })
     }
@@ -41,9 +41,12 @@ export async function POST(
     const data = await res.json()
 
     if (res.ok) {
-      console.log(`[vendor-application-action] ${action} succeeded for application ${id}`)
-      // Revalidate the application detail page to reflect the new status
-      //*revalidateTag(`vendor-application-${id}`)
+      // Revalidate the application detail + list caches so the new status
+      // shows up immediately (both are tagged in the fetches that built them).
+      // Second arg is Next 16's mandatory cache-life profile — {} keeps the
+      // tagged entries' existing revalidate window instead of overriding it.
+      revalidateTag(`vendor-application-${id}`, {})
+      revalidateTag("vendor-applications", {})
     }
 
     return NextResponse.json(data, { status: res.status })

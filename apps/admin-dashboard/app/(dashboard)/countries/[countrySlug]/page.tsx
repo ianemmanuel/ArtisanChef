@@ -1,20 +1,24 @@
 import type { Metadata } from "next"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Flag, Building2, Store, Coins, Globe2 } from "lucide-react"
+import { ArrowLeft, Flag, Building2, Store, Coins, Globe2, MapPinned } from "lucide-react"
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
-import { getScopeTier } from "@/lib/auth/scope-tier"
 import { getMockCountryRevenue } from "@/lib/mock/country-revenue"
 import { CountryActions } from "@/components/countries/CountryActions"
+import { CountryLaunchChecklist } from "@/components/countries/CountryLaunchChecklist"
+import { CountryVendorCategoriesPreview } from "@/components/countries/CountryVendorCategoriesPreview"
+import { CountryDocumentsPreview } from "@/components/countries/CountryDocumentsPreview"
+import { CountryReadinessActions } from "@/components/countries/CountryReadinessActions"
 import { SectionViewMoreHeader } from "@/components/countries/SectionViewMoreHeader"
-import { VendorSnapshotSummary } from "@/components/countries/VendorSnapshotSummary"
+import { CountryVendorAccountsSummary } from "@/components/countries/CountryVendorAccountsSummary"
+import { CountryVendorApplicationsSummary } from "@/components/countries/CountryVendorApplicationsSummary"
 import { RevenueStatCard } from "@/components/countries/RevenueStatCard"
 import { CountryCitiesPreview, type CityPreviewEntry } from "@/components/countries/CountryCitiesPreview"
-import { DocumentTypePreviewList } from "@/components/document-types/DocumentTypePreviewList"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { Country, CountryVendorSnapshot, CityOutletLeaderboardEntry } from "@repo/types/admin-app"
 import type { DocumentTypeConfig } from "@/types/document-type.types"
+import type { CountryVendorTypeLink } from "@/types/vendor-type.types"
 
 export const revalidate = 60
 
@@ -39,9 +43,11 @@ interface DocumentTypeListResult {
 export default async function CountryDetailPage({ params }: Props) {
   const session = await getAdminSession()
 
-  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_READ)) redirect("/overview")
-  // City-scoped admins have no country-level rollup to see at all.
-  if (getScopeTier(session) === "CITY") redirect("/cities")
+  // Countries (launch configuration) is restricted to super_admin and the
+  // (currently global-only) operations_admin role — see /countries/page.tsx.
+  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) || !session.scope.isGlobal) {
+    redirect("/overview")
+  }
 
   const { countrySlug } = await params
 
@@ -55,7 +61,7 @@ export default async function CountryDetailPage({ params }: Props) {
     throw err
   }
 
-  const [vendorSnapshot, cityLeaderboard, docTypesPreview] = await Promise.all([
+  const [vendorSnapshot, cityLeaderboard, documentTypesResult, countryVendorTypes] = await Promise.all([
     adminFetch<CountryVendorSnapshot>(`/admin/v1/countries/${countrySlug}/vendors`, {
       next: { revalidate: 60, tags: [`country-${countrySlug}-vendors`] },
     }).catch(() => null),
@@ -65,13 +71,17 @@ export default async function CountryDetailPage({ params }: Props) {
     adminFetch<DocumentTypeListResult>(`/admin/v1/document-types?countryId=${country.id}&pageSize=5`, {
       next: { revalidate: 60, tags: [`document-types-${country.id}`] },
     }).catch(() => null),
+    adminFetch<CountryVendorTypeLink[]>(`/admin/v1/countries/${countrySlug}/vendor-types`, {
+      next: { revalidate: 60, tags: [`country-${countrySlug}`] },
+    }).catch(() => [] as CountryVendorTypeLink[]),
   ])
 
   const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE)
+  const checklist = country.checklist ?? { vendorTypeCount: 0, documentTypeCount: 0, readyToActivate: false }
 
   const cityPreviewEntries: CityPreviewEntry[] = cityLeaderboard.length > 0
-    ? cityLeaderboard.slice(0, 6).map((c) => ({ name: c.name, count: c.count }))
-    : country.cities.slice(0, 6).map((c) => ({ name: c.name, count: null }))
+    ? cityLeaderboard.slice(0, 5).map((c) => ({ name: c.name, count: c.count }))
+    : country.cities.slice(0, 5).map((c) => ({ name: c.name, count: null }))
 
   return (
     <div className="page-content animate-slide-up">
@@ -96,20 +106,47 @@ export default async function CountryDetailPage({ params }: Props) {
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1"><Globe2 className="h-3.5 w-3.5" />{country.code} · {country.phoneCode}</span>
             <span className="inline-flex items-center gap-1"><Coins className="h-3.5 w-3.5" />{country.currency}{country.currencySymbol ? ` (${country.currencySymbol})` : ""}</span>
+            {country.region && (
+              <span className="inline-flex items-center gap-1"><MapPinned className="h-3.5 w-3.5" />{country.region.name}</span>
+            )}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <StatusBadge status={country.status} />
+          <span className={country.readyForVendorOnboarding ? "badge-success" : "badge-neutral"}>
+            {country.readyForVendorOnboarding ? "Ready for Vendors" : "Vendors Not Ready"}
+          </span>
+          <span className={country.readyForCustomerOperations ? "badge-success" : "badge-neutral"}>
+            {country.readyForCustomerOperations ? "Ready for Customers" : "Customers Not Ready"}
+          </span>
           <CountryActions
             countrySlug={country.slug}
             countryName={country.name}
             status={country.status}
             canWrite={canWrite}
             isGlobal={session.scope.isGlobal}
+            canActivate={checklist.readyToActivate}
             size="default"
           />
         </div>
       </div>
+
+      <CountryLaunchChecklist
+        vendorTypeCount={checklist.vendorTypeCount}
+        documentTypeCount={checklist.documentTypeCount}
+        readyToActivate={checklist.readyToActivate}
+        status={country.status}
+      />
+
+      <CountryReadinessActions
+        countrySlug={country.slug}
+        countryName={country.name}
+        readyForVendorOnboarding={country.readyForVendorOnboarding}
+        readyForCustomerOperations={country.readyForCustomerOperations}
+        checklistReady={checklist.readyToActivate}
+        canWrite={canWrite}
+        isGlobal={session.scope.isGlobal}
+      />
 
       {/* Headline stats */}
       <div className="grid gap-3 sm:grid-cols-3">
@@ -134,25 +171,34 @@ export default async function CountryDetailPage({ params }: Props) {
         <RevenueStatCard revenue={getMockCountryRevenue(country.slug)} />
       </div>
 
-      {/* Vendor onboarding */}
-      <div className="space-y-3">
-        <SectionViewMoreHeader title="Vendor Onboarding" href={`/vendors/applications?countryId=${country.id}`} />
-        <VendorSnapshotSummary snapshot={vendorSnapshot} />
+      {/* Vendors — accounts and applications get their own minimal cards */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="admin-card space-y-3">
+          <SectionViewMoreHeader title="Vendors" href={`/countries/${country.slug}/vendors`} />
+          <CountryVendorAccountsSummary snapshot={vendorSnapshot} />
+        </div>
+        <div className="admin-card space-y-3">
+          <SectionViewMoreHeader title="Vendor Applications" href={`/countries/${country.slug}/vendor-applications`} />
+          <CountryVendorApplicationsSummary snapshot={vendorSnapshot} />
+        </div>
       </div>
 
       {/* Cities */}
-      <div className="space-y-3">
-        <SectionViewMoreHeader title="Cities" href={`/cities?country=${country.slug}`} />
+      <div className="admin-card space-y-3">
+        <SectionViewMoreHeader title="Cities" href={`/countries/${country.slug}/cities`} />
         <CountryCitiesPreview entries={cityPreviewEntries} />
       </div>
 
-      {/* Document types */}
-      <div className="space-y-3">
-        <SectionViewMoreHeader title="Document Types" href={`/vendors/document-types?country=${country.slug}`} />
-        <DocumentTypePreviewList
-          documentTypes={docTypesPreview?.documentTypes ?? []}
-          total={docTypesPreview?.total ?? 0}
-        />
+      {/* Vendor categories + documents — read-only previews, capped at 5 */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="admin-card space-y-3">
+          <SectionViewMoreHeader title="Vendor Categories" href={`/countries/${country.slug}/vendor-categories`} />
+          <CountryVendorCategoriesPreview vendorTypes={countryVendorTypes} />
+        </div>
+        <div className="admin-card space-y-3">
+          <SectionViewMoreHeader title="Documents" href={`/countries/${country.slug}/documents`} />
+          <CountryDocumentsPreview documentTypes={documentTypesResult?.documentTypes ?? []} />
+        </div>
       </div>
 
     </div>

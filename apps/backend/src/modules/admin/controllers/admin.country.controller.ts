@@ -2,10 +2,10 @@
 import { RequestHandler }  from "express"
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
-import { 
+import {
     activateCountry,
     assignCountryToRegion,
-    deactivateCountry, 
+    deactivateCountry,
     getCountriesByStatus,
     getCountry,
     getCountryVendorSnapshot,
@@ -13,7 +13,9 @@ import {
     getCityOutletLeaderboard,
     listCitiesForCountry,
     listCountriesForScope,
-    removeCountryFromRegion
+    removeCountryFromRegion,
+    setVendorOnboardingReadiness,
+    setCustomerOperationsReadiness,
 } from "../services/admin.country.service"
 import { ApiError } from "@/middleware/error"
 
@@ -49,6 +51,42 @@ export const handleDeactivateCountry: RequestHandler = async (req, res, next) =>
     const { countryRef }  = req.params as { countryRef: string }
     const data = await deactivateCountry(countryRef, adminUser.id, adminScope)
     return sendSuccess(res, data, "Country deactivated")
+  } catch (err) { next(err) }
+}
+
+export const handleSetReadyForVendors: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { countryRef } = req.params as { countryRef: string }
+    const data = await setVendorOnboardingReadiness(countryRef, true, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Country marked ready for vendor onboarding")
+  } catch (err) { next(err) }
+}
+
+export const handleSetNotReadyForVendors: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { countryRef } = req.params as { countryRef: string }
+    const data = await setVendorOnboardingReadiness(countryRef, false, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Country marked not ready for vendor onboarding")
+  } catch (err) { next(err) }
+}
+
+export const handleSetReadyForCustomers: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { countryRef } = req.params as { countryRef: string }
+    const data = await setCustomerOperationsReadiness(countryRef, true, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Country marked ready for customer operations")
+  } catch (err) { next(err) }
+}
+
+export const handleSetNotReadyForCustomers: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { countryRef } = req.params as { countryRef: string }
+    const data = await setCustomerOperationsReadiness(countryRef, false, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Country marked not ready for customer operations")
   } catch (err) { next(err) }
 }
 
@@ -107,12 +145,16 @@ export const handleListCities: RequestHandler = async (req, res, next) => {
     try {
         const { adminScope } = req as unknown as AdminRequest
         const { countryRef } = req.params as { countryRef: string }
-        const { page, pageSize, status, search } = req.query as {
+        const { page, pageSize, status, search, sort, dir } = req.query as {
           page?: string; pageSize?: string; status?: string; search?: string
+          sort?: string; dir?: string
         }
 
         if (status && status !== "ACTIVE" && status !== "INACTIVE") {
           throw new ApiError(400, "status must be 'ACTIVE' or 'INACTIVE'", "INVALID_STATUS")
+        }
+        if (sort && sort !== "name" && sort !== "status" && sort !== "outletCount") {
+          throw new ApiError(400, "sort must be 'name', 'status', or 'outletCount'", "INVALID_SORT")
         }
 
         const data = await listCitiesForCountry(countryRef, adminScope, {
@@ -120,6 +162,8 @@ export const handleListCities: RequestHandler = async (req, res, next) => {
           pageSize: pageSize ? Number(pageSize) : undefined,
           status  : status as "ACTIVE" | "INACTIVE" | undefined,
           search,
+          sort    : sort as "name" | "status" | "outletCount" | undefined,
+          dir     : dir === "desc" ? "desc" : "asc",
         })
         return sendSuccess(res, data, "Cities fetched")
     } catch (err) { next(err) }

@@ -1,4 +1,4 @@
-import { prisma, GeoStatus, DocumentTypeStatus } from "@repo/db"
+import { prisma, DocumentTypeStatus } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
@@ -6,6 +6,35 @@ import { auditService } from "@/services/audit"
 import { getAllowedDocumentTypes } from "@/modules/vendor/services/vendor.document.service"
 
 const serviceLog = logger.child({ module: "admin-document-type-service" })
+
+/*
+ * Codes are system-generated from the name (e.g. "Business Registration
+ * Certificate" -> "BUSINESS_REGISTRATION_CERTIFICATE") rather than admin-
+ * typed — asking an admin to hand-author a unique-per-country identifier
+ * is unnecessary friction and a duplicate-code error is a bad first
+ * experience. Collisions (same name reused within a country/city — e.g.
+ * after a prior one was archived) resolve by appending "_2", "_3", ...
+ */
+function slugifyToCode(name: string): string {
+  const base = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // strip combining diacritics: é → e
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+  return base || "DOCUMENT_TYPE"
+}
+
+async function generateDocumentTypeCode(name: string, countryId: string, cityId: string | null): Promise<string> {
+  const base = slugifyToCode(name)
+  let code = base
+  let suffix = 2
+  while (await prisma.documentTypeConfig.findFirst({ where: { code, countryId, cityId } })) {
+    code = `${base}_${suffix}`
+    suffix += 1
+  }
+  return code
+}
 
 function assertCountryInScope(countryId: string, scope: AdminScopeContext): void {
   if (!scope.isGlobal && !scope.countryIds.includes(countryId)) {
@@ -16,15 +45,25 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
 export async function listDocumentTypesForCountry(
   countryId: string,
   scope: AdminScopeContext,
-  params: { page?: number; pageSize?: number; search?: string } = {},
+  params: {
+    page?      : number
+    pageSize?  : number
+    search?    : string
+    isRequired?: boolean
+    docScope?  : "VENDOR" | "OUTLET" | "CITY"
+    status?    : (typeof DocumentTypeStatus)[keyof typeof DocumentTypeStatus]
+  } = {},
 ) {
   assertCountryInScope(countryId, scope)
 
-  const { page = 1, pageSize = 10, search } = params
+  const { page = 1, pageSize = 10, search, isRequired, docScope, status } = params
   const skip = (page - 1) * pageSize
   const where = {
     countryId,
     ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
+    ...(isRequired !== undefined ? { isRequired } : {}),
+    ...(docScope ? { scope: docScope } : {}),
+    ...(status ? { status } : {}),
   }
 
   const [documentTypes, total] = await Promise.all([
@@ -36,13 +75,35 @@ export async function listDocumentTypesForCountry(
         vendorTypeConfigs: {
           include: { vendorType: { select: { id: true, name: true } } },
         },
+        city: { select: { id: true, name: true } },
       },
       orderBy: { name: "asc" },
     }),
     prisma.documentTypeConfig.count({ where }),
   ])
 
-  return { documentTypes, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+  // deactivatedByAdminId is a plain id (not a Prisma relation — see
+  // createdByAdminId elsewhere in this schema), so resolve display names
+  // in a single batch, same technique as getCountryVendorSnapshot's
+  // vendor-type-name Map.
+  const deactivatorIds = [...new Set(documentTypes.map((d) => d.deactivatedByAdminId).filter((id): id is string => !!id))]
+  const deactivatorMap = deactivatorIds.length > 0
+    ? new Map(
+        (await prisma.adminUser.findMany({ where: { id: { in: deactivatorIds } }, select: { id: true, firstName: true, lastName: true } }))
+          .map((a) => [a.id, `${a.firstName} ${a.lastName}`.trim()]),
+      )
+    : new Map<string, string>()
+
+  return {
+    documentTypes: documentTypes.map((d) => ({
+      ...d,
+      deactivatedByName: d.deactivatedByAdminId ? deactivatorMap.get(d.deactivatedByAdminId) ?? null : null,
+    })),
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  }
 }
 
 export async function getDocumentType(id: string, scope: AdminScopeContext) {
@@ -52,6 +113,7 @@ export async function getDocumentType(id: string, scope: AdminScopeContext) {
       vendorTypeConfigs: {
         include: { vendorType: { select: { id: true, name: true } } },
       },
+      city: { select: { id: true, name: true } },
     },
   })
 
@@ -61,12 +123,34 @@ export async function getDocumentType(id: string, scope: AdminScopeContext) {
   return documentType
 }
 
+/*
+ * CITY scope means "tied to one specific city" (a vendor uploads it once
+ * per city they operate in) — VENDOR and OUTLET are both nationwide by
+ * definition, so cityId is meaningless for them and is force-cleared
+ * regardless of what's passed. Validates the city belongs to the country
+ * and exists when required.
+ */
+async function resolveCityForScope(
+  docScope : "VENDOR" | "OUTLET" | "CITY",
+  cityId   : string | undefined,
+  countryId: string,
+): Promise<string | null> {
+  if (docScope !== "CITY") return null
+
+  if (!cityId) throw new ApiError(400, "A city is required for a city-scoped document", "CITY_REQUIRED")
+  const city = await prisma.city.findUnique({ where: { id: cityId } })
+  if (!city) throw new ApiError(404, "City not found", "NOT_FOUND")
+  if (city.countryId !== countryId) {
+    throw new ApiError(400, "City does not belong to this country", "CITY_COUNTRY_MISMATCH")
+  }
+  return cityId
+}
+
 export async function createDocumentType(
   input: {
     name: string
-    code: string
     description?: string
-    scope: "VENDOR" | "OUTLET"
+    scope: "VENDOR" | "OUTLET" | "CITY"
     countryId: string
     cityId?: string
     isRequired?: boolean
@@ -82,37 +166,19 @@ export async function createDocumentType(
 
   const country = await prisma.country.findUnique({ where: { id: input.countryId } })
   if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
-  if (country.status !== GeoStatus.ACTIVE) {
-    throw new ApiError(400, "Cannot add a document type to an inactive country", "COUNTRY_INACTIVE")
-  }
 
-  if (input.cityId) {
-    const city = await prisma.city.findUnique({ where: { id: input.cityId } })
-    if (!city) throw new ApiError(404, "City not found", "NOT_FOUND")
-    if (city.countryId !== input.countryId) {
-      throw new ApiError(400, "City does not belong to this country", "CITY_COUNTRY_MISMATCH")
-    }
-  }
+  const cityId = await resolveCityForScope(input.scope, input.cityId, input.countryId)
 
-  // findFirst, not findUnique — Prisma's compound-unique input type requires
-  // a non-null cityId, but most document types are country-wide (cityId
-  // null) by design. The @@unique([code, countryId, cityId]) DB constraint
-  // is still the actual guarantee; this is just the friendly pre-check.
-  const duplicate = await prisma.documentTypeConfig.findFirst({
-    where: { code: input.code, countryId: input.countryId, cityId: input.cityId ?? null },
-  })
-  if (duplicate) {
-    throw new ApiError(409, "A document type with this code already exists for this country/city", "DUPLICATE_DOCUMENT_TYPE")
-  }
+  const code = await generateDocumentTypeCode(input.name, input.countryId, cityId)
 
   const documentType = await prisma.documentTypeConfig.create({
     data: {
       name             : input.name,
-      code             : input.code,
+      code,
       description      : input.description ?? null,
       scope            : input.scope,
       countryId        : input.countryId,
-      cityId           : input.cityId ?? null,
+      cityId,
       isRequired       : input.isRequired ?? true,
       requiresExpiry   : input.requiresExpiry ?? true,
       expiryWarningDays: input.expiryWarningDays ?? 30,
@@ -139,6 +205,8 @@ export async function updateDocumentType(
   input: {
     name?: string
     description?: string
+    scope?: "VENDOR" | "OUTLET" | "CITY"
+    cityId?: string
     isRequired?: boolean
     requiresExpiry?: boolean
     expiryWarningDays?: number
@@ -152,11 +220,21 @@ export async function updateDocumentType(
   if (!existing) throw new ApiError(404, "Document type not found", "NOT_FOUND")
   assertCountryInScope(existing.countryId, scope)
 
+  // scope/cityId travel together — changing one without validating against
+  // the other could leave a CITY-scoped doc with no city, or a stray city
+  // on a VENDOR/OUTLET doc. Resolve whenever either is present in the input.
+  const nextScope = input.scope ?? existing.scope
+  const cityId = (input.scope != null || input.cityId != null)
+    ? await resolveCityForScope(nextScope, input.cityId ?? existing.cityId ?? undefined, existing.countryId)
+    : undefined
+
   const updated = await prisma.documentTypeConfig.update({
     where: { id },
     data : {
       ...(input.name != null ? { name: input.name } : {}),
       ...(input.description != null ? { description: input.description } : {}),
+      ...(input.scope != null ? { scope: input.scope } : {}),
+      ...(cityId !== undefined ? { cityId } : {}),
       ...(input.isRequired != null ? { isRequired: input.isRequired } : {}),
       ...(input.requiresExpiry != null ? { requiresExpiry: input.requiresExpiry } : {}),
       ...(input.expiryWarningDays != null ? { expiryWarningDays: input.expiryWarningDays } : {}),
@@ -166,12 +244,51 @@ export async function updateDocumentType(
   })
 
   serviceLog.info({ documentTypeId: id, actorId }, "Document type updated")
+  const changedKeys = Object.keys(input) as (keyof typeof input)[]
   auditService.log({
     adminUserId: actorId,
     action     : "document_type.updated",
     entityType : "DocumentTypeConfig",
     entityId   : id,
-    changes    : { before: { name: existing.name }, after: { name: updated.name } },
+    changes    : {
+      before: Object.fromEntries(changedKeys.map((k) => [k, existing[k as keyof typeof existing]])),
+      after : Object.fromEntries(changedKeys.map((k) => [k, updated[k as keyof typeof updated]])),
+    },
+  })
+
+  return updated
+}
+
+/*
+ * Quick one-click VENDOR<->OUTLET toggle only — CITY is deliberately
+ * excluded (rejected by the controller before this is even called): moving
+ * to CITY scope needs a city picked, which doesn't fit a single-click
+ * action. CITY scope changes go through updateDocumentType (the full edit
+ * form) instead, see resolveCityForScope.
+ */
+export async function setDocumentTypeScope(
+  id: string,
+  docScope: "VENDOR" | "OUTLET",
+  actorId: string,
+  scope: AdminScopeContext,
+) {
+  const existing = await prisma.documentTypeConfig.findUnique({ where: { id } })
+  if (!existing) throw new ApiError(404, "Document type not found", "NOT_FOUND")
+  assertCountryInScope(existing.countryId, scope)
+
+  if (existing.scope === docScope) {
+    throw new ApiError(400, `Document is already scoped to ${docScope.toLowerCase()}s`, "NO_CHANGE")
+  }
+
+  const updated = await prisma.documentTypeConfig.update({ where: { id }, data: { scope: docScope } })
+
+  serviceLog.info({ documentTypeId: id, actorId, scope: docScope }, "Document type scope changed")
+  auditService.log({
+    adminUserId: actorId,
+    action     : "document_type.scope_changed",
+    entityType : "DocumentTypeConfig",
+    entityId   : id,
+    changes    : { before: { scope: existing.scope }, after: { scope: docScope } },
   })
 
   return updated
@@ -182,6 +299,7 @@ export async function setDocumentTypeStatus(
   status: (typeof DocumentTypeStatus)[keyof typeof DocumentTypeStatus],
   actorId: string,
   scope: AdminScopeContext,
+  reason?: string,
 ) {
   const existing = await prisma.documentTypeConfig.findUnique({ where: { id } })
   if (!existing) throw new ApiError(404, "Document type not found", "NOT_FOUND")
@@ -191,7 +309,20 @@ export async function setDocumentTypeStatus(
     throw new ApiError(400, `Document type is already ${status.toLowerCase()}`, "NO_CHANGE")
   }
 
-  await prisma.documentTypeConfig.update({ where: { id }, data: { status } })
+  const isDeactivating = status === DocumentTypeStatus.INACTIVE
+  if (isDeactivating && !reason?.trim()) {
+    throw new ApiError(400, "A reason is required to deactivate a document", "REASON_REQUIRED")
+  }
+
+  await prisma.documentTypeConfig.update({
+    where: { id },
+    data : {
+      status,
+      deactivatedByAdminId: isDeactivating ? actorId : null,
+      deactivatedAt        : isDeactivating ? new Date() : null,
+      deactivationReason   : isDeactivating ? reason!.trim() : null,
+    },
+  })
 
   serviceLog.info({ documentTypeId: id, actorId, status }, "Document type status changed")
   auditService.log({
@@ -200,6 +331,7 @@ export async function setDocumentTypeStatus(
     entityType : "DocumentTypeConfig",
     entityId   : id,
     changes    : { before: { status: existing.status }, after: { status } },
+    metadata   : isDeactivating ? { reason } : undefined,
   })
 
   return { success: true }

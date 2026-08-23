@@ -12,6 +12,7 @@ import vendorTypesRouter from "./admin.vendorType.routes"
 import documentTypesRouter from "./admin.documentType.routes"
 import reviewerAvailabilityRouter from "./admin.reviewerAvailability.routes"
 import actionReasonsRouter from "./admin.actionReason.routes"
+import auditRouter from "./admin.audit.routes"
 
 const v1Router: Router = Router()
 
@@ -27,6 +28,7 @@ v1Router.use("/vendor-types", vendorTypesRouter)
 v1Router.use("/document-types", documentTypesRouter)
 v1Router.use("/vendor-reviewers", reviewerAvailabilityRouter)
 v1Router.use("/action-reasons", actionReasonsRouter)
+v1Router.use("/audit", auditRouter)
 v1Router.use("/kpis", kpiRouter)
 
 export default v1Router

@@ -26,7 +26,7 @@ export default async function NewAdminUserPage() {
 
   // Require create permission
   if (!session.permissions.includes(AdminPermissions.ADMIN_USERS_ACCOUNTS_CREATE)) {
-    redirect("/identity")
+    redirect("/identity/manage")
   }
 
   const roles = await adminFetch<AdminRole[]>("/admin/v1/users/meta/roles", {
@@ -37,7 +37,7 @@ export default async function NewAdminUserPage() {
     <div className="page-content animate-slide-up">
       <div>
         <Button asChild variant="ghost" size="sm" className="-ml-1">
-          <Link href="/identity"><ArrowLeft className="mr-1.5 h-4 w-4" />Back</Link>
+          <Link href="/identity/manage"><ArrowLeft className="mr-1.5 h-4 w-4" />Back</Link>
         </Button>
       </div>
 

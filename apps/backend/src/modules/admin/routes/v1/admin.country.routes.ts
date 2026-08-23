@@ -13,6 +13,10 @@ import {
     handleGetCityOutletLeaderboard,
     handleAssignCountryToRegion,
     handleRemoveCountryFromRegion,
+    handleSetReadyForVendors,
+    handleSetNotReadyForVendors,
+    handleSetReadyForCustomers,
+    handleSetNotReadyForCustomers,
 } from "../../controllers/admin.country.controller"
 import { handleCreateCity } from "../../controllers/admin.city.controller"
 import {
@@ -40,6 +44,10 @@ countryRouter.get("/insights/onboarding", READ, handleGetVendorOnboardingLeaderb
 countryRouter.get("/:countryRef", READ, handleGetCountry)
 countryRouter.patch("/:countryRef/activate", GLOBAL, handleActivateCountry)
 countryRouter.patch("/:countryRef/deactivate", GLOBAL, handleDeactivateCountry)
+countryRouter.patch("/:countryRef/ready-for-vendors", GLOBAL, handleSetReadyForVendors)
+countryRouter.patch("/:countryRef/not-ready-for-vendors", GLOBAL, handleSetNotReadyForVendors)
+countryRouter.patch("/:countryRef/ready-for-customers", GLOBAL, handleSetReadyForCustomers)
+countryRouter.patch("/:countryRef/not-ready-for-customers", GLOBAL, handleSetNotReadyForCustomers)
 countryRouter.get ("/:countryRef/cities", READ, handleListCities)
 countryRouter.get ("/:countryRef/cities/leaderboard", READ, handleGetCityOutletLeaderboard)
 countryRouter.post ("/:countryRef/cities", WRITE, handleCreateCity)
@@ -48,7 +56,8 @@ countryRouter.patch("/:countryRef/region",  WRITE, handleAssignCountryToRegion)
 countryRouter.delete("/:countryRef/region", WRITE, handleRemoveCountryFromRegion)
 
 // Vendor types available in this country (VendorTypeCountry) — :countryRef
-// here is the literal country id, same convention as :countryRef/cities above.
+// is UUID-or-slug, resolved in admin.vendorType.service.ts, same convention
+// as every other :countryRef route on this router.
 countryRouter.get("/:countryRef/vendor-types", READ, handleListVendorTypesForCountry)
 countryRouter.post("/:countryRef/vendor-types", WRITE, handleAssignVendorTypeToCountry)
 countryRouter.delete("/:countryRef/vendor-types/:vendorTypeId", WRITE, handleRemoveVendorTypeFromCountry)

@@ -20,6 +20,7 @@ import {
   suspendVendor,
   reinstateVendor,
   banVendor,
+  unbanVendor,
   approveDocument,
   rejectDocument,
 } from "../services/admin.vendor.service"
@@ -196,7 +197,7 @@ export const handleRejectDocument: RequestHandler = async (req, res, next) => {
 export const handleListVendorAccounts: RequestHandler = async (req, res, next) => {
   try {
     const { adminScope }  = req as unknown as AdminRequest
-    const { status, countrySlug, search, vendorTypeId, page, pageSize } = req.query
+    const { status, countrySlug, search, vendorTypeId, bannedOnly, sort, dir, page, pageSize } = req.query
 
     const result = await listVendorAccounts(
       {
@@ -204,6 +205,9 @@ export const handleListVendorAccounts: RequestHandler = async (req, res, next) =
         countrySlug : countrySlug  as string | undefined,
         search      : search       as string | undefined,
         vendorTypeId: vendorTypeId as string | undefined,
+        bannedOnly  : bannedOnly === "true",
+        sort        : sort         as string | undefined,
+        dir         : dir          as string | undefined,
         page        : page         ? parseInt(page     as string) : undefined,
         pageSize    : pageSize     ? parseInt(pageSize as string) : undefined,
       },
@@ -250,5 +254,14 @@ export const handleBanVendor: RequestHandler = async (req, res, next) => {
     if (!reason) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
     const result = await banVendor(id, reason, adminUser.id, adminScope)
     return sendSuccess(res, result, "Vendor banned")
+  } catch (err) { next(err) }
+}
+
+export const handleUnbanVendor: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { id }                    = req.params as { id: string }
+    const result = await unbanVendor(id, adminUser.id, adminScope)
+    return sendSuccess(res, result, "Vendor unbanned")
   } catch (err) { next(err) }
 }

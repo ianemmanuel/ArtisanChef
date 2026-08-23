@@ -1,16 +1,18 @@
 import { z } from "zod"
 
-// code is only ever set at creation — the backend's update body doesn't
-// accept it at all (see DocumentType service), so it's not part of the
-// edit schema below.
-export const documentTypeCreateSchema = z.object({
+// code is system-generated from the name (see generateDocumentTypeCode in
+// admin.documentType.service.ts) — never collected from the admin, so it's
+// not part of either schema below.
+//
+// Kept as a plain object (not the refined version) so `.shape.x` stays
+// available for field-level onBlur validators — .refine() drops it.
+export const documentTypeBaseSchema = z.object({
   name             : z.string().min(2, "Name must be at least 2 characters").max(120, "Name is too long"),
-  code             : z.string()
-    .min(2, "Code must be at least 2 characters")
-    .max(60, "Code is too long")
-    .regex(/^[A-Za-z0-9_-]+$/, "Use letters, numbers, underscores or hyphens only"),
   description      : z.string().max(500, "Description is too long"),
-  scope            : z.enum(["VENDOR", "OUTLET"]),
+  scope            : z.enum(["VENDOR", "OUTLET", "CITY"]),
+  // Required only when scope is CITY — enforced by the .refine() below,
+  // not here, so this field alone stays optional.
+  cityId           : z.string().optional(),
   isRequired       : z.boolean(),
   requiresExpiry   : z.boolean(),
   expiryWarningDays: z.number().int().min(0, "Must be 0 or more").max(365, "Must be 365 or fewer"),
@@ -18,8 +20,16 @@ export const documentTypeCreateSchema = z.object({
   sampleUrl        : z.union([z.literal(""), z.string().url("Must be a valid URL")]),
 })
 
-export type DocumentTypeCreateFormValues = z.output<typeof documentTypeCreateSchema>
+const requireCityForCityScope = (schema: typeof documentTypeBaseSchema) =>
+  schema.refine((v) => v.scope !== "CITY" || !!v.cityId, {
+    message: "Select a city for a city-scoped document",
+    path: ["cityId"],
+  })
 
-export const documentTypeUpdateSchema = documentTypeCreateSchema.omit({ code: true, scope: true })
+export const documentTypeCreateSchema = requireCityForCityScope(documentTypeBaseSchema)
+export type DocumentTypeCreateFormValues = z.output<typeof documentTypeBaseSchema>
 
-export type DocumentTypeUpdateFormValues = z.output<typeof documentTypeUpdateSchema>
+// Scope/city are now editable after creation too — the "immutable" write-up
+// only made sense while there was nothing to configure about scope.
+export const documentTypeUpdateSchema = requireCityForCityScope(documentTypeBaseSchema)
+export type DocumentTypeUpdateFormValues = z.output<typeof documentTypeBaseSchema>

@@ -1,11 +1,12 @@
 
 import { z } from "zod"
 
-//* Create city 
+//* Create city — code is system-generated (see admin.city.service.ts), not collected here.
 export const createCitySchema = z.object({
-  name    : z.string().min(2, "City name must be at least 2 characters").max(100),
-  code    : z.string().max(10).optional().or(z.literal("")),
-  timezone: z.string().min(1, "Timezone is required"),
+  name     : z.string().min(2, "City name must be at least 2 characters").max(100),
+  timezone : z.string().min(1, "Timezone is required"),
+  latitude : z.number({ required_error: "Click the map to place the city's pin" }),
+  longitude: z.number({ required_error: "Click the map to place the city's pin" }),
 })
 
 export type CreateCityFormValues = z.infer<typeof createCitySchema>

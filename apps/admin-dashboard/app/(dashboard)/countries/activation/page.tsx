@@ -9,7 +9,7 @@ import { TableFilterBar } from "@/components/shared/TableFilterBar"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { CountryListResult } from "@repo/types/admin-app"
 
-export const metadata: Metadata = { title: "Country Activation" }
+export const metadata: Metadata = { title: "Launch Queue" }
 export const revalidate = 60
 
 const PAGE_SIZE = 10
@@ -21,16 +21,17 @@ interface PageProps {
 export default async function CountryActivationPage({ searchParams }: PageProps) {
   const session = await getAdminSession()
 
-  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_READ)) redirect("/overview")
-  // Activate/deactivate hard-requires global scope server-side regardless of
-  // permission — a country-scoped WRITE holder would still 403, so this page
-  // is off-limits entirely rather than shown-then-disabled. The nav doesn't
-  // link here for non-global admins either; this is defense in depth.
-  if (!session.scope.isGlobal) redirect("/countries")
+  // Countries (launch configuration) is restricted to super_admin and the
+  // (currently global-only) operations_admin role — see /countries/page.tsx.
+  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) || !session.scope.isGlobal) {
+    redirect("/overview")
+  }
 
   const { page = "1", search = "" } = await searchParams
 
-  const query = new URLSearchParams({ page, pageSize: String(PAGE_SIZE) })
+  // This page is the launch queue — countries still being set up. Once a
+  // country is activated it belongs on the main /countries view instead.
+  const query = new URLSearchParams({ page, pageSize: String(PAGE_SIZE), status: "INACTIVE" })
   if (search) query.set("search", search)
 
   const result = await adminFetch<CountryListResult>(`/admin/v1/countries?${query.toString()}`, {
@@ -60,9 +61,9 @@ export default async function CountryActivationPage({ searchParams }: PageProps)
           <Power className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Country Activation</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Launch Queue</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Activate or deactivate countries for vendor onboarding and orders.
+            Countries not yet live. Open a country to complete its setup checklist, then activate it from there.
           </p>
         </div>
       </div>
@@ -73,6 +74,7 @@ export default async function CountryActivationPage({ searchParams }: PageProps)
         countries={countries}
         canWrite={canWrite}
         isGlobal={session.scope.isGlobal}
+        variant="queue"
         pagination={{
           total,
           page,

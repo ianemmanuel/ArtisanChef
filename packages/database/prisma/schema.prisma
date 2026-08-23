@@ -121,6 +121,7 @@ model AdminUserPermission {
 ///   vendor_ops      → COUNTRY or CITY
 ///   customer_care   → CITY or COUNTRY (city preferred)
 ///   courier_ops     → CITY only
+///   operations_admin→ GLOBAL only (temporary — every market shares the same launch process for now)
 model AdminUserScope {
   id          String         @id @default(uuid())
   adminUserId String
@@ -251,6 +252,19 @@ model Country {
   createdByAdminId   String?
   createdAt          DateTime  @default(now())
 
+  //* Go-live milestones, independent of `status`. Being ACTIVE means "we
+  //* operate here" — it does NOT mean vendors can onboard or that customers
+  //* should be advertised to yet. These flags cover the setup window
+  //* (hiring, shop setup) between activation and actually opening up.
+  //* readyForCustomerOperations is expected to only ever be set after
+  //* readyForVendorOnboarding (enforced at the service layer, not here).
+  readyForVendorOnboarding    Boolean   @default(false)
+  vendorOnboardingReadyAt     DateTime?
+  vendorOnboardingReadyById   String?
+  readyForCustomerOperations  Boolean   @default(false)
+  customerOperationsReadyAt   DateTime?
+  customerOperationsReadyById String?
+
   cities             City[]
   documentTypes      DocumentTypeConfig[]
   vendors            VendorAccount[]
@@ -268,14 +282,20 @@ model City {
   id               String    @id @default(uuid())
   countryId        String
   name             String
-  code             String?
+  code             String?   @unique // system-generated, e.g. "NAIROBI_KENYA" — see admin.city.service.ts
   slug             String    @unique
   timezone         String
   latitude         Float?            // centroid — Mapbox fly-to only
   longitude        Float?            // centroid — Mapbox fly-to only
   status           GeoStatus @default(ACTIVE)
   createdByAdminId String?
- 
+
+  //* Deactivation audit trail — mirrors VendorAccount's suspensionReason/
+  //* suspendedAt convention. Cleared back to null on reactivation.
+  deactivatedByAdminId String?
+  deactivatedAt         DateTime?
+  deactivationReason    String?
+
   boundary         Json?     // GeoJSON Polygon | MultiPolygon — city operational boundary
   boundingBox      Json?     // { north, south, east, west }   — derived cache, never manual
   osmId            String?   // OSM relation ID (numeric string) stored after OSM search
@@ -507,6 +527,12 @@ model DocumentTypeConfig {
   createdByAdminId  String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+
+  //* Deactivation audit trail — mirrors VendorAccount's suspensionReason/
+  //* suspendedAt convention. Cleared back to null on reactivation.
+  deactivatedByAdminId String?
+  deactivatedAt         DateTime?
+  deactivationReason    String?
 
   city              City?                       @relation(fields: [cityId], references: [id], onDelete: Cascade)
   country           Country                     @relation(fields: [countryId], references: [id], onDelete: Cascade)
@@ -1167,8 +1193,9 @@ enum OutletAdminStatus {
 }
 
 enum DocumentScope {
-  VENDOR
-  OUTLET
+  VENDOR // required once per vendor account, countrywide (optionally restricted to specific vendor categories)
+  OUTLET // required once per outlet, countrywide — every outlet in every city needs its own upload
+  CITY   // tied to one specific city (cityId required) — uploaded once per vendor per city, inherited by that vendor's outlets there
 }
 
 enum DocumentStatus {

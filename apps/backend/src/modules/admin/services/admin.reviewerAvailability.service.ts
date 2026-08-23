@@ -6,7 +6,7 @@ import type { AdminScopeContext } from "@repo/types/backend"
 
 const serviceLog = logger.child({ module: "admin-reviewer-availability-service" })
 
-interface SetAvailabilityInput {
+export interface SetAvailabilityInput {
   availability      : AdminReviewAvailability
   unavailableFrom?  : Date
   unavailableUntil? : Date
@@ -19,8 +19,13 @@ interface SetAvailabilityInput {
  * whether the audit event records a self-change. Setting AVAILABLE
  * clears the unavailable* fields; setting UNAVAILABLE without an
  * explicit unavailableFrom defaults it to now.
+ *
+ * Exported so the identity module (admin.user.service.ts) can reuse it
+ * for the Identity & Access-managed "mark unavailable" action, which
+ * follows the full admin-hierarchy scope rules rather than just the
+ * vendor-reviewer scope check below.
  */
-async function applyAvailabilityChange(
+export async function applyAvailabilityChange(
   targetAdminId: string,
   input        : SetAvailabilityInput,
   actorId      : string,

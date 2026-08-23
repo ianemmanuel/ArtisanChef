@@ -7,6 +7,7 @@ import { Loader2, Power, PowerOff, Pencil } from "lucide-react"
 import { Button } from "@repo/ui/components/button"
 import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
+import { Textarea } from "@repo/ui/components/textarea"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -18,8 +19,10 @@ import {
 import type { City } from "@repo/types/admin-app"
 
 interface Props {
-  city    : Pick<City, "id" | "slug" | "name" | "timezone" | "latitude" | "longitude" | "status">
-  canWrite: boolean
+  city      : Pick<City, "id" | "slug" | "name" | "timezone" | "latitude" | "longitude" | "status">
+  canWrite  : boolean
+  /** When set, also busts the country-scoped cities tags (see /countries/[slug]/cities). */
+  countryRef?: string
 }
 
 /**
@@ -28,7 +31,7 @@ interface Props {
  * updates (see admin.city.service.ts), so exposing it would just lie to
  * the admin about what changed.
  */
-export function CityActions({ city, canWrite }: Props) {
+export function CityActions({ city, canWrite, countryRef }: Props) {
   const router = useRouter()
   const [editOpen, setEditOpen]     = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
@@ -39,6 +42,7 @@ export function CityActions({ city, canWrite }: Props) {
   const [timezone, setTimezone] = useState(city.timezone)
   const [latitude, setLatitude] = useState(city.latitude?.toString() ?? "")
   const [longitude, setLongitude] = useState(city.longitude?.toString() ?? "")
+  const [deactivateReason, setDeactivateReason] = useState("")
 
   if (!canWrite) return null
 
@@ -46,13 +50,25 @@ export function CityActions({ city, canWrite }: Props) {
   const action   = isActive ? "deactivate" : "activate"
 
   async function toggleStatus() {
+    if (isActive && !deactivateReason.trim()) {
+      toast.error("A reason is required to deactivate a city")
+      return
+    }
     setPending(true)
     try {
-      const res = await fetch(`/api/cities/${city.slug}/${action}`, { method: "POST" })
+      const url = countryRef
+        ? `/api/cities/${city.slug}/${action}?countryRef=${countryRef}`
+        : `/api/cities/${city.slug}/${action}`
+      const res = await fetch(url, {
+        method : "POST",
+        headers: { "Content-Type": "application/json" },
+        body   : isActive ? JSON.stringify({ reason: deactivateReason }) : undefined,
+      })
       const data = await res.json()
       if (res.ok) {
         toast.success(isActive ? "City deactivated" : "City activated")
         setStatusOpen(false)
+        setDeactivateReason("")
         router.refresh()
       } else {
         toast.error("Action failed", { description: data.message ?? "Please try again." })
@@ -123,7 +139,7 @@ export function CityActions({ city, canWrite }: Props) {
       </Button>
 
       {/* Activate/deactivate confirm */}
-      <AlertDialog open={statusOpen} onOpenChange={setStatusOpen}>
+      <AlertDialog open={statusOpen} onOpenChange={(o) => { setStatusOpen(o); if (!o) setDeactivateReason("") }}>
         <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
             <div className={`icon-badge h-11 w-11 ${isActive ? "icon-badge-danger" : "icon-badge-success"}`}>
@@ -136,6 +152,18 @@ export function CityActions({ city, canWrite }: Props) {
                 : "This city becomes available for vendor onboarding and delivery."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {isActive && (
+            <div className="space-y-1.5">
+              <Label className="text-xs" htmlFor="city-deactivate-reason">Reason *</Label>
+              <Textarea
+                id="city-deactivate-reason"
+                value={deactivateReason}
+                onChange={(e) => setDeactivateReason(e.target.value)}
+                placeholder="e.g. Suspending operations in this city temporarily"
+                className="min-h-16 text-sm"
+              />
+            </div>
+          )}
           <AlertDialogFooter>
             <Button type="button" variant="outline" className="rounded-full" onClick={() => setStatusOpen(false)} disabled={pending}>
               Cancel
@@ -144,7 +172,7 @@ export function CityActions({ city, canWrite }: Props) {
               type="button"
               variant={isActive ? "destructive" : "default"}
               className="rounded-full gap-1.5"
-              disabled={pending}
+              disabled={pending || (isActive && !deactivateReason.trim())}
               onClick={toggleStatus}
             >
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}

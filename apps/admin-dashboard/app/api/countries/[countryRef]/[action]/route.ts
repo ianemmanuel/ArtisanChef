@@ -6,7 +6,8 @@ const BACKEND = process.env.BACKEND_API_URL
 
 /**
  * POST /api/countries/[countryRef]/[action]
- * Actions: activate | deactivate
+ * Actions: activate | deactivate | ready-for-vendors | not-ready-for-vendors
+ *          | ready-for-customers | not-ready-for-customers
  */
 export async function POST(
   req: NextRequest,
@@ -19,7 +20,11 @@ export async function POST(
 
     if (!token) return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
 
-    const allowedActions = ["activate", "deactivate"]
+    const allowedActions = [
+      "activate", "deactivate",
+      "ready-for-vendors", "not-ready-for-vendors",
+      "ready-for-customers", "not-ready-for-customers",
+    ]
     if (!allowedActions.includes(action)) {
       return NextResponse.json({ message: "Invalid action" }, { status: 400 })
     }

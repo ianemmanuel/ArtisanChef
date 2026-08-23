@@ -14,9 +14,19 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "admin_users:accounts:reinstate",
     "admin_users:accounts:deactivate",
     "admin_users:roles:assign",
+    "admin_users:accounts:manage_availability",
     "audit_logs:all:read",
     "settings:geography:read",
     "vendors:reviewers:manage_availability",
+  ],
+
+  operations_admin: [
+    "settings:geography:read",
+    "settings:geography:write",
+    "settings:vendor_types:read",
+    "settings:vendor_types:write",
+    "settings:documents:read",
+    "settings:documents:write",
   ],
 
   finance: [

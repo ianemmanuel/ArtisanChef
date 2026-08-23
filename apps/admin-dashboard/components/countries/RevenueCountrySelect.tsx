@@ -29,11 +29,10 @@ const selectStyle  = { backgroundColor: "var(--input)", color: "var(--foreground
 const contentStyle = { backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }
 
 /**
- * Scope selector for /countries/revenue — same visual language as
- * components/document-types/CountrySelect.tsx, but this one also offers
- * an "All countries (aggregate)" option since revenue can be viewed
- * platform-wide as well as per-country. Pushes `?country=<slug>` (or
- * clears it for "all") via the URL.
+ * Scope selector for /countries/revenue — a Command+Popover combobox, same
+ * pattern as RoleCombobox.tsx, but this one also offers an "All countries
+ * (aggregate)" option since revenue can be viewed platform-wide as well as
+ * per-country. Pushes `?country=<slug>` (or clears it for "all") via the URL.
  */
 export function RevenueCountrySelect({ options, selected, locked = false }: Props) {
   const router       = useRouter()

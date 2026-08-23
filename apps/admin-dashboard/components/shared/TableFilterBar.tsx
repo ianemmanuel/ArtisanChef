@@ -1,8 +1,9 @@
 "use client"
 
+import { useState } from "react"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { useTransition } from "react"
-import { Search, SlidersHorizontal, X, Loader2, ArrowDownAZ, ArrowDownUp } from "lucide-react"
+import { Search, SlidersHorizontal, X, Loader2, ArrowDownAZ, ArrowDownUp, Check, ChevronsUpDown, Globe2 } from "lucide-react"
 import { Input }         from "@repo/ui/components/input"
 import { Button }        from "@repo/ui/components/button"
 import { Label }         from "@repo/ui/components/label"
@@ -13,6 +14,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@repo/ui/components/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@repo/ui/components/popover"
+import { cn } from "@repo/ui/lib/utils"
 
 export interface FilterStatusOption {
   value: string
@@ -48,6 +63,11 @@ interface Props {
   sortOptions?: FilterSortOption[]
   defaultSort?: string
   defaultDir?: string
+
+  showDateRange?: boolean
+  dateRangeLabel?: string
+  defaultDateFrom?: string
+  defaultDateTo?: string
 }
 
 const selectStyle = {
@@ -83,16 +103,23 @@ export function TableFilterBar({
   sortOptions,
   defaultSort = "",
   defaultDir = "",
+  showDateRange = false,
+  dateRangeLabel = "Date range",
+  defaultDateFrom = "",
+  defaultDateTo = "",
 }: Props) {
   const router                       = useRouter()
   const pathname                     = usePathname()
   const searchParams                 = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  const [country, setCountry]        = useState(defaultCountry || "all")
+  const [countryOpen, setCountryOpen] = useState(false)
 
-  const hasSearchField  = showSearch
-  const hasStatusField  = !!statusOptions && statusOptions.length > 0
-  const hasCountryField = !!countryOptions && countryOptions.length > 0
-  const hasSortField    = !!sortOptions && sortOptions.length > 0
+  const hasSearchField    = showSearch
+  const hasStatusField    = !!statusOptions && statusOptions.length > 0
+  const hasCountryField   = !!countryOptions && countryOptions.length > 0
+  const hasSortField      = !!sortOptions && sortOptions.length > 0
+  const hasDateRangeField = showDateRange
 
   function applyFilters(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -122,6 +149,12 @@ export function TableFilterBar({
       params.set("sort", sort)
       params.set("dir",  dir)
     }
+    if (hasDateRangeField) {
+      const dateFrom = ((data.get("dateFrom") as string) ?? "").trim()
+      const dateTo   = ((data.get("dateTo")   as string) ?? "").trim()
+      if (dateFrom) params.set("dateFrom", dateFrom); else params.delete("dateFrom")
+      if (dateTo)   params.set("dateTo",   dateTo);   else params.delete("dateTo")
+    }
 
     startTransition(() => router.push(`${pathname}?${params.toString()}`))
   }
@@ -133,7 +166,9 @@ export function TableFilterBar({
   const hasFilters = Boolean(
     defaultSearch ||
     (defaultStatus && defaultStatus !== "all") ||
-    (defaultCountry && defaultCountry !== "all")
+    (defaultCountry && defaultCountry !== "all") ||
+    defaultDateFrom ||
+    defaultDateTo
   )
 
   return (
@@ -173,17 +208,82 @@ export function TableFilterBar({
       {hasCountryField && (
         <div className="space-y-1.5">
           <Label className="text-xs font-medium text-muted-foreground">{countryLabel}</Label>
-          <Select name="country" defaultValue={defaultCountry || "all"}>
-            <SelectTrigger className="w-52 rounded-full" style={selectStyle}>
-              <SelectValue placeholder={countryLabel} />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl" style={contentStyle}>
-              <SelectItem value="all" className="rounded-lg py-2">All countries</SelectItem>
-              {countryOptions!.map(({ value, label }) => (
-                <SelectItem key={value} value={value} className="rounded-lg py-2">{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <input type="hidden" name="country" value={country} />
+          <Popover open={countryOpen} onOpenChange={setCountryOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={countryOpen}
+                className="w-52 justify-between rounded-full font-normal"
+                style={selectStyle}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Globe2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">
+                    {country === "all" ? "All countries" : (countryOptions!.find((o) => o.value === country)?.label ?? "All countries")}
+                  </span>
+                </span>
+                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[--radix-popover-trigger-width] rounded-xl p-0" style={contentStyle} align="start">
+              <Command style={{ backgroundColor: "var(--popover)" }}>
+                <CommandInput placeholder={`Search ${countryLabel.toLowerCase()}…`} className="h-9 text-sm" style={{ color: "var(--popover-foreground)" }} />
+                <CommandList>
+                  <CommandEmpty className="py-4 text-center text-sm text-muted-foreground">No country found.</CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="All countries"
+                      onSelect={() => { setCountry("all"); setCountryOpen(false) }}
+                      className="cursor-pointer"
+                      style={{ color: "var(--popover-foreground)" }}
+                    >
+                      <Check className={cn("h-4 w-4 shrink-0 text-primary", country === "all" ? "opacity-100" : "opacity-0")} />
+                      All countries
+                    </CommandItem>
+                    {countryOptions!.map(({ value, label }) => (
+                      <CommandItem
+                        key={value}
+                        value={label}
+                        onSelect={() => { setCountry(value); setCountryOpen(false) }}
+                        className="cursor-pointer"
+                        style={{ color: "var(--popover-foreground)" }}
+                      >
+                        <Check className={cn("h-4 w-4 shrink-0 text-primary", country === value ? "opacity-100" : "opacity-0")} />
+                        {label}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
+
+      {hasDateRangeField && (
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">{dateRangeLabel}</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              name="dateFrom"
+              defaultValue={defaultDateFrom}
+              aria-label="From date"
+              className="h-10 w-[9.5rem] rounded-full border-border/80 bg-muted/40 shadow-none transition-colors focus-visible:bg-card"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="date"
+              name="dateTo"
+              defaultValue={defaultDateTo}
+              aria-label="To date"
+              min={defaultDateFrom || undefined}
+              className="h-10 w-[9.5rem] rounded-full border-border/80 bg-muted/40 shadow-none transition-colors focus-visible:bg-card"
+            />
+          </div>
         </div>
       )}
 

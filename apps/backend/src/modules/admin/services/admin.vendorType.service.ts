@@ -1,6 +1,7 @@
 import { prisma, GeoStatus, VendorStatus, VendorTypeStatus } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/middleware/error"
+import { UUID_RE } from "@/constants/system"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
 
@@ -10,6 +11,23 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
   if (!scope.isGlobal && !scope.countryIds.includes(countryId)) {
     throw new ApiError(403, "This country is outside your scope", "SCOPE_FORBIDDEN")
   }
+}
+
+/*
+ * :countryRef on the shared country router (see admin.country.routes.ts)
+ * is UUID-or-slug everywhere else (resolveCountryId in
+ * admin.country.service.ts) — these vendor-type-country endpoints hang
+ * off the same router/param and need the same resolution, otherwise a
+ * slug like "be" fails a bare findUnique({ where: { id } }) and 404s.
+ */
+async function resolveCountryId(idOrSlug: string): Promise<string> {
+  const isUuid = UUID_RE.test(idOrSlug)
+  const country = await prisma.country.findFirst({
+    where : isUuid ? { id: idOrSlug } : { slug: idOrSlug },
+    select: { id: true },
+  })
+  if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
+  return country.id
 }
 
 /*
@@ -239,22 +257,38 @@ export async function deactivateVendorType(id: string, actorId: string, scope: A
 
 //* ─── Country associations ───────────────────────────────────────────────
 
-export async function listVendorTypesForCountry(countryId: string, scope: AdminScopeContext) {
+export async function listVendorTypesForCountry(countryIdOrSlug: string, scope: AdminScopeContext) {
+  const countryId = await resolveCountryId(countryIdOrSlug)
   assertCountryInScope(countryId, scope)
 
-  return prisma.vendorTypeCountry.findMany({
+  const links = await prisma.vendorTypeCountry.findMany({
     where  : { countryId },
     include: { vendorType: { select: { id: true, name: true, description: true, status: true } } },
     orderBy: { createdAt: "asc" },
   })
+
+  if (links.length === 0) return links
+
+  // How many vendor accounts of each category actually operate in this
+  // country — the "grouped and numbered by vendor type" figure shown
+  // alongside each category on /countries/[slug]/vendor-categories.
+  const counts = await prisma.vendorAccount.groupBy({
+    by     : ["vendorTypeId"],
+    where  : { countryId, vendorTypeId: { in: links.map((l) => l.vendorTypeId) }, deletedAt: null },
+    _count : true,
+  })
+  const countByVendorTypeId = new Map(counts.map((c) => [c.vendorTypeId, c._count]))
+
+  return links.map((link) => ({ ...link, vendorAccountCount: countByVendorTypeId.get(link.vendorTypeId) ?? 0 }))
 }
 
 export async function assignVendorTypeToCountry(
-  vendorTypeId: string,
-  countryId   : string,
-  actorId     : string,
-  scope       : AdminScopeContext,
+  vendorTypeId    : string,
+  countryIdOrSlug : string,
+  actorId         : string,
+  scope           : AdminScopeContext,
 ) {
+  const countryId = await resolveCountryId(countryIdOrSlug)
   assertCountryInScope(countryId, scope)
 
   const [vendorType, country] = await Promise.all([
@@ -263,9 +297,6 @@ export async function assignVendorTypeToCountry(
   ])
   if (!vendorType) throw new ApiError(404, "Vendor type not found", "NOT_FOUND")
   if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
-  if (country.status !== GeoStatus.ACTIVE) {
-    throw new ApiError(400, "Cannot assign a vendor type to an inactive country", "COUNTRY_INACTIVE")
-  }
 
   const existing = await prisma.vendorTypeCountry.findUnique({
     where: { countryId_vendorTypeId: { countryId, vendorTypeId } },
@@ -309,11 +340,12 @@ export async function assignVendorTypeToCountry(
 }
 
 export async function removeVendorTypeFromCountry(
-  vendorTypeId: string,
-  countryId   : string,
-  actorId     : string,
-  scope       : AdminScopeContext,
+  vendorTypeId    : string,
+  countryIdOrSlug : string,
+  actorId         : string,
+  scope           : AdminScopeContext,
 ) {
+  const countryId = await resolveCountryId(countryIdOrSlug)
   assertCountryInScope(countryId, scope)
 
   const existing = await prisma.vendorTypeCountry.findUnique({

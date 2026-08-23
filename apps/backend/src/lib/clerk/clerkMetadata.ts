@@ -76,6 +76,11 @@ export class ClerkVendorStateService {
   static async banUser(clerkUserId: string) {
     return this.client.users.banUser(clerkUserId)
   }
+
+  /** Reverses banUser. Used by admin's unbanVendor. */
+  static async unbanUser(clerkUserId: string) {
+    return this.client.users.unbanUser(clerkUserId)
+  }
 }
 
 // ── Admin-specific state ──────────────────────────────────────────────────────

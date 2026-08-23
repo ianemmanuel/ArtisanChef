@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { useForm } from "@tanstack/react-form"
 import { toast } from "sonner"
-import { Ban, RefreshCw, ShieldAlert } from "lucide-react"
+import { Ban, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react"
 import { Button } from "@repo/ui/components/button"
 import { Label } from "@repo/ui/components/label"
 import { Textarea } from "@repo/ui/components/textarea"
@@ -14,22 +14,24 @@ import { suspendVendorSchema } from "@/lib/zod/vendor"
 interface Props {
   vendorId     : string
   currentStatus: string
+  /** VendorUser.isBanned — ban is identity-level, not reflected in currentStatus. */
+  isBanned     : boolean
   /** VENDORS_ACCOUNTS_SUSPEND */
   canSuspend   : boolean
   /** VENDORS_ACCOUNTS_REINSTATE — distinct from canSuspend; the backend checks it separately */
   canReinstate : boolean
-  /** VENDORS_ACCOUNTS_BAN */
+  /** VENDORS_ACCOUNTS_BAN — also gates unban, same permission both directions */
   canBan       : boolean
 }
 
 type ActiveForm = "suspend" | "ban" | null
 
 /**
- * VendorAccountActions — suspend / reinstate / ban controls.
- * Each destructive action requires a reason before confirming.
- * Reinstate is a single click (no reason required).
+ * VendorAccountActions — suspend / reinstate / ban / unban controls.
+ * Suspend/ban require a reason before confirming. Reinstate/unban are a
+ * single click (no reason required).
  */
-export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canReinstate, canBan }: Props) {
+export function VendorAccountActions({ vendorId, currentStatus, isBanned, canSuspend, canReinstate, canBan }: Props) {
     const router = useRouter()
     const [activeForm, setActive] = useState<ActiveForm>(null)
     const [isPending, startTransition] = useTransition()
@@ -46,6 +48,22 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canR
             } else {
                 const data = await res.json()
                 toast.error("Failed to reinstate", { description: data.message })
+            }
+        })
+    }
+
+    async function doUnban() {
+        startTransition(async () => {
+            const res = await fetch(`/api/vendors/accounts/${vendorId}/unban`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            })
+            if (res.ok) {
+                toast.success("Vendor unbanned")
+                router.refresh()
+            } else {
+                const data = await res.json()
+                toast.error("Failed to unban", { description: data.message })
             }
         })
     }
@@ -78,7 +96,7 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canR
       {/* Action buttons */}
       {activeForm === null && (
         <div className="flex flex-wrap gap-2">
-          {canSuspend && currentStatus === "ACTIVE" && (
+          {canSuspend && !isBanned && currentStatus === "ACTIVE" && (
             <Button size="sm" variant="outline"
               className="rounded-full border-warning/40 text-warning hover:bg-warning-bg"
               onClick={() => setActive("suspend")}>
@@ -86,16 +104,22 @@ export function VendorAccountActions({ vendorId, currentStatus, canSuspend, canR
               Suspend
             </Button>
           )}
-          {canReinstate && currentStatus === "SUSPENDED" && (
+          {canReinstate && !isBanned && currentStatus === "SUSPENDED" && (
             <Button size="sm" variant="outline" className="rounded-full" disabled={isPending} onClick={doReinstate}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {isPending ? "Reinstating…" : "Reinstate"}
             </Button>
           )}
-          {canBan && currentStatus !== "BANNED" && (
+          {canBan && !isBanned && (
             <Button size="sm" variant="destructive" className="rounded-full" onClick={() => setActive("ban")}>
               <Ban className="mr-2 h-4 w-4" />
               Ban
+            </Button>
+          )}
+          {canBan && isBanned && (
+            <Button size="sm" variant="outline" className="rounded-full" disabled={isPending} onClick={doUnban}>
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              {isPending ? "Unbanning…" : "Unban"}
             </Button>
           )}
         </div>

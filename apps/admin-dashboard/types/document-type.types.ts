@@ -1,7 +1,7 @@
 // Mirrors backend DocumentTypeConfig / DocumentTypeVendorType shapes
 // (apps/backend/src/modules/admin/services/admin.documentType.service.ts).
 
-export type DocumentScope       = "VENDOR" | "OUTLET"
+export type DocumentScope       = "VENDOR" | "OUTLET" | "CITY"
 export type DocumentTypeStatus  = "ACTIVE" | "INACTIVE" | "DEPRECATED" | "ARCHIVED"
 
 export interface DocumentTypeVendorTypeLink {
@@ -20,6 +20,7 @@ export interface DocumentTypeConfig {
   scope            : DocumentScope
   countryId        : string
   cityId           : string | null
+  city             : { id: string; name: string } | null
   isRequired       : boolean
   requiresExpiry   : boolean
   expiryWarningDays: number
@@ -29,6 +30,10 @@ export interface DocumentTypeConfig {
   createdAt        : string
   updatedAt        : string
   vendorTypeConfigs: DocumentTypeVendorTypeLink[]
+  deactivatedByAdminId: string | null
+  deactivatedByName    : string | null
+  deactivatedAt        : string | null
+  deactivationReason   : string | null
 }
 
 export interface DocumentTypeListResult {

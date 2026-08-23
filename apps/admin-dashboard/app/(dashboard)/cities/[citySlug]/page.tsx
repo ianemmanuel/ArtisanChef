@@ -25,6 +25,13 @@ export default async function CityDetailPage({ params }: Props) {
 
   if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_READ)) redirect("/overview")
 
+  // /countries/[slug]/documents is restricted to super_admin + the global
+  // operations_admin (same guard as every /countries/[slug]/... page) — a
+  // SETTINGS_GEOGRAPHY_READ-only viewer of this city page (e.g. identity_admin)
+  // would otherwise hit that page's redirect. Only link there when it'd
+  // actually work.
+  const canViewCountryDocuments = session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) && session.scope.isGlobal
+
   let city: CityDetail
   try {
     city = await adminFetch<CityDetail>(`/admin/v1/cities/${citySlug}`, {
@@ -124,9 +131,9 @@ export default async function CityDetailPage({ params }: Props) {
             <p className="text-xs text-muted-foreground">Onboarding documents applicable to this city.</p>
           </div>
         </div>
-        {country && (
-          <Link href={`/vendors/document-types?country=${country.slug}`} className="view-all-link">
-            View document types
+        {country && canViewCountryDocuments && (
+          <Link href={`/countries/${country.slug}/documents`} className="view-all-link">
+            View documents
           </Link>
         )}
       </div>

@@ -54,6 +54,7 @@ export default async function VendorAccountDetailPage({ params }: Props) {
   const canSuspend   = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_SUSPEND)
   const canReinstate = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_REINSTATE)
   const canBan       = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_BAN)
+  const isBanned     = account.user?.isBanned ?? false
   const ownerName   = `${account.ownerFirstName ?? ""} ${account.ownerLastName ?? ""}`.trim() || "—"
 
   const businessFields: [string, string][] = [
@@ -94,7 +95,7 @@ export default async function VendorAccountDetailPage({ params }: Props) {
             </h1>
             <p className="text-sm text-muted-foreground">{account.businessEmail}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <StatusBadge status={account.status} />
+              <StatusBadge status={isBanned ? "BANNED" : account.status} />
               {account.vendorType?.name && <span className="badge-neutral">{account.vendorType.name}</span>}
               {account.country?.name && <span className="badge-neutral">{account.country.name}</span>}
               <span className="badge-neutral">
@@ -114,6 +115,7 @@ export default async function VendorAccountDetailPage({ params }: Props) {
           <VendorAccountActions
             vendorId={id}
             currentStatus={account.status}
+            isBanned={isBanned}
             canSuspend={canSuspend}
             canReinstate={canReinstate}
             canBan={canBan}
@@ -121,12 +123,23 @@ export default async function VendorAccountDetailPage({ params }: Props) {
         </div>
       </div>
 
-      {/* Suspension / ban notice */}
-      {account.suspensionReason && account.status !== "ACTIVE" && (
+      {/* Ban notice — identity-level, takes precedence over suspension */}
+      {isBanned && (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive-bg px-5 py-4">
+          <p className="text-sm font-semibold text-destructive">Banned</p>
+          <p className="mt-0.5 text-sm text-foreground">{account.user?.banReason ?? "No reason on record"}</p>
+          {account.user?.bannedAt && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Since {new Date(account.user.bannedAt).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Suspension notice */}
+      {!isBanned && account.suspensionReason && account.status !== "ACTIVE" && (
         <div className="rounded-2xl border border-warning/30 bg-warning-bg px-5 py-4">
-          <p className="text-sm font-semibold text-warning">
-            {account.status === "BANNED" ? "Banned" : "Suspended"}
-          </p>
+          <p className="text-sm font-semibold text-warning">Suspended</p>
           <p className="mt-0.5 text-sm text-foreground">{account.suspensionReason}</p>
           {account.suspendedAt && (
             <p className="mt-1 text-xs text-muted-foreground">

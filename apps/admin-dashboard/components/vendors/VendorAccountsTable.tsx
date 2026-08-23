@@ -82,7 +82,7 @@ export function VendorAccountsTable({ result, page, search, status }: Props) {
                 <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                   {acc.country?.name ?? "—"}
                 </TableCell>
-                <TableCell><StatusBadge status={acc.status} /></TableCell>
+                <TableCell><StatusBadge status={acc.user?.isBanned ? "BANNED" : acc.status} /></TableCell>
                 <TableCell className="hidden lg:table-cell">
                   <span className="font-mono text-xs text-muted-foreground">
                     {new Date(acc.createdAt).toLocaleDateString()}

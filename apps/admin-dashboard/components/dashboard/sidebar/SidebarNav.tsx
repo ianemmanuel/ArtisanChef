@@ -34,7 +34,8 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
       ...section,
       items: section.items.filter((item) =>
         !(item.hideForCityTier && tier === "CITY") &&
-        !(item.requiresGlobalTier && tier !== "GLOBAL")
+        !(item.requiresGlobalTier && tier !== "GLOBAL") &&
+        !(item.requiredPermission && !session.permissions.includes(item.requiredPermission))
       ),
     }))
     .filter((section) => section.items.length > 0)
@@ -62,7 +63,12 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
             (pathname.startsWith("/countries/") &&
               !pathname.startsWith("/countries/activation") &&
               !pathname.startsWith("/countries/revenue"))
-          : pathname.startsWith(href)
+          // "/identity" is both the Identity & Access "Home" link and a
+          // prefix of "/identity/new" and "/identity/manage" — needs an
+          // exact match so Home doesn't light up while on Create/Manage.
+          : href === "/identity"
+            ? pathname === "/identity"
+            : pathname.startsWith(href)
 
   const isCollapsed = collapsed && !isMobile
 

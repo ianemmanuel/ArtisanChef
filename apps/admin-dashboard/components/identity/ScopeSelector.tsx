@@ -14,14 +14,20 @@ import {
 import type { Country, City, ScopeEntry } from "@/types"
 
 interface Props {
-  isGlobalActor : boolean 
+  isGlobalActor : boolean
   actorCountries: string[]
   value    : ScopeEntry[]
   onChange : (scopes: ScopeEntry[]) => void
+  // Both call sites (CreateUserForm's card, UpdateScopesForm's AlertDialog)
+  // already render their own "Geographic Scope" heading + explainer copy —
+  // showing it a second time here just padded the component's height with
+  // nothing new. Default true only for any other/future caller that embeds
+  // this standalone.
+  showHeader?: boolean
 }
 
 /**
- * ScopeSelector — lets the actor assign geographic scopes to a new admin user.
+ * ScopeSelector — lets the actor assign geographic scopes to an admin user.
  *
  * Rules:
  *   - Super admin (isGlobalActor): can assign GLOBAL, COUNTRY, or CITY
@@ -29,18 +35,20 @@ interface Props {
  *     within their own countries
  *
  * Countries and cities are fetched via /api/countries and /api/countries/:id/cities.
- * This component is only shown during user creation — existing scopes are
- * edited via UpdateScopesForm on the user detail page.
+ * Used both during creation (CreateUserForm) and editing (UpdateScopesForm).
  */
-export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange }: Props) {
+export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange, showHeader = true }: Props) {
   const [countries, setCountries] = useState<Country[]>([])
   const [cities,    setCities]    = useState<Record<string, City[]>>({})
 
   useEffect(() => {
-    fetch("/api/countries")
+    // /api/countries proxies the paginated backend list ({ countries, total, ... }),
+    // not a bare array — and pageSize defaults to 10 server-side, so request enough
+    // to actually cover every country a scope picker needs to offer.
+    fetch("/api/countries?pageSize=500&status=ACTIVE")
       .then((r) => r.json())
       .then((d) => {
-        const all: Country[] = d.data ?? []
+        const all: Country[] = d.data?.countries ?? []
         // Country-scoped actor only sees their own countries
         setCountries(isGlobalActor ? all : all.filter((c) => actorCountries.includes(c.id)))
       })
@@ -49,9 +57,10 @@ export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange }
 
   async function fetchCities(countryId: string) {
     if (cities[countryId]) return
-    const res  = await fetch(`/api/countries/${countryId}/cities`)
+    // Same paginated shape as /api/countries — { cities, total, ... }.
+    const res  = await fetch(`/api/countries/${countryId}/cities?pageSize=500&status=ACTIVE`)
     const data = await res.json()
-    setCities((prev) => ({ ...prev, [countryId]: data.data ?? [] }))
+    setCities((prev) => ({ ...prev, [countryId]: data.data?.cities ?? [] }))
   }
 
   function addScope() {
@@ -70,17 +79,22 @@ export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange }
   }
 
   return (
-    <div className="space-y-3">
-      <Label>Geographic Scope</Label>
-      <p className="text-xs text-muted-foreground">
-        Defines which countries or cities this user can manage.
-        {!isGlobalActor && " You can only assign scopes within your own countries."}
-      </p>
+    <div className="space-y-2">
+      {showHeader && (
+        <>
+          <Label>Geographic Scope</Label>
+          <p className="text-xs text-muted-foreground">
+            Defines which countries or cities this user can manage.
+            {!isGlobalActor && " You can only assign scopes within your own countries."}
+          </p>
+        </>
+      )}
 
+      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
       {value.map((scope, index) => (
         <div
           key={index}
-          className="flex flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start"
+          className="flex flex-col gap-1.5 rounded-lg border border-border/60 p-2.5 sm:flex-row sm:items-start"
         >
           {/* Scope type */}
           <Select
@@ -157,6 +171,7 @@ export function ScopeSelector({ isGlobalActor, actorCountries, value, onChange }
           </Button>
         </div>
       ))}
+      </div>
 
       <Button
         type="button"

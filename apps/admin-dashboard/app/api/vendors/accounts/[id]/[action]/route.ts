@@ -6,7 +6,7 @@ const BACKEND = process.env.BACKEND_API_URL
 
 /**
  * POST /api/vendors/accounts/[id]/[action]
- * Actions: suspend | reinstate | ban
+ * Actions: suspend | reinstate | ban | unban
  */
 export async function POST(
   req    : NextRequest,
@@ -19,7 +19,7 @@ export async function POST(
 
     if (!token) return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
 
-    const allowedActions = ["suspend", "reinstate", "ban"]
+    const allowedActions = ["suspend", "reinstate", "ban", "unban"]
     if (!allowedActions.includes(action)) {
       return NextResponse.json({ message: "Invalid action" }, { status: 400 })
     }

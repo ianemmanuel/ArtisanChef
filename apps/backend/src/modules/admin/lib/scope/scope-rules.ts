@@ -54,6 +54,11 @@ import { ApiError } from "@/middleware/error"
  *   Couriers operate within city limits.
  *   National courier compliance (insurance, regulations) → finance or super_admin.
  *   Keeping courier_ops city-only preserves clarity in dispatch dashboards.
+ *
+ * operations_admin: GLOBAL only.
+ *   Country launch configuration (vendor types, document types, activation
+ *   readiness) — every market follows the same launch process today, so
+ *   there's no meaningful country- or city-scoped variant yet.
  */
 
 export const ROLE_SCOPE_RULES: Record<string, {
@@ -90,6 +95,11 @@ export const ROLE_SCOPE_RULES: Record<string, {
     allowedScopes: ["CITY"],
     defaultScope : "CITY",
     description  : "Courier operations are city-local. Couriers do not cross city boundaries.",
+  },
+  operations_admin: {
+    allowedScopes: ["GLOBAL"],
+    defaultScope : "GLOBAL",
+    description  : "Operations admin configures country launch readiness. Global only — every market shares the same launch process for now.",
   },
 }
 

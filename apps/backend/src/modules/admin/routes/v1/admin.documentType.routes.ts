@@ -8,6 +8,7 @@ import {
   handleUpdateDocumentType,
   handleActivateDocumentType,
   handleDeactivateDocumentType,
+  handleSetDocumentTypeScope,
   handleAssignDocumentTypeToVendorType,
   handleUpdateDocumentTypeVendorTypeRequirement,
   handleRemoveDocumentTypeFromVendorType,
@@ -29,6 +30,7 @@ documentTypeRouter.get("/:documentTypeId", READ, handleGetDocumentType)
 documentTypeRouter.patch("/:documentTypeId", WRITE, handleUpdateDocumentType)
 documentTypeRouter.patch("/:documentTypeId/activate", WRITE, handleActivateDocumentType)
 documentTypeRouter.patch("/:documentTypeId/deactivate", WRITE, handleDeactivateDocumentType)
+documentTypeRouter.patch("/:documentTypeId/scope", WRITE, handleSetDocumentTypeScope)
 documentTypeRouter.post("/:documentTypeId/vendor-types", WRITE, handleAssignDocumentTypeToVendorType)
 
 // Requirement rows (DocumentTypeVendorType) are addressed by their own id —

@@ -6,6 +6,8 @@ import { ClerkAdminStateService } from "@/lib/clerk"
 import { validateScopeForRole, getDefaultScopeType } from "../lib/scope/scope-rules"
 import { SYSTEM_USER_ID } from "@/constants/system"
 import { env } from "@/env"
+import { AdminRoleNames } from "@repo/types/enums"
+import { applyAvailabilityChange, type SetAvailabilityInput } from "./admin.reviewerAvailability.service"
 import type {
   AdminScopeContext,
   CreateAdminUserRequest,
@@ -41,6 +43,7 @@ export async function createAdminUser(
   input: CreateAdminUserRequest,
   actorId: string,
   actorScope: AdminScopeContext,
+  actorRoleName: string | undefined,
 ) {
   const {
     firstName,
@@ -89,8 +92,8 @@ export async function createAdminUser(
     throw new ApiError(404, "Role not found", "ROLE_NOT_FOUND")
   }
 
-  if (role.name === "system") {
-    throw new ApiError(400, "Cannot assign the system role", "INVALID_ROLE")
+  if (role.name === "system" || role.name === AdminRoleNames.SUPER_ADMIN) {
+    throw new ApiError(400, "This role cannot be assigned through admin user management", "INVALID_ROLE")
   }
 
   if (permissionKeys.length > 0) {
@@ -106,7 +109,7 @@ export async function createAdminUser(
   )
 
   // Scope guard: actor can only create users within their own scope
-  assertScopeCanManage(actorScope, resolvedScopes)
+  assertScopeCanManage(actorScope, resolvedScopes, actorRoleName)
 
   const user = await prisma.$transaction(async (tx) => {
     const created = await tx.adminUser.create({
@@ -193,6 +196,7 @@ export async function sendAdminInvitation(
   adminUserId: string,
   actorId    : string,
   actorScope : AdminScopeContext,
+  actorRoleName: string | undefined,
 ) {
   // Optional at startup (see env.ts) since it's only this one admin-only
   // feature — but genuinely required to actually send an invitation.
@@ -206,7 +210,7 @@ export async function sendAdminInvitation(
   })
   if (!adminUser) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
 
-  assertUserWithinActorScope(adminUser.scopes, actorScope)
+  assertUserWithinActorScope(adminUser.scopes, actorScope, actorRoleName)
 
   if (adminUser.status !== AdminUserStatus.pending && adminUser.status !== AdminUserStatus.invited) {
     throw new ApiError(400, `Cannot send invitation to a user with status: ${adminUser.status}`, "INVALID_STATUS")
@@ -273,6 +277,7 @@ export async function updateAdminUserPermissions(
   input     : UpdateAdminUserPermissionsRequest,
   actorId   : string,
   actorScope: AdminScopeContext,
+  actorRoleName: string | undefined,
 ) {
   const { adminUserId, permissionKeys } = input
 
@@ -283,7 +288,9 @@ export async function updateAdminUserPermissions(
   if (!adminUser) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
   if (!adminUser.roleId) throw new ApiError(400, "User has no role assigned", "NO_ROLE")
 
-  assertUserWithinActorScope(adminUser.scopes, actorScope)
+  assertUserWithinActorScope(adminUser.scopes, actorScope, actorRoleName)
+  assertNotActingOnSelf(actorId, adminUserId, "modify the permissions on")
+  assertTargetNotSuperAdmin(adminUser.role?.name, "modified")
 
   if (permissionKeys.length > 0) await validatePermissionsInRolePool(adminUser.roleId, permissionKeys)
 
@@ -334,6 +341,7 @@ export async function updateAdminUserRole(
   input     : UpdateAdminUserRoleRequest,
   actorId   : string,
   actorScope: AdminScopeContext,
+  actorRoleName: string | undefined,
 ) {
   const { adminUserId, roleId } = input
 
@@ -347,11 +355,15 @@ export async function updateAdminUserRole(
   })
   if (!adminUser) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
 
-  assertUserWithinActorScope(adminUser.scopes, actorScope)
+  assertUserWithinActorScope(adminUser.scopes, actorScope, actorRoleName)
+  assertNotActingOnSelf(actorId, adminUserId, "change the role of")
+  assertTargetNotSuperAdmin(adminUser.role?.name, "role-changed")
 
   const newRole = await prisma.adminRole.findUnique({ where: { id: roleId } })
   if (!newRole) throw new ApiError(404, "Role not found", "ROLE_NOT_FOUND")
-  if (newRole.name === "system") throw new ApiError(400, "Cannot assign the system role", "INVALID_ROLE")
+  if (newRole.name === "system" || newRole.name === AdminRoleNames.SUPER_ADMIN) {
+    throw new ApiError(400, "This role cannot be assigned through admin user management", "INVALID_ROLE")
+  }
 
   // Validate existing scopes are compatible with the new role
   const currentScopeTypes = adminUser.scopes.map((s) => s.scopeType as "GLOBAL" | "COUNTRY" | "CITY")
@@ -409,6 +421,7 @@ export async function updateAdminUserScopes(
   input     : UpdateAdminUserScopesRequest,
   actorId   : string,
   actorScope: AdminScopeContext,
+  actorRoleName: string | undefined,
 ) {
   const { adminUserId, scopes } = input
 
@@ -418,7 +431,9 @@ export async function updateAdminUserScopes(
   })
   if (!adminUser) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
 
-  assertUserWithinActorScope(adminUser.scopes, actorScope)
+  assertUserWithinActorScope(adminUser.scopes, actorScope, actorRoleName)
+  assertNotActingOnSelf(actorId, adminUserId, "change the scope of")
+  assertTargetNotSuperAdmin(adminUser.role?.name, "re-scoped")
 
   const assigningGlobal = scopes.some((s) => s.scopeType === "GLOBAL")
   if (assigningGlobal && !actorScope.isGlobal) {
@@ -462,11 +477,13 @@ export async function updateAdminUserScopes(
 // ─── Suspend, Reinstate, Deactivate ──────────────────────────────────────────
 
 export async function suspendAdminUser(
-  adminUserId: string, reason: string, actorId: string, actorScope: AdminScopeContext,
+  adminUserId: string, reason: string, actorId: string, actorScope: AdminScopeContext, actorRoleName: string | undefined,
 ) {
-  const user = await prisma.adminUser.findUnique({ where: { id: adminUserId }, include: { scopes: true } })
+  const user = await prisma.adminUser.findUnique({ where: { id: adminUserId }, include: { scopes: true, role: true } })
   if (!user) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
-  assertUserWithinActorScope(user.scopes, actorScope)
+  assertUserWithinActorScope(user.scopes, actorScope, actorRoleName)
+  assertNotActingOnSelf(actorId, adminUserId, "suspend")
+  assertTargetNotSuperAdmin(user.role?.name, "suspended")
   if (user.status === AdminUserStatus.suspended) throw new ApiError(400, "Already suspended", "ALREADY_SUSPENDED")
   if (user.status === AdminUserStatus.deactivated) throw new ApiError(400, "Cannot suspend deactivated user", "INVALID_STATUS")
   if (user.status === AdminUserStatus.pending || user.status === AdminUserStatus.invited)
@@ -482,11 +499,17 @@ export async function suspendAdminUser(
 }
 
 export async function reinstateAdminUser(
-  adminUserId: string, actorId: string, actorScope: AdminScopeContext,
+  adminUserId: string, actorId: string, actorScope: AdminScopeContext, actorRoleName: string | undefined,
 ) {
-  const user = await prisma.adminUser.findUnique({ where: { id: adminUserId }, include: { scopes: true } })
+  const user = await prisma.adminUser.findUnique({ where: { id: adminUserId }, include: { scopes: true, role: true } })
   if (!user) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
-  assertUserWithinActorScope(user.scopes, actorScope)
+  assertUserWithinActorScope(user.scopes, actorScope, actorRoleName)
+  // Defensive — you can never actually be suspended by yourself (suspendAdminUser
+  // blocks self-suspension) and a super_admin can never reach `suspended` at all
+  // (suspendAdminUser blocks that target too), so both of these should be
+  // unreachable in practice. Guarded anyway for consistency/defence-in-depth.
+  assertNotActingOnSelf(actorId, adminUserId, "reinstate")
+  assertTargetNotSuperAdmin(user.role?.name, "reinstated")
   if (user.status !== AdminUserStatus.suspended) throw new ApiError(400, "Only suspended users can be reinstated", "INVALID_STATUS")
   if (user.clerkUserId) {
     try { await ClerkAdminStateService.unbanUser(user.clerkUserId) }
@@ -499,25 +522,47 @@ export async function reinstateAdminUser(
 }
 
 export async function deactivateAdminUser(
-  adminUserId: string, reason: string, actorId: string, actorScope: AdminScopeContext,
+  adminUserId: string, reason: string, actorId: string, actorScope: AdminScopeContext, actorRoleName: string | undefined,
 ) {
-  const user = await prisma.adminUser.findUnique({ where: { id: adminUserId }, include: { scopes: true } })
+  const user = await prisma.adminUser.findUnique({
+    where  : { id: adminUserId },
+    include: { scopes: true, role: true, permissions: { include: { permission: true } } },
+  })
   if (!user) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
-  assertUserWithinActorScope(user.scopes, actorScope)
+  assertUserWithinActorScope(user.scopes, actorScope, actorRoleName)
+  assertNotActingOnSelf(actorId, adminUserId, "deactivate")
+  assertTargetNotSuperAdmin(user.role?.name, "deactivated")
   if (user.status === AdminUserStatus.deactivated) throw new ApiError(400, "Already deactivated", "ALREADY_DEACTIVATED")
   if (user.clerkUserId) {
     try { await ClerkAdminStateService.deleteUser(user.clerkUserId) }
     catch (err) { serviceLog.error({ err, adminUserId }, "Clerk deletion failed — continuing with DB deactivation") }
   }
-  await prisma.adminUser.update({ where: { id: adminUserId }, data: { status: AdminUserStatus.deactivated, isActive: false, deactivatedAt: new Date(), deactivationReason: reason, clerkUserId: null } })
+  const clearedPermissions = user.permissions.map((p) => p.permission.key)
+  await prisma.$transaction([
+    prisma.adminUser.update({ where: { id: adminUserId }, data: { status: AdminUserStatus.deactivated, isActive: false, deactivatedAt: new Date(), deactivationReason: reason, clerkUserId: null } }),
+    // A deactivated admin retains their DB record (offboarding, not deletion)
+    // but must hold no live permission grants — re-granted on re-invite if
+    // the account is ever reactivated.
+    prisma.adminUserPermission.deleteMany({ where: { adminUserId } }),
+  ])
   serviceLog.warn({ adminUserId, actorId, reason }, "Admin user deactivated")
-  auditService.log({ adminUserId: actorId, action: "admin_user.deactivated", entityType: "AdminUser", entityId: adminUserId, changes: { before: { status: user.status, clerkUserId: user.clerkUserId }, after: { status: "deactivated", clerkUserId: null } }, metadata: { reason } })
+  auditService.log({
+    adminUserId: actorId,
+    action     : "admin_user.deactivated",
+    entityType : "AdminUser",
+    entityId   : adminUserId,
+    changes    : {
+      before: { status: user.status, clerkUserId: user.clerkUserId, permissions: clearedPermissions },
+      after : { status: "deactivated", clerkUserId: null, permissions: [] },
+    },
+    metadata: { reason, permissionsCleared: clearedPermissions.length },
+  })
   return { success: true }
 }
 
 //* Read queries 
 
-export async function getAdminUser(adminUserId: string, actorScope: AdminScopeContext) {
+export async function getAdminUser(adminUserId: string, actorScope: AdminScopeContext, actorRoleName: string | undefined) {
   const user = await prisma.adminUser.findUnique({
     where  : { id: adminUserId },
     include: {
@@ -528,22 +573,26 @@ export async function getAdminUser(adminUserId: string, actorScope: AdminScopeCo
     },
   })
   if (!user) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
-  assertUserWithinActorScope(user.scopes, actorScope)
+  assertUserWithinActorScope(user.scopes, actorScope, actorRoleName)
   return user
 }
 
 export async function listAdminUsers(
-  filters: { status?: string; roleId?: string; search?: string; page?: number; pageSize?: number },
+  filters: { status?: string; roleId?: string; search?: string; countryId?: string; page?: number; pageSize?: number },
   actorScope: AdminScopeContext,
+  actorRoleName: string | undefined,
 ) {
-  const { status, roleId, search, page = 1, pageSize = 20 } = filters
-  const skip = (page - 1) * pageSize
+  const { status, roleId, search, countryId, page = 1, pageSize = 20 } = filters
 
-  const scopeFilter = buildScopeFilter(actorScope)
+  const scopeFilter  = buildScopeFilter(actorScope, actorRoleName)
+  const countryScoped = !actorHasFullAccess(actorScope)
+  const scopesInclude  = { include: { country: { select: { id: true, name: true, code: true } } } } as const
+
   const where: any = {
     ...scopeFilter,
     ...(status ? { status } : {}),
     ...(roleId ? { roleId } : {}),
+    ...(countryId ? { scopes: { some: { countryId } } } : {}),
     ...(search ? {
       OR: [
         { email    : { contains: search, mode: "insensitive" } },
@@ -554,10 +603,36 @@ export async function listAdminUsers(
     } : {}),
   }
 
-  const [users, total] = await Promise.all([
-    prisma.adminUser.findMany({ where, skip, take: pageSize, orderBy: { createdAt: "desc" }, include: { role: true, scopes: true } }),
-    prisma.adminUser.count({ where }),
-  ])
+  // A country-scoped actor's DB filter (buildScopeFilter) only narrows to
+  // "has a scope row in one of my countries" — it can't express "is scoped
+  // to exactly one country, and it's mine" in a single Prisma where clause.
+  // So for a country-scoped actor we over-fetch a bounded page.pageSize
+  // window and post-filter to scopeClassOf === SINGLE_COUNTRY here, same
+  // hierarchy rule enforced by assertUserWithinActorScope. Global actors
+  // (full access) skip this — no post-filtering, no page-size distortion.
+  if (!countryScoped) {
+    const skip = (page - 1) * pageSize
+    const [users, total] = await Promise.all([
+      prisma.adminUser.findMany({ where, skip, take: pageSize, orderBy: { createdAt: "desc" }, include: { role: true, scopes: scopesInclude } }),
+      prisma.adminUser.count({ where }),
+    ])
+    return { users, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+  }
+
+  const actorCountries = new Set(actorScope.countryIds)
+  const allCandidates = await prisma.adminUser.findMany({
+    where, orderBy: { createdAt: "desc" }, include: { role: true, scopes: scopesInclude },
+  })
+  const inScope = allCandidates.filter((u) => {
+    const cls = scopeClassOf(u.scopes)
+    if (cls !== "SINGLE_COUNTRY") return false
+    const [country] = u.scopes.filter((s) => s.countryId).map((s) => s.countryId!)
+    return !!country && actorCountries.has(country)
+  })
+
+  const total = inScope.length
+  const skip  = (page - 1) * pageSize
+  const users = inScope.slice(skip, skip + pageSize)
 
   return { users, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
 }
@@ -600,15 +675,83 @@ function resolveScopes(
   }))
 }
 
-function assertScopeCanManage(
-  actorScope  : AdminScopeContext,
-  targetScopes: ScopeEntry[],
-): void {
-  if (actorScope.isGlobal) return
+/*
+ * Any globally-scoped actor (super_admin, or a globally-scoped
+ * identity_admin) gets full, unrestricted access to admins in every
+ * country — per explicit product direction: until regional
+ * (multi-country) identity admins exist, a global identity_admin is the
+ * stand-in for "manage admins across all countries." Only super_admin
+ * and identity_admin ever reach this module (requireIdentityAccess), and
+ * only they can hold isGlobal, so no further role check is needed here.
+ *
+ * When regional identity admins ship, this is where a global
+ * identity_admin's access would be narrowed back down (e.g. to
+ * read-only across countries it doesn't directly own).
+ */
+export function actorHasFullAccess(actorScope: AdminScopeContext): boolean {
+  return actorScope.isGlobal
+}
+
+/*
+ * Classifies a set of scope rows so a country-scoped actor's hierarchy
+ * check can tell "one of my countries" apart from "spans multiple
+ * countries" or "global" — a country-scoped identity_admin may only
+ * touch admins who are scoped to exactly one country, and it must be
+ * their own. Multi-country and global targets are entirely off-limits
+ * to a country-scoped actor, regardless of whether one of the target's
+ * countries happens to match.
+ */
+export function scopeClassOf(
+  scopes: Array<{ scopeType: string; countryId: string | null }>,
+): "GLOBAL" | "MULTI_COUNTRY" | "SINGLE_COUNTRY" {
+  if (scopes.some((s) => s.scopeType === "GLOBAL")) return "GLOBAL"
+  const countries = new Set(scopes.filter((s) => s.countryId).map((s) => s.countryId))
+  return countries.size > 1 ? "MULTI_COUNTRY" : "SINGLE_COUNTRY"
+}
+
+/*
+ * Resolves the set of AdminUser ids a given actor is allowed to manage,
+ * per the same hierarchy rules as assertUserWithinActorScope/buildScopeFilter.
+ * Returns null for a full-access actor (no restriction needed) — callers
+ * should treat null as "don't filter" rather than "empty set."
+ *
+ * Used by the audit log module, which needs the same "which admins can
+ * this actor see" answer but as a plain id list (AuditLog.entityId has no
+ * real FK relation to AdminUser — it's a generic string shared across
+ * every module's audit events).
+ */
+export async function getManageableAdminUserIds(actorScope: AdminScopeContext): Promise<string[] | null> {
+  if (actorHasFullAccess(actorScope)) return null
+
+  const candidates = await prisma.adminUser.findMany({
+    where : buildScopeFilter(actorScope, undefined),
+    select: { id: true, scopes: { select: { scopeType: true, countryId: true } } },
+  })
   const actorCountries = new Set(actorScope.countryIds)
+  return candidates
+    .filter((u) => {
+      if (scopeClassOf(u.scopes) !== "SINGLE_COUNTRY") return false
+      const [country] = u.scopes.filter((s) => s.countryId).map((s) => s.countryId!)
+      return !!country && actorCountries.has(country)
+    })
+    .map((u) => u.id)
+}
+
+function assertScopeCanManage(
+  actorScope   : AdminScopeContext,
+  targetScopes : ScopeEntry[],
+  actorRoleName: string | undefined,
+): void {
+  if (actorHasFullAccess(actorScope)) return
+
   if (targetScopes.some((s) => s.scopeType === "GLOBAL")) {
     throw new ApiError(403, "Only globally-scoped admins can create globally-scoped users", "SCOPE_FORBIDDEN")
   }
+  const targetCountries = new Set(targetScopes.filter((s) => s.countryId).map((s) => s.countryId))
+  if (targetCountries.size > 1) {
+    throw new ApiError(403, "You cannot assign scopes spanning more than one country", "SCOPE_FORBIDDEN")
+  }
+  const actorCountries = new Set(actorScope.countryIds)
   const outOfScope = targetScopes.filter((s) => s.countryId && !actorCountries.has(s.countryId))
   if (outOfScope.length > 0) {
     throw new ApiError(403, "You cannot assign scopes outside your own country scope", "SCOPE_FORBIDDEN")
@@ -616,22 +759,44 @@ function assertScopeCanManage(
 }
 
 function assertUserWithinActorScope(
-  userScopes : Array<{ scopeType: string; countryId: string | null }>,
-  actorScope : AdminScopeContext,
+  userScopes   : Array<{ scopeType: string; countryId: string | null }>,
+  actorScope   : AdminScopeContext,
+  actorRoleName: string | undefined,
 ): void {
-  if (actorScope.isGlobal) return
-  const hasGlobalScope = userScopes.some((s) => s.scopeType === "GLOBAL")
-  if (hasGlobalScope) throw new ApiError(403, "Insufficient scope to manage this user", "SCOPE_FORBIDDEN")
+  if (actorHasFullAccess(actorScope)) return
+
+  const targetClass = scopeClassOf(userScopes)
+  if (targetClass !== "SINGLE_COUNTRY") {
+    throw new ApiError(403, "This user is outside your scope", "SCOPE_FORBIDDEN")
+  }
   const actorCountries = new Set(actorScope.countryIds)
-  const userCountries  = userScopes.filter((s) => s.countryId).map((s) => s.countryId!)
-  if (!userCountries.some((c) => actorCountries.has(c))) {
+  const [userCountry]  = userScopes.filter((s) => s.countryId).map((s) => s.countryId!)
+  if (!userCountry || !actorCountries.has(userCountry)) {
     throw new ApiError(403, "This user is outside your scope", "SCOPE_FORBIDDEN")
   }
 }
 
-function buildScopeFilter(actorScope: AdminScopeContext): object {
-  if (actorScope.isGlobal) return { id: { not: SYSTEM_USER_ID } }
+function buildScopeFilter(actorScope: AdminScopeContext, actorRoleName: string | undefined): object {
+  if (actorHasFullAccess(actorScope)) return { id: { not: SYSTEM_USER_ID } }
   return { id: { not: SYSTEM_USER_ID }, scopes: { some: { countryId: { in: actorScope.countryIds } } } }
+}
+
+/*
+ * Enterprise lockout/abuse safeguard — applied regardless of the actor's
+ * own role, including super_admin acting on another super_admin. These
+ * two rules exist independently of the scope hierarchy above: a global
+ * actor's "full access" never overrides them.
+ */
+function assertNotActingOnSelf(actorId: string, targetId: string, verb: string): void {
+  if (actorId === targetId) {
+    throw new ApiError(403, `You cannot ${verb} your own account`, "SELF_ACTION_FORBIDDEN")
+  }
+}
+
+function assertTargetNotSuperAdmin(targetRoleName: string | null | undefined, verb: string): void {
+  if (targetRoleName === AdminRoleNames.SUPER_ADMIN) {
+    throw new ApiError(403, `Super admin accounts cannot be ${verb}`, "SUPER_ADMIN_PROTECTED")
+  }
 }
 
 async function validatePermissionsInRolePool(roleId: string, permissionKeys: string[]) {
@@ -643,4 +808,37 @@ async function validatePermissionsInRolePool(roleId: string, permissionKeys: str
   if (outOfPool.length > 0) {
     throw new ApiError(400, `These permissions are not in this role's pool: ${outOfPool.join(", ")}`, "PERMISSIONS_OUT_OF_POOL")
   }
+}
+
+//* ─── Availability (Identity & Access-managed) ───────────────────────────────
+//
+// A vendor_ops reviewer can already set their OWN availability, or have a
+// privileged vendor_ops peer set it, via admin.reviewerAvailability.service.ts
+// (gated by vendors:reviewers:manage_availability, scoped to country/city
+// only). This is the identity-module counterpart: any admin, managed by
+// super_admin/identity_admin, through the same full hierarchy rules as
+// suspend/deactivate. Both paths write through the same applyAvailabilityChange
+// so the schema fields and audit event shape never diverge.
+
+export async function setAdminUserAvailability(
+  adminUserId: string,
+  input      : SetAvailabilityInput,
+  actorId    : string,
+  actorScope : AdminScopeContext,
+  actorRoleName: string | undefined,
+) {
+  const user = await prisma.adminUser.findUnique({ where: { id: adminUserId }, include: { scopes: true, role: true } })
+  if (!user) throw new ApiError(404, "Admin user not found", "USER_NOT_FOUND")
+  assertUserWithinActorScope(user.scopes, actorScope, actorRoleName)
+  assertNotActingOnSelf(actorId, adminUserId, "change the availability of")
+  assertTargetNotSuperAdmin(user.role?.name, "marked unavailable")
+  if (
+    user.status === AdminUserStatus.pending ||
+    user.status === AdminUserStatus.invited ||
+    user.status === AdminUserStatus.deactivated
+  ) {
+    throw new ApiError(400, `Cannot change availability for a user with status: ${user.status}`, "INVALID_STATUS")
+  }
+
+  return applyAvailabilityChange(adminUserId, input, actorId, false)
 }

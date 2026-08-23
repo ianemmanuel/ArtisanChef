@@ -9,14 +9,10 @@ import { NextRequest, NextResponse } from "next/server"
 
 export async function PUT(
   req    : NextRequest,
-  { params }: { params: Promise<{ id: string; action: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id, action } = await params
-
-    if (action !== "permissions") {
-      return NextResponse.json({ error: "Invalid" }, { status: 400 })
-    }
+    const { id } = await params
 
     const { getToken } = await auth()
     const token = await getToken()

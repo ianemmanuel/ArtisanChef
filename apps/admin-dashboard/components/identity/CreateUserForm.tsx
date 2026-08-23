@@ -70,7 +70,7 @@ export function CreateUserForm({ roles, session }: Props) {
         toast.success("Admin user created", {
           description: `${value.firstName} ${value.lastName} has been added.`,
         })
-        router.push(`/identity/${data.data?.id ?? ""}/review`)
+        router.push(`/identity/manage/${data.data?.id ?? ""}/review`)
       } else {
         const data = await res.json()
         form.setErrorMap({
@@ -207,6 +207,7 @@ export function CreateUserForm({ roles, session }: Props) {
               actorCountries={actorCountries}
               value={field.state.value}
               onChange={(s) => field.handleChange(s)}
+              showHeader={false}
             />
           )}
         </form.Field>
@@ -245,7 +246,7 @@ export function CreateUserForm({ roles, session }: Props) {
               {isSubmitting ? "Creating…" : "Create User"}
             </Button>
             <Button type="button" variant="ghost" disabled={isSubmitting}
-              onClick={() => router.push("/identity")}>
+              onClick={() => router.push("/identity/manage")}>
               Cancel
             </Button>
           </div>

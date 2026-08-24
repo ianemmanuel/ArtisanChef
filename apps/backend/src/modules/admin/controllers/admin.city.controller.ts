@@ -40,21 +40,22 @@ export const handleCreateCity: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
     const { countryRef }            = req.params as { countryRef: string }
-    const { countryId: bodyCountryId, name, code, timezone } = req.body as {
+    const { countryId: bodyCountryId, name, timezone, latitude, longitude } = req.body as {
       countryId?: string
       name:       string
-      code?:      string
       timezone:   string
+      latitude?:  number
+      longitude?: number
     }
 
-    //! countryId may come from the route param (preferred) or the request body- front end should confirm this
+    //! countryId may come from the route param (preferred, UUID-or-slug) or the request body
     const countryId = countryRef ?? bodyCountryId
     if (!countryId?.trim()) throw new ApiError(400, "countryId is required", "MISSING_FIELDS")
     if (!name?.trim())      throw new ApiError(400, "name is required", "MISSING_FIELDS")
     if (!timezone?.trim())  throw new ApiError(400, "timezone is required", "MISSING_FIELDS")
 
     const data = await createCity(
-      { countryId, name, code, timezone },
+      { countryId, name, timezone, latitude, longitude },
       adminUser.id,
       adminScope,
     )
@@ -100,7 +101,8 @@ export const handleDeactivateCity: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
     const { cityRef }               = req.params as { cityRef: string }
-    const data = await deactivateCity(cityRef, adminUser.id, adminScope)
+    const { reason }                = req.body as { reason?: string }
+    const data = await deactivateCity(cityRef, adminUser.id, adminScope, reason)
     return sendSuccess(res, data, "City deactivated")
   } catch (err) { next(err) }
 }

@@ -27,12 +27,14 @@ import {
   DialogTrigger,
 } from "@repo/ui/components/dialog"
 import {
+  documentTypeBaseSchema,
   documentTypeCreateSchema,
   documentTypeUpdateSchema,
   type DocumentTypeCreateFormValues,
   type DocumentTypeUpdateFormValues,
 } from "@/lib/zod/document-type"
 import { getFieldError } from "@/lib/forms/form-helpers"
+import { useCountryCities } from "@/hooks/use-country-cities"
 import type { DocumentTypeConfig } from "@/types/document-type.types"
 
 interface Props {
@@ -45,16 +47,18 @@ interface Props {
 export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
   const router = useRouter()
   const isEdit = !!documentType
+  const effectiveCountryId = isEdit ? documentType?.countryId : countryId
 
   const [open, setOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const { cities } = useCountryCities(effectiveCountryId)
 
   const createForm = useForm({
     defaultValues: {
       name             : "",
-      code             : "",
       description      : "",
       scope            : "VENDOR",
+      cityId           : "",
       isRequired       : true,
       requiresExpiry   : true,
       expiryWarningDays: 30,
@@ -73,6 +77,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
             description : value.description.trim() || undefined,
             instructions: value.instructions.trim() || undefined,
             sampleUrl   : value.sampleUrl.trim() || undefined,
+            cityId      : value.scope === "CITY" ? value.cityId : undefined,
             countryId,
           }),
         })
@@ -98,6 +103,8 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
     defaultValues: {
       name             : documentType?.name ?? "",
       description      : documentType?.description ?? "",
+      scope            : documentType?.scope ?? "VENDOR",
+      cityId           : documentType?.cityId ?? "",
       isRequired       : documentType?.isRequired ?? true,
       requiresExpiry   : documentType?.requiresExpiry ?? true,
       expiryWarningDays: documentType?.expiryWarningDays ?? 30,
@@ -117,6 +124,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
             description : value.description.trim() || undefined,
             instructions: value.instructions.trim() || undefined,
             sampleUrl   : value.sampleUrl.trim() || undefined,
+            cityId      : value.scope === "CITY" ? value.cityId : undefined,
           }),
         })
         const data = await res.json()
@@ -160,13 +168,13 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
         )}
       </DialogTrigger>
 
-      <DialogContent className="max-h-[85vh] overflow-y-auto rounded-2xl sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto rounded-2xl sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit document type" : "New document type"}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Code, scope and country can't be changed after creation."
-              : "Defines a document vendors or outlets must upload during onboarding."}
+              ? "Country can't be changed after creation."
+              : "Defines a document vendors or outlets must upload during onboarding. A code is generated automatically from the name."}
           </DialogDescription>
         </DialogHeader>
 
@@ -179,7 +187,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
 
           <div className="grid gap-3 sm:grid-cols-2">
             {isEdit ? (
-              <updateForm.Field name="name" validators={{ onBlur: documentTypeUpdateSchema.shape.name }}>
+              <updateForm.Field name="name" validators={{ onBlur: documentTypeBaseSchema.shape.name }}>
                 {(field) => (
                   <div className="space-y-1.5">
                     <Label className="text-xs" htmlFor="doc-type-name">Name *</Label>
@@ -198,7 +206,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
                 )}
               </updateForm.Field>
             ) : (
-              <createForm.Field name="name" validators={{ onBlur: documentTypeCreateSchema.shape.name }}>
+              <createForm.Field name="name" validators={{ onBlur: documentTypeBaseSchema.shape.name }}>
                 {(field) => (
                   <div className="space-y-1.5">
                     <Label className="text-xs" htmlFor="doc-type-name">Name *</Label>
@@ -218,52 +226,108 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
               </createForm.Field>
             )}
 
-            {!isEdit && (
-              <createForm.Field name="code" validators={{ onBlur: documentTypeCreateSchema.shape.code }}>
-                {(field) => (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs" htmlFor="doc-type-code">Code *</Label>
-                    <Input
-                      id="doc-type-code"
-                      placeholder="e.g. BUSINESS_REG_CERT"
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                      className="rounded-xl text-sm"
-                    />
-                    {field.state.meta.errors.length > 0 && (
-                      <p className="text-xs text-destructive">{getFieldError(field.state.meta.errors[0])}</p>
-                    )}
-                  </div>
-                )}
-              </createForm.Field>
-            )}
-
-            {isEdit && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Code</Label>
-                <p className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
-                  {documentType?.code}
-                </p>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Code</Label>
+              <p className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
+                {isEdit ? documentType?.code : "Generated automatically from the name"}
+              </p>
+            </div>
           </div>
 
-          {!isEdit && (
+          {isEdit ? (
+            <updateForm.Field name="scope">
+              {(scopeField) => (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Scope</Label>
+                    <Select
+                      value={scopeField.state.value}
+                      onValueChange={(v) => {
+                        scopeField.handleChange(v as "VENDOR" | "OUTLET" | "CITY")
+                        if (v !== "CITY") updateForm.setFieldValue("cityId", "")
+                      }}
+                    >
+                      <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
+                        <SelectItem value="VENDOR" className="rounded-lg">Vendor — required once per vendor account</SelectItem>
+                        <SelectItem value="OUTLET" className="rounded-lg">Outlet — required once per outlet, nationwide</SelectItem>
+                        <SelectItem value="CITY" className="rounded-lg">City — once per vendor per city, inherited by their outlets there</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {scopeField.state.value === "CITY" && (
+                    <updateForm.Field name="cityId" validators={{ onBlur: documentTypeBaseSchema.shape.cityId }}>
+                      {(cityField) => (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">City *</Label>
+                          <Select value={cityField.state.value || undefined} onValueChange={cityField.handleChange}>
+                            <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
+                              <SelectValue placeholder={cities.length === 0 ? "No active cities in this country yet" : "Select a city…"} />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
+                              {cities.map((c) => (
+                                <SelectItem key={c.id} value={c.id} className="rounded-lg">{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {cityField.state.meta.errors.length > 0 && (
+                            <p className="text-xs text-destructive">{getFieldError(cityField.state.meta.errors[0])}</p>
+                          )}
+                        </div>
+                      )}
+                    </updateForm.Field>
+                  )}
+                </>
+              )}
+            </updateForm.Field>
+          ) : (
             <createForm.Field name="scope">
-              {(field) => (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Scope</Label>
-                  <Select value={field.state.value} onValueChange={(v) => field.handleChange(v as "VENDOR" | "OUTLET")}>
-                    <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
-                      <SelectItem value="VENDOR" className="rounded-lg">Vendor — required once per vendor account</SelectItem>
-                      <SelectItem value="OUTLET" className="rounded-lg">Outlet — required per outlet</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              {(scopeField) => (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Scope</Label>
+                    <Select
+                      value={scopeField.state.value}
+                      onValueChange={(v) => {
+                        scopeField.handleChange(v as "VENDOR" | "OUTLET" | "CITY")
+                        if (v !== "CITY") createForm.setFieldValue("cityId", "")
+                      }}
+                    >
+                      <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
+                        <SelectItem value="VENDOR" className="rounded-lg">Vendor — required once per vendor account</SelectItem>
+                        <SelectItem value="OUTLET" className="rounded-lg">Outlet — required once per outlet, nationwide</SelectItem>
+                        <SelectItem value="CITY" className="rounded-lg">City — once per vendor per city, inherited by their outlets there</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {scopeField.state.value === "CITY" && (
+                    <createForm.Field name="cityId" validators={{ onBlur: documentTypeBaseSchema.shape.cityId }}>
+                      {(cityField) => (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">City *</Label>
+                          <Select value={cityField.state.value || undefined} onValueChange={cityField.handleChange}>
+                            <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
+                              <SelectValue placeholder={cities.length === 0 ? "No active cities in this country yet" : "Select a city…"} />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
+                              {cities.map((c) => (
+                                <SelectItem key={c.id} value={c.id} className="rounded-lg">{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {cityField.state.meta.errors.length > 0 && (
+                            <p className="text-xs text-destructive">{getFieldError(cityField.state.meta.errors[0])}</p>
+                          )}
+                        </div>
+                      )}
+                    </createForm.Field>
+                  )}
+                </>
               )}
             </createForm.Field>
           )}

@@ -22,6 +22,8 @@ interface Props {
   canWrite   : boolean
   isGlobal   : boolean
   size?      : "sm" | "default"
+  /** Gates activation (not deactivation) — see CountryLaunchChecklist. Omit to leave ungated. */
+  canActivate?: boolean
 }
 
 /**
@@ -31,7 +33,7 @@ interface Props {
  * country-scoped WRITE holder still can't flip it — hidden here rather than
  * shown-then-403'd.
  */
-export function CountryActions({ countrySlug, countryName, status, canWrite, isGlobal, size = "sm" }: Props) {
+export function CountryActions({ countrySlug, countryName, status, canWrite, isGlobal, size = "sm", canActivate = true }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -40,6 +42,7 @@ export function CountryActions({ countrySlug, countryName, status, canWrite, isG
 
   const isActive = status === "ACTIVE"
   const action   = isActive ? "deactivate" : "activate"
+  const blocked  = !isActive && !canActivate
 
   async function confirm() {
     setPending(true)
@@ -49,8 +52,8 @@ export function CountryActions({ countrySlug, countryName, status, canWrite, isG
       if (res.ok) {
         toast.success(isActive ? "Country deactivated" : "Country activated", {
           description: isActive
-            ? `${countryName} is now hidden from vendor onboarding and new orders.`
-            : `${countryName} is now live for vendor onboarding and orders.`,
+            ? `${countryName} is no longer an operating market.`
+            : `${countryName} is now active. Mark it ready for vendor onboarding and customer operations when you are.`,
         })
         setOpen(false)
         router.refresh()
@@ -70,6 +73,8 @@ export function CountryActions({ countrySlug, countryName, status, canWrite, isG
         type="button"
         variant="outline"
         size={size}
+        disabled={blocked}
+        title={blocked ? "Add at least one vendor type and one document type first" : undefined}
         className={[
           "gap-1.5 rounded-full transition-all hover:-translate-y-px",
           isActive
@@ -91,8 +96,8 @@ export function CountryActions({ countrySlug, countryName, status, canWrite, isG
             <AlertDialogTitle>{isActive ? "Deactivate" : "Activate"} {countryName}?</AlertDialogTitle>
             <AlertDialogDescription>
               {isActive
-                ? "Vendors will no longer be able to onboard or operate in this country until it's reactivated."
-                : "This country becomes visible for vendor onboarding, city management, and orders immediately."}
+                ? "This country will no longer be a live market — cities, vendor types, and document types stay in place, but nothing new happens here until it's reactivated."
+                : "This country becomes an operating market. Vendor onboarding and customer operations stay paused until you separately mark each one ready."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

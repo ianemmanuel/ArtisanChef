@@ -985,18 +985,29 @@ export async function rejectDocument(
 
 //* List vendor accounts
 
+const VENDOR_SORT_COLUMNS: Record<string, string> = {
+  legalBusinessName: "legalBusinessName",
+  status            : "status",
+  createdAt         : "createdAt",
+}
+
 export async function listVendorAccounts(
   filters: {
     status?      : VendorStatus
     countrySlug? : string
     search?      : string
     vendorTypeId?: string
+    bannedOnly?  : boolean
+    sort?        : string
+    dir?         : string
     page?        : number
     pageSize?    : number
   },
   adminScope: AdminScopeContext,
 ) {
-  const { status, countrySlug, search, vendorTypeId, page = 1, pageSize = 20 } = filters
+  const { status, countrySlug, search, vendorTypeId, bannedOnly, sort, dir, page = 1, pageSize = 20 } = filters
+  const sortColumn = VENDOR_SORT_COLUMNS[sort ?? ""] ?? "createdAt"
+  const sortDir     = dir === "asc" ? "asc" : "desc"
 
   // countrySlug is optional — most admins browse across their entire
   // scope, not one country at a time. Only resolve/narrow when one was
@@ -1014,6 +1025,7 @@ export async function listVendorAccounts(
     ...buildVendorScopeFilter(adminScope, countryId),
     ...(status ? { status } : {}),
     ...(vendorTypeId ? { vendorTypeId } : {}),
+    ...(bannedOnly ? { user: { isBanned: true } } : {}),
     ...(search ? {
       OR: [
         { legalBusinessName: { contains: search, mode: "insensitive" } },
@@ -1027,10 +1039,11 @@ export async function listVendorAccounts(
       where,
       skip,
       take   : pageSize,
-      orderBy: { createdAt: "desc" },
+      orderBy: { [sortColumn]: sortDir },
       include: {
         country   : { select: { id: true, name: true, code: true } },
         vendorType: { select: { id: true, name: true } },
+        user      : { select: { isBanned: true } },
         _count    : { select: { outlets: true } },
       },
     }),
@@ -1049,6 +1062,10 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
       country    : true,
       vendorType : true,
       application: true,
+      // Banning is identity-level (VendorUser.isBanned) — surfaced here so
+      // the detail page can show it correctly (VendorAccount.status alone
+      // never reflects a ban, see banVendor/unbanVendor).
+      user       : { select: { isBanned: true, banReason: true, bannedAt: true } },
       outlets    : {
         where  : { deletedAt: null },
         select : {
@@ -1238,6 +1255,57 @@ export async function banVendor(
       after : { isBanned: true },
     },
     metadata: { reason, payoutAccountsDeleted: activePayoutCount },
+  })
+
+  return { success: true }
+}
+
+/*
+* Unban — reverses banVendor. Payout accounts are NOT restored (same
+* precedent as reinstateVendor after a suspension): they were hard
+* soft-deleted, account details may be stale, vendor must re-add and
+* re-verify. Best-effort Clerk unban, same treatment as banVendor's ban.
+*/
+
+export async function unbanVendor(
+  vendorAccountId: string,
+  actorId        : string,
+  actorScope     : AdminScopeContext,
+) {
+  const account = await prisma.vendorAccount.findUnique({ where: { id: vendorAccountId } })
+  if (!account || account.deletedAt) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  if (!actorScope.isGlobal && !actorScope.countryIds.includes(account.countryId)) throw new ApiError(403, "Outside your scope", "SCOPE_FORBIDDEN")
+  if (!account.userId) throw new ApiError(400, "Vendor account has no linked user", "MISSING_VENDOR_USER")
+
+  const vendorUser = await prisma.vendorUser.findUnique({ where: { id: account.userId } })
+  if (!vendorUser) throw new ApiError(404, "Vendor user not found", "VENDOR_USER_NOT_FOUND")
+  if (!vendorUser.isBanned) throw new ApiError(400, "Vendor is not banned", "NOT_BANNED")
+
+  await prisma.vendorUser.update({
+    where: { id: vendorUser.id },
+    data : { isBanned: false, banReason: null, bannedAt: null, isActive: true },
+  })
+
+  if (vendorUser.clerkId) {
+    try {
+      await ClerkVendorStateService.unbanUser(vendorUser.clerkId)
+    } catch (err) {
+      serviceLog.error({ err, vendorUserId: vendorUser.id }, "Clerk unban failed — continuing, DB unban already applied")
+    }
+  }
+
+  serviceLog.info({ vendorAccountId, vendorUserId: vendorUser.id, actorId }, "Vendor unbanned")
+
+  auditService.log({
+    adminUserId: actorId,
+    action     : "vendor_account.unbanned",
+    entityType : "VendorAccount",
+    entityId   : vendorAccountId,
+    changes    : {
+      before: { isBanned: true },
+      after : { isBanned: false },
+    },
+    metadata: { note: "Payout accounts remain deactivated — vendor must re-add and verify" },
   })
 
   return { success: true }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Building2, ShieldAlert, CheckCircle } from "lucide-react"
+import { Building2, ShieldAlert, CheckCircle, Ban } from "lucide-react"
 import { adminFetch } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { TableFilterBar, type FilterStatusOption } from "@/components/shared/TableFilterBar"
@@ -34,13 +34,18 @@ export default async function VendorAccountsPage({ searchParams }: PageProps) {
   const search   = params.search ?? ""
   const status   = params.status ?? ""
 
+  // BANNED is identity-level (VendorUser.isBanned), not a VendorAccount
+  // status — VendorStatus only has ACTIVE/SUSPENDED (see admin.vendor.service.ts).
+  // The status dropdown still offers "Banned" as an option; translate it to
+  // bannedOnly rather than passing an invalid status value straight through.
+  const isBannedFilter = status === "BANNED"
   const qs = new URLSearchParams({
     page, pageSize: String(PAGE_SIZE),
     ...(search ? { search }  : {}),
-    ...(status && status !== "all" ? { status } : {}),
+    ...(isBannedFilter ? { bannedOnly: "true" } : status && status !== "all" ? { status } : {}),
   })
 
-  const [result, active, suspended] = await Promise.all([
+  const [result, active, suspended, banned] = await Promise.all([
     adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?${qs}`, {
       next: { revalidate: 60, tags: ["vendor-accounts"] },
     }).catch(() => null),
@@ -50,12 +55,16 @@ export default async function VendorAccountsPage({ searchParams }: PageProps) {
     adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?status=SUSPENDED&pageSize=1`, {
       next: { revalidate: 60 },
     }).catch(() => null),
+    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?bannedOnly=true&pageSize=1`, {
+      next: { revalidate: 60 },
+    }).catch(() => null),
   ])
 
   const statusCards = [
     { s: "",          label: "Total",     icon: Building2,   count: result?.total ?? 0,    badgeClass: "icon-badge-primary" },
     { s: "ACTIVE",    label: "Active",    icon: CheckCircle, count: active?.total ?? 0,    badgeClass: "icon-badge-success" },
     { s: "SUSPENDED", label: "Suspended", icon: ShieldAlert, count: suspended?.total ?? 0, badgeClass: "icon-badge-warning" },
+    { s: "BANNED",    label: "Banned",    icon: Ban,         count: banned?.total ?? 0,    badgeClass: "icon-badge-danger" },
   ]
 
   return (
@@ -78,7 +87,7 @@ export default async function VendorAccountsPage({ searchParams }: PageProps) {
       </div>
 
       {/* Status overview */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {statusCards.map(({ s, label, icon: Icon, count, badgeClass }) => (
           <Link key={label}
             href={s ? `/vendors/accounts?status=${s}` : "/vendors/accounts"}

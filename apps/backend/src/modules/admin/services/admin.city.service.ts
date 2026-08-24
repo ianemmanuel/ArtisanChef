@@ -36,6 +36,53 @@ async function resolveCityId(idOrSlug: string): Promise<string> {
   return city.id
 }
 
+/*
+ * :countryRef on POST /:countryRef/cities (admin.country.routes.ts) is
+ * UUID-or-slug, same convention as every other :countryRef route — but
+ * createCity previously passed it straight into a findUnique({where:{id}}),
+ * which only ever matches a real UUID. A slug (what both city-creation UIs
+ * actually send) silently 404'd as "Country not found" every time.
+ */
+async function resolveCountryId(idOrSlug: string): Promise<{ id: string; name: string; code: string; status: string }> {
+  const isUuid = UUID_RE.test(idOrSlug)
+  const country = await prisma.country.findFirst({
+    where : isUuid ? { id: idOrSlug } : { slug: idOrSlug },
+    select: { id: true, name: true, code: true, status: true },
+  })
+  if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
+  return country
+}
+
+/*
+ * City codes are system-generated from the city + country name (e.g.
+ * "Nairobi" + "Kenya" -> "NAIROBI_KENYA") — not client-facing yet, so
+ * asking an admin to hand-author a globally-unique code is unnecessary
+ * friction. Collisions (rare — would need the same city+country name
+ * pair, or two differently-named cities normalising the same way)
+ * resolve by appending "_2", "_3", ... Mirrors generateDocumentTypeCode's
+ * pattern in admin.documentType.service.ts.
+ */
+function slugifyToCode(value: string): string {
+  const base = value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // strip combining diacritics: é → e
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+  return base || "CITY"
+}
+
+async function generateCityCode(cityName: string, countryName: string): Promise<string> {
+  const base = `${slugifyToCode(cityName)}_${slugifyToCode(countryName)}`
+  let code = base
+  let suffix = 2
+  while (await prisma.city.findFirst({ where: { code } })) {
+    code = `${base}_${suffix}`
+    suffix += 1
+  }
+  return code
+}
+
 async function getCityOrThrow(idOrSlug: string) {
   const isUuid = UUID_RE.test(idOrSlug)
   const city = await prisma.city.findFirst({
@@ -110,23 +157,19 @@ export async function getCity(idOrSlug: string, scope: AdminScopeContext) {
 }
 
 export async function createCity(
-    input  :  CreateCityRequest,
+    input  :  CreateCityRequest & { latitude?: number; longitude?: number },
     actorId: string,
     scope  : AdminScopeContext,
 ){
-    assertCountryInScope(input.countryId, scope)
-    const country = await prisma.country.findUnique({
-        where : { id: input.countryId },
-        select: { status: true, code: true },
-    })
-    if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
+    const country = await resolveCountryId(input.countryId)
+    assertCountryInScope(country.id, scope)
     if (country.status !== GeoStatus.ACTIVE) {
         throw new ApiError(400, "Cannot add a city to an inactive country", "COUNTRY_INACTIVE")
     }
 
     const duplicate = await prisma.city.findFirst({
         where: {
-            countryId: input.countryId,
+            countryId: country.id,
             name: { equals: input.name, mode: "insensitive" },
         },
     })
@@ -141,13 +184,17 @@ export async function createCity(
     const slugExists = await prisma.city.findUnique({ where: { slug: baseSlug }, select: { id: true } })
     const slug       = slugExists ? `${baseSlug}-${crypto.randomUUID().slice(0, 6)}` : baseSlug
 
+    const code = await generateCityCode(input.name, country.name)
+
     const city = await prisma.city.create({
         data: {
-            countryId : input.countryId,
+            countryId : country.id,
             name : input.name,
             slug,
-            code : input.code ?? null,
+            code,
             timezone : input.timezone,
+            latitude : input.latitude ?? null,
+            longitude: input.longitude ?? null,
             status : GeoStatus.ACTIVE,
             createdByAdminId: actorId,
         },
@@ -219,8 +266,8 @@ export async function updateCity(
 }
 
 export async function activateCity(
-    idOrSlug: string, 
-    actorId: string, 
+    idOrSlug: string,
+    actorId: string,
     scope: AdminScopeContext
 ){
     const city = await getCityOrThrow(idOrSlug)
@@ -229,7 +276,10 @@ export async function activateCity(
         throw new ApiError(400, "City is already active", "ALREADY_ACTIVE")
     }
 
-    await prisma.city.update({ where: { id: city.id }, data: { status: GeoStatus.ACTIVE } })
+    await prisma.city.update({
+        where: { id: city.id },
+        data : { status: GeoStatus.ACTIVE, deactivatedByAdminId: null, deactivatedAt: null, deactivationReason: null },
+    })
 
     serviceLog.info({ cityId: city.id, actorId }, "City activated")
     auditService.log({
@@ -244,21 +294,28 @@ export async function activateCity(
 }
 
 export async function deactivateCity(
-    idOrSlug: string, 
-    actorId: string, 
-    scope: AdminScopeContext
+    idOrSlug: string,
+    actorId: string,
+    scope: AdminScopeContext,
+    reason?: string,
 ){
     const city = await getCityOrThrow(idOrSlug)
     assertCountryInScope(city.countryId, scope)
     if (city.status === GeoStatus.INACTIVE) {
         throw new ApiError(400, "City is already inactive", "ALREADY_INACTIVE")
     }
+    if (!reason?.trim()) {
+        throw new ApiError(400, "A reason is required to deactivate a city", "REASON_REQUIRED")
+    }
 
     const activeOutletCount = await prisma.outlet.count({
         where: { cityId: city.id, deletedAt: null, adminStatus: "ACTIVE" },
     })
 
-    await prisma.city.update({ where: { id: city.id }, data: { status: GeoStatus.INACTIVE } })
+    await prisma.city.update({
+        where: { id: city.id },
+        data : { status: GeoStatus.INACTIVE, deactivatedByAdminId: actorId, deactivatedAt: new Date(), deactivationReason: reason.trim() },
+    })
 
     serviceLog.warn({ cityId: city.id, actorId, activeOutletCount }, "City deactivated")
     auditService.log({
@@ -267,7 +324,7 @@ export async function deactivateCity(
         entityType : "City",
         entityId   : city.id,
         changes    : { before: { status: "ACTIVE" }, after: { status: "INACTIVE" } },
-        metadata   : { activeOutletCount },
+        metadata   : { activeOutletCount, reason },
     })
 
     return { success: true, activeOutletCount }

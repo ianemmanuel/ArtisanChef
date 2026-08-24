@@ -32,7 +32,9 @@ export default async function CitiesPage({ searchParams }: PageProps) {
 
   const { country: countryParam, status = "", page = "1", search = "" } = await searchParams
 
-  const countriesResult = await adminFetch<CountryListResult>(`/admin/v1/countries?pageSize=${COUNTRIES_PAGE_SIZE}`, {
+  // Cities only ever belong to an active country (createCity blocks it
+  // otherwise) — inactive countries have nothing to show or add here.
+  const countriesResult = await adminFetch<CountryListResult>(`/admin/v1/countries?status=ACTIVE&pageSize=${COUNTRIES_PAGE_SIZE}`, {
     next: { revalidate: 300, tags: ["countries"] },
   }).catch(() => null)
   const countries = countriesResult?.countries ?? []

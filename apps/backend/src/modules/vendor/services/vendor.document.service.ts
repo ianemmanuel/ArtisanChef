@@ -36,6 +36,13 @@ interface UpsertDocumentInput {
  * upload-mechanism decision (see chat).
 */
 
+/*
+ * A document with NO DocumentTypeVendorType links applies to every vendor
+ * type in its country by default — an admin only needs to link specific
+ * vendor types when a document should be RESTRICTED to just those (e.g.
+ * a baking certificate only for bakeries). Linking is an allowlist, not
+ * an opt-in requirement.
+ */
 export async function getAllowedDocumentTypes(application: {
   countryId   : string
   vendorTypeId: string
@@ -45,9 +52,10 @@ export async function getAllowedDocumentTypes(application: {
       countryId: application.countryId,
       scope    : "VENDOR",
       status   : DocumentTypeStatus.ACTIVE,
-      vendorTypeConfigs: {
-        some: { vendorTypeId: application.vendorTypeId },
-      },
+      OR: [
+        { vendorTypeConfigs: { none: {} } },
+        { vendorTypeConfigs: { some: { vendorTypeId: application.vendorTypeId } } },
+      ],
     },
     include: {
       vendorTypeConfigs: {
@@ -94,7 +102,9 @@ export async function getRequirementsWithStatus(application: {
     return {
       documentTypeId  : type.id,
       name            : type.name,
-      isRequired      : config?.isRequired ?? false,
+      // No vendor-type-specific override (applies to all) falls back to
+      // the document's own isRequired — see getAllowedDocumentTypes.
+      isRequired      : config?.isRequired ?? type.isRequired,
       uploaded        : !!uploaded,
       uploadedDocument: uploaded ?? null,
     }

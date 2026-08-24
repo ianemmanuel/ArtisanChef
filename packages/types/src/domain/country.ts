@@ -11,8 +11,14 @@ export interface Country {
   currencySymbol : string | null
   phoneCode : string
   timezones : string[]
-  cities : City[] 
+  cities : City[]
   status : GeoStatus
+  region?: { id: string; name: string; code: string } | null
+  readyForVendorOnboarding   : boolean
+  vendorOnboardingReadyAt    : string | null
+  readyForCustomerOperations : boolean
+  customerOperationsReadyAt  : string | null
+  checklist? : { vendorTypeCount: number; documentTypeCount: number; readyToActivate: boolean }
   _count? : { cities: number; vendors: number }
   createdByAdminId: string | null
   createdAt : string
@@ -40,9 +46,13 @@ export interface CountrySummaryResult {
     name: string
     code: string
   } | null
+  readyForVendorOnboarding  : boolean
+  readyForCustomerOperations: boolean
   _count: {
-    cities:  number
-    vendors: number
+    cities:        number
+    vendors:       number
+    vendorTypes:   number
+    documentTypes: number
   }
 }
 

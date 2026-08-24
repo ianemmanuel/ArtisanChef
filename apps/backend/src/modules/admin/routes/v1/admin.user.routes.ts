@@ -13,6 +13,7 @@ import {
   handleSuspendAdminUser,
   handleReinstateAdminUser,
   handleDeactivateAdminUser,
+  handleSetAdminUserAvailability,
   handleGetRolePermissionPool,
   handleListRoles,
 } from "../../controllers/admin.user.controller"
@@ -61,5 +62,8 @@ router.patch("/:id/scopes",     requirePermission(AdminPermissions.ADMIN_USERS_P
 router.post("/:id/suspend",    requirePermission(AdminPermissions.ADMIN_USERS_ACCOUNTS_SUSPEND),    handleSuspendAdminUser)
 router.post("/:id/reinstate",  requirePermission(AdminPermissions.ADMIN_USERS_ACCOUNTS_REINSTATE),  handleReinstateAdminUser)
 router.post("/:id/deactivate", requirePermission(AdminPermissions.ADMIN_USERS_ACCOUNTS_DEACTIVATE), handleDeactivateAdminUser)
+
+// ── Availability ──────────────────────────────────────────────────────────────
+router.patch("/:id/availability", requirePermission(AdminPermissions.ADMIN_USERS_ACCOUNTS_MANAGE_AVAILABILITY), handleSetAdminUserAvailability)
 
 export default router

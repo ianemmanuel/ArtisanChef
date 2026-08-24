@@ -98,6 +98,7 @@ export interface VendorAccountListItem {
   countryId         : string
   country?          : { id: string; name: string; code: string }
   vendorType?       : { id: string; name: string }
+  user?             : { isBanned: boolean } | null
   createdAt         : string
   suspendedAt?      : string | null
   _count?           : { outlets: number }

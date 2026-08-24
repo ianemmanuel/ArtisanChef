@@ -242,6 +242,11 @@ export const PERMISSIONS = [
     module     : "admin_users",
     description: "Change an admin user's role (resets permission pool ceiling)",
   },
+  {
+    key        : "admin_users:accounts:manage_availability",
+    module     : "admin_users",
+    description: "Mark another admin user as unavailable (e.g. on leave) or available again, with a time frame",
+  },
 
   // ── Audit & Settings ──────────────────────────────────────────────────────
   {

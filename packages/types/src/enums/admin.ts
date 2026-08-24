@@ -69,6 +69,7 @@ export const AdminPermissions = {
   ADMIN_USERS_ACCOUNTS_REINSTATE : "admin_users:accounts:reinstate",
   ADMIN_USERS_ACCOUNTS_DEACTIVATE: "admin_users:accounts:deactivate",
   ADMIN_USERS_ROLES_ASSIGN       : "admin_users:roles:assign",
+  ADMIN_USERS_ACCOUNTS_MANAGE_AVAILABILITY: "admin_users:accounts:manage_availability",
 
   // ── Audit & settings ──────────────────────────────────────────────────────
   AUDIT_LOGS_ALL_READ        : "audit_logs:all:read",
@@ -86,12 +87,13 @@ export type AdminPermissionKey = typeof AdminPermissions[keyof typeof AdminPermi
 // ─── Role names (unchanged) ────────────────────────────────────────────────
 
 export const AdminRoleNames = {
-  SUPER_ADMIN    : "super_admin",
-  IDENTITY_ADMIN : "identity_admin",
-  FINANCE        : "finance",
-  VENDOR_OPS     : "vendor_ops",
-  CUSTOMER_CARE  : "customer_care",
-  COURIER_OPS    : "courier_ops",
+  SUPER_ADMIN      : "super_admin",
+  IDENTITY_ADMIN   : "identity_admin",
+  OPERATIONS_ADMIN : "operations_admin",
+  FINANCE          : "finance",
+  VENDOR_OPS       : "vendor_ops",
+  CUSTOMER_CARE    : "customer_care",
+  COURIER_OPS      : "courier_ops",
 } as const
 
 export type AdminRoleName = typeof AdminRoleNames[keyof typeof AdminRoleNames]

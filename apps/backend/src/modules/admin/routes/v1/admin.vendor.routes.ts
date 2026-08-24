@@ -17,6 +17,7 @@ import {
   handleSuspendVendor,
   handleReinstateVendor,
   handleBanVendor,
+  handleUnbanVendor,
   handleApproveDocument,
   handleRejectDocument,
 } from "../../controllers/admin.vendor.controller"
@@ -67,6 +68,7 @@ vendorRouter.get("/accounts/:id", requirePermission(AdminPermissions.VENDORS_ACC
 vendorRouter.post("/accounts/:id/suspend", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_SUSPEND), handleSuspendVendor)
 vendorRouter.post("/accounts/:id/reinstate", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_REINSTATE), handleReinstateVendor)
 vendorRouter.post("/accounts/:id/ban", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_BAN), handleBanVendor)
+vendorRouter.post("/accounts/:id/unban", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_BAN), handleUnbanVendor)
 
 //DOCUMENTS
 vendorRouter.get("/documents/:id/signed-url", requirePermission(AdminPermissions.VENDORS_DOCUMENTS_VIEW), handleGetDocumentSignedUrl)

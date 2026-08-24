@@ -21,6 +21,8 @@ export async function PATCH(
     if (!token) return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
 
     const body = await req.json()
+    const { searchParams } = new URL(req.url)
+    const countryRef = searchParams.get("countryRef")
 
     const res = await fetch(`${BACKEND}/admin/v1/document-types/${id}`, {
       method : "PATCH",
@@ -29,7 +31,10 @@ export async function PATCH(
     })
 
     const data = await res.json()
-    if (res.ok) revalidateTag(`document-type-${id}`, {})
+    if (res.ok) {
+      revalidateTag(`document-type-${id}`, {})
+      if (countryRef) revalidateTag(`document-types-${countryRef}`, {})
+    }
 
     return NextResponse.json(data, { status: res.status })
   } catch (err) {

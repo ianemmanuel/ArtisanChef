@@ -9,7 +9,7 @@ import {
   listUnavailableReviewersWithCaseload,
 } from "../services/admin.reviewerAvailability.service"
 
-function parseAvailabilityInput(body: unknown) {
+export function parseAvailabilityInput(body: unknown) {
   const { availability, unavailableFrom, unavailableUntil, unavailableReason } = body as {
     availability?: string
     unavailableFrom?: string

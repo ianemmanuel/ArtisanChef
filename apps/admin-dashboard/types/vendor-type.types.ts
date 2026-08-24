@@ -19,6 +19,7 @@ export interface CountryLite {
   name: string
   code: string
   slug: string
+  status?: string
 }
 
 export interface VendorTypeCountryLink {
@@ -32,6 +33,21 @@ export interface VendorTypeCountryLink {
 
 export interface VendorTypeDetail extends VendorType {
   countries: VendorTypeCountryLink[]
+}
+
+// Mirrors GET /admin/v1/countries/:countryRef/vendor-types — same join row
+// as VendorTypeCountryLink, viewed from the country's side (vendorType
+// instead of country).
+export interface CountryVendorTypeLink {
+  id: string
+  countryId: string
+  vendorTypeId: string
+  status: string
+  createdAt: string
+  vendorType: { id: string; name: string; description: string | null; status: VendorTypeStatus }
+  // Vendor accounts of this category actually operating in the country —
+  // "grouped and numbered by vendor type" on /countries/[slug]/vendor-categories.
+  vendorAccountCount?: number
 }
 
 // Mirrors GET /admin/v1/vendor-types — now paginated/scope-aware

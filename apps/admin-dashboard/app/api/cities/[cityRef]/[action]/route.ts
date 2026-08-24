@@ -24,11 +24,16 @@ export async function POST(
       return NextResponse.json({ message: "Invalid action" }, { status: 400 })
     }
 
+    const { searchParams } = new URL(req.url)
+    const countryRef = searchParams.get("countryRef")
+    const body = await req.text()
+
     const res = await fetch(
       `${BACKEND}/admin/v1/cities/${cityRef}/${action}`,
       {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
+        method : "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body   : body || undefined,
       },
     )
 
@@ -37,6 +42,10 @@ export async function POST(
     if (res.ok) {
       revalidateTag(`city-${cityRef}`, {})
       revalidateTag("cities", {})
+      if (countryRef) {
+        revalidateTag(`country-${countryRef}-cities`, {})
+        revalidateTag(`country-${countryRef}-cities-leaderboard`, {})
+      }
     }
 
     return NextResponse.json(data, { status: res.status })

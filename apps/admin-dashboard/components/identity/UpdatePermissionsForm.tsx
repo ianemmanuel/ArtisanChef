@@ -13,7 +13,7 @@ interface Props {
 
 /**
  * UpdatePermissionsForm — client component.
- * PUTs to /api/admin/identity/users/[id]/permissions.
+ * PUTs to /api/identity/users/[id]/permissions.
  */
 export function UpdatePermissionsForm({ userId, roleId, currentKeys }: Props) {
   const router  = useRouter()
@@ -26,7 +26,7 @@ export function UpdatePermissionsForm({ userId, roleId, currentKeys }: Props) {
     setError(null)
     setSaved(false)
     startTransition(async () => {
-      const res = await fetch(`/api/admin/users/${userId}/permissions`, {
+      const res = await fetch(`/api/identity/users/${userId}/permissions`, {
         method : "PUT",
         headers: { "Content-Type": "application/json" },
         body   : JSON.stringify({ permissionKeys: permKeys }),

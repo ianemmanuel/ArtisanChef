@@ -24,6 +24,11 @@ export interface City {
     boundingBox : BoundingBox | null
     status : GeoStatus
     createdByAdminId: string | null
+    deactivatedByAdminId?: string | null
+    deactivatedByName?    : string | null
+    deactivatedAt?        : string | null
+    deactivationReason?   : string | null
+    outletCount?          : number
     _count? : { serviceAreas: number; deliveryZones: number }
     createdAt : string
     updatedAt : string
@@ -68,7 +73,7 @@ export interface ListCitiesParams {
 export interface CreateCityRequest {
     countryId : string
     name      : string
-    code?     : string
+    // code is system-generated from name + country (see admin.city.service.ts)
     timezone  : string
     latitude? : number
     longitude?: number
@@ -109,3 +114,4 @@ export interface CityOutletLeaderboardEntry {
   slug  : string
   count : number
 }
+

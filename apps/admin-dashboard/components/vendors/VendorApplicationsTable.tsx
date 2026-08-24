@@ -24,16 +24,20 @@ interface Props {
   dir       : string
   /** VENDORS_APPLICATIONS_REVIEW — the base capability to open and act on an application */
   canReview : boolean
-}
-
-function buildHref(params: Record<string, string>) {
-  return `/vendors/applications?${new URLSearchParams(params).toString()}`
+  /** Defaults to /vendors/applications — set on /countries/[slug]/vendor-applications */
+  basePath? : string
+  /** Preserved across sort/pagination links when set (country-scoped page) */
+  countryId?: string
 }
 
 export function VendorApplicationsTable({
-  result, page, search, status, sort, dir, canReview,
+  result, page, search, status, sort, dir, canReview, basePath = "/vendors/applications", countryId,
 }: Props) {
-  const baseParams = { page: "1", search, status, sort, dir }
+  const baseParams = { page: "1", search, status, sort, dir, ...(countryId ? { countryId } : {}) }
+
+  function buildHref(params: Record<string, string>) {
+    return `${basePath}?${new URLSearchParams(params).toString()}`
+  }
 
   function sortHref(column: string) {
     const newDir = sort === column && dir === "desc" ? "asc" : "desc"
@@ -133,8 +137,8 @@ export function VendorApplicationsTable({
         total={result.total}
         page={page}
         totalPages={result.totalPages}
-        basePath="/vendors/applications"
-        params={{ search, status, sort, dir }}
+        basePath={basePath}
+        params={{ search, status, sort, dir, ...(countryId ? { countryId } : {}) }}
         itemLabel="applications"
       />
     </div>

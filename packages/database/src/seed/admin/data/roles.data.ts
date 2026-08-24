@@ -10,6 +10,11 @@ export const ROLES = [
     description : "Admin user management within assigned country. No access to business or financial data.",
   },
   {
+    name        : "operations_admin",
+    displayName : "Operations Admin",
+    description : "Country launch configuration — activation readiness, vendor types, and document type requirements. Global scope only for now.",
+  },
+  {
     name        : "finance",
     displayName : "Finance",
     description : "Transactions, payouts, discounts, and revenue reporting.",

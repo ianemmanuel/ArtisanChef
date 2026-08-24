@@ -4,10 +4,10 @@ import Link from "next/link"
 import { ArrowLeft, LineChart, Wallet, TrendingUp, TrendingDown } from "lucide-react"
 import { adminFetch } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
-import { getScopeTier } from "@/lib/auth/scope-tier"
-import { getMockRevenueSeries, formatMockCurrency } from "@/lib/mock/country-revenue"
+import { getMockCountryRevenue, getMockRevenueSeries, formatMockCurrency } from "@/lib/mock/country-revenue"
 import { RevenueAreaChart } from "@/components/countries/RevenueAreaChart"
 import { RevenueCountrySelect } from "@/components/countries/RevenueCountrySelect"
+import { RevenueRankedList } from "@/components/countries/RevenueRankedList"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { CountryListResult } from "@repo/types/admin-app"
 
@@ -25,9 +25,11 @@ interface PageProps {
 export default async function CountryRevenuePage({ searchParams }: PageProps) {
   const session = await getAdminSession()
 
-  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_READ)) redirect("/overview")
-  const tier = getScopeTier(session)
-  if (tier === "CITY") redirect("/cities")
+  // Countries (launch configuration) is restricted to super_admin and the
+  // (currently global-only) operations_admin role — see /countries/page.tsx.
+  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) || !session.scope.isGlobal) {
+    redirect("/overview")
+  }
 
   const { country: countryParam } = await searchParams
 
@@ -36,31 +38,19 @@ export default async function CountryRevenuePage({ searchParams }: PageProps) {
   }).catch(() => null)
 
   const activeCountries = activeResult?.countries ?? []
-  const isGlobalTier     = tier === "GLOBAL"
-  const options           = activeCountries.map((c) => ({ slug: c.slug, name: c.name }))
+  const options          = activeCountries.map((c) => ({ slug: c.slug, name: c.name }))
 
   let selectedSlug = "all"
   let key           = "all"
   let label         = "All active countries"
 
-  if (isGlobalTier) {
-    const requested = countryParam && countryParam !== "all"
-      ? activeCountries.find((c) => c.slug === countryParam)
-      : undefined
-    if (requested) {
-      selectedSlug = requested.slug
-      key = requested.slug
-      label = requested.name
-    }
-  } else {
-    // COUNTRY-tier — the countries endpoint is already scope-filtered
-    // server-side, so the first (and typically only) active country here
-    // is theirs. Nothing to actually pick, but the selector still renders,
-    // locked, for a consistent control surface across tiers.
-    const own = activeCountries[0]
-    selectedSlug = own?.slug ?? "all"
-    key = own?.slug ?? "all"
-    label = own?.name ?? "Your country"
+  const requested = countryParam && countryParam !== "all"
+    ? activeCountries.find((c) => c.slug === countryParam)
+    : undefined
+  if (requested) {
+    selectedSlug = requested.slug
+    key = requested.slug
+    label = requested.name
   }
 
   // STATIC — no Orders/Payments model exists yet, see lib/mock/country-revenue.ts.
@@ -71,6 +61,14 @@ export default async function CountryRevenuePage({ searchParams }: PageProps) {
   const twelveMonthTotal = series.reduce((sum, p) => sum + p.value, 0)
   const deltaPct         = priorMonth > 0 ? Math.round(((currentMonth - priorMonth) / priorMonth) * 1000) / 10 : 0
   const isPositive       = deltaPct >= 0
+
+  // STATIC revenue figures — see lib/mock/country-revenue.ts.
+  const rankedEntries = activeCountries.map((c) => {
+    const mock = getMockCountryRevenue(c.slug)
+    return { slug: c.slug, name: c.name, value: mock.revenue, deltaPct: mock.deltaPct }
+  })
+  const topRevenue = [...rankedEntries].sort((a, b) => b.value - a.value).slice(0, 5)
+  const losses = rankedEntries.filter((e) => e.deltaPct < 0).sort((a, b) => a.deltaPct - b.deltaPct).slice(0, 5)
 
   return (
     <div className="page-content animate-slide-up">
@@ -96,7 +94,7 @@ export default async function CountryRevenuePage({ searchParams }: PageProps) {
             </p>
           </div>
         </div>
-        <RevenueCountrySelect options={options} selected={selectedSlug} locked={!isGlobalTier} />
+        <RevenueCountrySelect options={options} selected={selectedSlug} locked={false} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -130,6 +128,27 @@ export default async function CountryRevenuePage({ searchParams }: PageProps) {
       </div>
 
       <RevenueAreaChart data={series} label={label} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RevenueRankedList
+          title="Top Revenue — Last Quarter"
+          description="Highest-earning active countries."
+          icon={TrendingUp}
+          badgeClass="icon-badge-success"
+          entries={topRevenue}
+          emptyTitle="No active countries"
+          emptyDescription="Revenue only tracks countries that are currently active."
+        />
+        <RevenueRankedList
+          title="Countries With Losses — Last Quarter"
+          description="Active countries trending down quarter-over-quarter."
+          icon={TrendingDown}
+          badgeClass="icon-badge-danger"
+          entries={losses}
+          emptyTitle="No countries in the red"
+          emptyDescription="Every active country grew (or held flat) last quarter."
+        />
+      </div>
     </div>
   )
 }

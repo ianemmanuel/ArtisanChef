@@ -13,15 +13,36 @@ import { TablePagination } from "@/components/shared/TablePagination"
 import type { ListAdminUsersResult } from "@/types"
 
 interface Props {
-  result    : ListAdminUsersResult | null
-  page      : string
-  search    : string
-  status    : string
-  canInvite : boolean
-  canManage : boolean
+  result            : ListAdminUsersResult | null
+  page              : string
+  search            : string
+  status            : string
+  country?          : string
+  showCountryColumn?: boolean
+  canInvite         : boolean
+  canSuspend        : boolean
+  canReinstate      : boolean
+  canDeactivate     : boolean
 }
 
-export function AdminUsersTable({ result, page, search, status, canInvite, canManage }: Props) {
+function CountryCell({ scopes }: { scopes: any[] }) {
+  if (!scopes || scopes.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+  if (scopes.some((s) => s.scopeType === "GLOBAL")) {
+    return <span className="badge-info text-[10px]">🌍 Global</span>
+  }
+  const codes = [...new Set(scopes.map((s) => s.country?.code).filter(Boolean))] as string[]
+  if (codes.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+  return (
+    <div className="flex flex-wrap gap-1">
+      {codes.map((code) => (
+        <span key={code} className="badge-neutral font-mono text-[10px] uppercase">{code}</span>
+      ))}
+    </div>
+  )
+}
+
+export function AdminUsersTable({ result, page, search, status, country, showCountryColumn, canInvite, canSuspend, canReinstate, canDeactivate }: Props) {
+  const canManage = canSuspend || canReinstate || canDeactivate
   if (!result || result.users.length === 0) {
     return (
       <div className="admin-card flex flex-col items-center justify-center py-16 text-center">
@@ -43,7 +64,11 @@ export function AdminUsersTable({ result, page, search, status, canInvite, canMa
               <TableHead className="hidden text-xs uppercase tracking-wide sm:table-cell">Employee ID</TableHead>
               <TableHead className="hidden text-xs uppercase tracking-wide sm:table-cell">Role</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Joined</TableHead>
+              {showCountryColumn ? (
+                <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Country</TableHead>
+              ) : (
+                <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Joined</TableHead>
+              )}
               {(canInvite || canManage) && (
                 <TableHead className="text-right text-xs uppercase tracking-wide">Actions</TableHead>
               )}
@@ -53,8 +78,8 @@ export function AdminUsersTable({ result, page, search, status, canInvite, canMa
             {result.users.map((user: any) => {
               const displayName = [user.firstName, user.middleName, user.lastName].filter(Boolean).join(" ")
               const href = (user.status === "pending" || user.status === "invited")
-                ? `/identity/${user.id}/review`
-                : `/identity/${user.id}`
+                ? `/identity/manage/${user.id}/review`
+                : `/identity/manage/${user.id}`
 
               return (
                 <TableRow key={user.id} className="hover:bg-muted/10">
@@ -80,16 +105,22 @@ export function AdminUsersTable({ result, page, search, status, canInvite, canMa
                     <UserStatusBadge status={user.status} />
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {new Date(user.createdAt).toLocaleDateString()}
-                    </span>
+                    {showCountryColumn ? (
+                      <CountryCell scopes={user.scopes} />
+                    ) : (
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {new Date(user.createdAt).toLocaleDateString()}
+                      </span>
+                    )}
                   </TableCell>
                   {(canInvite || canManage) && (
                     <TableCell className="text-right">
                       <UserActionsMenu
                         user={{ ...user, displayName }}
                         canInvite={canInvite}
-                        canManage={canManage}
+                        canSuspend={canSuspend}
+                        canReinstate={canReinstate}
+                        canDeactivate={canDeactivate}
                       />
                     </TableCell>
                   )}
@@ -104,10 +135,11 @@ export function AdminUsersTable({ result, page, search, status, canInvite, canMa
         total={result.total}
         page={page}
         totalPages={result.totalPages}
-        basePath="/identity"
+        basePath="/identity/manage"
         params={{
-          ...(search ? { search } : {}),
-          ...(status ? { status } : {}),
+          ...(search  ? { search }  : {}),
+          ...(status  ? { status }  : {}),
+          ...(country ? { country } : {}),
         }}
         itemLabel="users"
       />

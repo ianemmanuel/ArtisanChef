@@ -28,12 +28,21 @@ interface Props {
   basePath? : string
   /** Preserved across sort/pagination links when set (country-scoped page) */
   countryId?: string
+  /** Country FILTER value (a slug) on the global /vendors/applications list — distinct from countryId above, which is the fixed country of a country-drilldown page */
+  country?  : string
+  /** Operational queue filter ("mine" | "unassigned" | "escalated") — preserved across sort/pagination */
+  queue?    : string
 }
 
 export function VendorApplicationsTable({
-  result, page, search, status, sort, dir, canReview, basePath = "/vendors/applications", countryId,
+  result, page, search, status, sort, dir, canReview, basePath = "/vendors/applications", countryId, country, queue,
 }: Props) {
-  const baseParams = { page: "1", search, status, sort, dir, ...(countryId ? { countryId } : {}) }
+  const baseParams = {
+    page: "1", search, status, sort, dir,
+    ...(countryId ? { countryId } : {}),
+    ...(country   ? { country }   : {}),
+    ...(queue     ? { queue }     : {}),
+  }
 
   function buildHref(params: Record<string, string>) {
     return `${basePath}?${new URLSearchParams(params).toString()}`
@@ -138,7 +147,12 @@ export function VendorApplicationsTable({
         page={page}
         totalPages={result.totalPages}
         basePath={basePath}
-        params={{ search, status, sort, dir, ...(countryId ? { countryId } : {}) }}
+        params={{
+          search, status, sort, dir,
+          ...(countryId ? { countryId } : {}),
+          ...(country   ? { country }   : {}),
+          ...(queue     ? { queue }     : {}),
+        }}
         itemLabel="applications"
       />
     </div>

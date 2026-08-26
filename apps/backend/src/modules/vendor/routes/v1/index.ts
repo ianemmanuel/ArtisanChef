@@ -1,6 +1,7 @@
 import { Request, Response, Router } from "express"
 import applicationRouter from './vendor.application.routes'
 import documentRouter from './vendor.documents.routes'
+import accountDocumentRouter from './vendor.accountDocuments.routes'
 import outletRouter from "./vendor.outlet.routes"
 import payoutRouter from "./vendor.payout.routes"
 import authRouter from "../vendor.auth.routes"
@@ -19,6 +20,7 @@ v1Router.use(requireVendorState(...NON_BANNED_STATES))
 
 v1Router.use('/application', applicationRouter)
 v1Router.use('/documents', documentRouter)
+v1Router.use('/account-documents', accountDocumentRouter)
 v1Router.use('/outlets',outletRouter)
 v1Router.use('/payouts',payoutRouter)
 

@@ -2,7 +2,7 @@ import { Router } from "express"
 import { AdminPermissions } from "@repo/types/enums"
 import { requirePermission } from "@/modules/admin/middleware"
 import { requireIdentityAccess } from "@/modules/admin/middleware/identity/requireIdentityAccess"
-import { handleListAuditLogs, handleGetAuditLog } from "../../controllers/admin.audit.controller"
+import { handleListAuditLogs, handleGetAuditLog, handleExportAuditLogsCsv } from "../../controllers/admin.audit.controller"
 
 /**
  * Identity & Access audit trail — read-only. Mounted at: /api/admin/v1/audit
@@ -18,7 +18,10 @@ router.use(requireIdentityAccess)
 
 const READ = requirePermission(AdminPermissions.AUDIT_LOGS_ALL_READ)
 
-router.get("/",    READ, handleListAuditLogs)
-router.get("/:id", READ, handleGetAuditLog)
+router.get("/",       READ, handleListAuditLogs)
+// Roadmap VM-P2-01 (CLAUDE.md) — must come before "/:id" so "export" isn't
+// swallowed as an id param.
+router.get("/export", READ, handleExportAuditLogsCsv)
+router.get("/:id",    READ, handleGetAuditLog)
 
 export default router

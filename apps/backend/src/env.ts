@@ -57,6 +57,22 @@ const envSchema = z.object({
 
   //* Database
   DATABASE_URL: z.string().url(),
+
+  //* Transactional email (compliance notices, etc.) — deliberately optional.
+  //* If SMTP_HOST is unset, sendEmail (lib/email/mailer.ts) logs the
+  //* rendered email and no-ops instead of throwing, so local dev/CI never
+  //* needs real credentials — same "works without the real thing configured
+  //* yet" pattern this codebase already uses for mock revenue figures.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().email().default("no-reply@dailybread.app"),
+  SUPPORT_EMAIL: z.string().email().default("support@dailybread.app"),
+  // Used only to build a CTA link in vendor-facing emails — not read by
+  // any live redirect logic. Optional since vendor-dashboard isn't part
+  // of this pass; falls back to a plain-text mention if unset.
+  VENDOR_DASHBOARD_URL: z.string().url().optional(),
 })
 
 function loadEnv() {

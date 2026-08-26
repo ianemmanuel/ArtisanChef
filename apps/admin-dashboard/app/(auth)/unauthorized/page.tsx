@@ -1,5 +1,6 @@
 "use client"
 
+import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { useClerk, useUser } from "@clerk/nextjs"
 import { ShieldAlert, Clock, Ban, HelpCircle } from "lucide-react"
@@ -37,6 +38,14 @@ const DEFAULT_REASON = {
 }
 
 export default function UnauthorizedPage() {
+  return (
+    <Suspense fallback={<div className="admin-card p-8" />}>
+      <UnauthorizedContent />
+    </Suspense>
+  )
+}
+
+function UnauthorizedContent() {
   const params = useSearchParams()
   const { signOut } = useClerk()
   const { user } = useUser()

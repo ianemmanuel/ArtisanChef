@@ -10,6 +10,7 @@
         "db:seed:admin": "tsx src/seed/admin/index.ts",
         "db:seed:geography": "tsx src/seed/geography/index.ts",
         "db:seed:vendor": "tsx src/seed/vendor/index.ts",
+        "db:seed:finance": "tsx src/seed/finance/index.ts",
         "db:seed:system": "tsx src/seed/system/index.ts",
         "db:super-admin":  "tsx --env-file=../../.env --env-file=.env src/commands/create-super-admin.ts"
     },

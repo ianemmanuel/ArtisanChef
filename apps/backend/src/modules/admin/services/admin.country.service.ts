@@ -3,7 +3,7 @@ import type { AdminScopeContext } from "@repo/types/backend"
 import type { CountrySummaryResult, CountryListResult, CountryVendorSnapshot, CountryOnboardingLeaderboardEntry } from "@repo/types/backend"
 import type { CityOutletLeaderboardEntry } from "@repo/types/backend"
 import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
-import { prisma, GeoStatus, DocumentTypeStatus } from "@repo/db"
+import { prisma, GeoStatus, DocumentTypeStatus, PaymentDirection, CountryPaymentMethodStatus } from "@repo/db"
 import { ApiError } from "@/middleware/error"
 import { UUID_RE } from "@/constants/system"
 import { auditService } from "@/services/audit"
@@ -36,12 +36,26 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
  * with. Shared by getCountry (surfaced to the UI) and activateCountry
  * (enforced server-side).
  */
+/*
+ * Roadmap "Payment gateway infrastructure" (CLAUDE.md, 2026-08-26) —
+ * outboundPaymentMethodCount/inboundPaymentMethodCount added alongside
+ * the pre-existing vendor-type/document-type counts. Split by direction
+ * because the two readiness flags gate on different ones: vendor
+ * onboarding needs a way to actually pay vendors (OUTBOUND), customer
+ * operations needs a way to actually collect from customers (INBOUND) —
+ * see setVendorOnboardingReadiness/setCustomerOperationsReadiness.
+ */
 async function getCountryChecklistCounts(countryId: string) {
-  const [vendorTypeCount, documentTypeCount] = await Promise.all([
+  const [vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount] = await Promise.all([
     prisma.vendorTypeCountry.count({ where: { countryId, status: GeoStatus.ACTIVE } }),
     prisma.documentTypeConfig.count({ where: { countryId, status: DocumentTypeStatus.ACTIVE } }),
+    prisma.countryPaymentMethod.count({ where: { countryId, direction: PaymentDirection.OUTBOUND, status: CountryPaymentMethodStatus.ACTIVE } }),
+    prisma.countryPaymentMethod.count({ where: { countryId, direction: PaymentDirection.INBOUND, status: CountryPaymentMethodStatus.ACTIVE } }),
   ])
-  return { vendorTypeCount, documentTypeCount, readyToActivate: vendorTypeCount > 0 && documentTypeCount > 0 }
+  return {
+    vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount,
+    readyToActivate: vendorTypeCount > 0 && documentTypeCount > 0 && outboundPaymentMethodCount > 0,
+  }
 }
 
 export async function getCountriesByStatus(
@@ -149,12 +163,13 @@ export async function activateCountry(
         throw new ApiError(400, "Country is already active", "ALREADY_ACTIVE")
     }
 
-    const { vendorTypeCount, documentTypeCount, readyToActivate } = await getCountryChecklistCounts(countryId)
+    const { vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, readyToActivate } = await getCountryChecklistCounts(countryId)
     if (!readyToActivate) {
         const missing = [
             vendorTypeCount === 0 ? "a vendor category" : null,
             documentTypeCount === 0 ? "a document" : null,
-        ].filter(Boolean).join(" and ")
+            outboundPaymentMethodCount === 0 ? "a vendor payout method" : null,
+        ].filter(Boolean).join(", ")
         throw new ApiError(400, `Add at least ${missing} before activating this country`, "COUNTRY_NOT_READY")
     }
 
@@ -611,7 +626,7 @@ export async function setVendorOnboardingReadiness(
   if (ready) {
     const { readyToActivate } = await getCountryChecklistCounts(countryId)
     if (!readyToActivate) {
-      throw new ApiError(400, "Add at least one vendor category and one document before marking this country ready for vendor onboarding", "COUNTRY_NOT_READY")
+      throw new ApiError(400, "Add at least one vendor category, one document type, and one vendor payout method before marking this country ready for vendor onboarding", "COUNTRY_NOT_READY")
     }
   }
 
@@ -652,6 +667,12 @@ export async function setCustomerOperationsReadiness(
 
   if (ready && !country.readyForVendorOnboarding) {
     throw new ApiError(400, "Mark this country ready for vendor onboarding before opening it up to customers", "VENDOR_ONBOARDING_NOT_READY")
+  }
+  if (ready) {
+    const { inboundPaymentMethodCount } = await getCountryChecklistCounts(countryId)
+    if (inboundPaymentMethodCount === 0) {
+      throw new ApiError(400, "Add at least one customer payment method before opening this country up to customers", "COUNTRY_NOT_READY")
+    }
   }
 
   await prisma.country.update({

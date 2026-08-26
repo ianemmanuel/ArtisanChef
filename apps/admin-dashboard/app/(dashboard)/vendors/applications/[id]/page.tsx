@@ -6,6 +6,7 @@ import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession }       from "@/lib/auth/session"
 import { VendorApplicationStatusBadge } from "@/components/vendors/VendorApplicationStatusBadge"
 import { ApplicationWorkspace }  from "@/components/vendors/ApplicationWorkspace"
+import { LogAppealDialog }       from "@/components/vendors/LogAppealDialog"
 import { AdminPermissions }      from "@repo/types/admin-app"
 import { getInitials }           from "@/lib/initials"
 import type { ApplicationDetail } from "@/types"
@@ -42,6 +43,8 @@ export default async function ApplicationDetailPage({ params }: Props) {
   const canEscalate        = canReview && session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_ESCALATE)
   const canReceiveEscalation = session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION)
   const canActOnDocuments  = session.permissions.includes(AdminPermissions.VENDORS_DOCUMENTS_VIEW)
+  // Roadmap VM-P1-04 (CLAUDE.md) — log a formal appeal against the rejection.
+  const canLogAppeal       = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_MANAGE)
 
   const displayName  = [application.ownerFirstName, application.ownerLastName].filter(Boolean).join(" ") || "—"
   const initials     = getInitials(application.legalBusinessName ?? "?")
@@ -56,6 +59,12 @@ export default async function ApplicationDetailPage({ params }: Props) {
     ["Registration No.", application.registrationNumber ?? "—"],
     ["Tax ID",           application.taxId ?? "—"],
     ["Address",          application.businessAddress ?? "—"],
+    // Roadmap Phase 2 (CLAUDE.md) — legal/audit trail for terms
+    // acceptance. Stays "Not yet captured" until vendor-dashboard sends
+    // termsVersion on submit — that integration is separate, later work.
+    ["Terms accepted", application.termsAcceptedAt
+      ? `v${application.termsVersion ?? "?"} — ${new Date(application.termsAcceptedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}`
+      : "Not yet captured"],
   ]
 
   const ownerFields: [string, string][] = [
@@ -107,6 +116,11 @@ export default async function ApplicationDetailPage({ params }: Props) {
           <p className="text-sm text-foreground">{application.rejectionReason}</p>
           {application.revisionNotes && (
             <p className="text-xs text-muted-foreground">{application.revisionNotes}</p>
+          )}
+          {isRejected && canLogAppeal && (
+            <div className="pt-1">
+              <LogAppealDialog subjectType="APPLICATION_REJECTION" applicationId={id} />
+            </div>
           )}
         </div>
       )}

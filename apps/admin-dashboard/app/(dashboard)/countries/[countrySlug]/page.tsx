@@ -77,7 +77,9 @@ export default async function CountryDetailPage({ params }: Props) {
   ])
 
   const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE)
-  const checklist = country.checklist ?? { vendorTypeCount: 0, documentTypeCount: 0, readyToActivate: false }
+  const checklist = country.checklist ?? {
+    vendorTypeCount: 0, documentTypeCount: 0, outboundPaymentMethodCount: 0, inboundPaymentMethodCount: 0, readyToActivate: false,
+  }
 
   const cityPreviewEntries: CityPreviewEntry[] = cityLeaderboard.length > 0
     ? cityLeaderboard.slice(0, 5).map((c) => ({ name: c.name, count: c.count }))
@@ -134,8 +136,10 @@ export default async function CountryDetailPage({ params }: Props) {
       <CountryLaunchChecklist
         vendorTypeCount={checklist.vendorTypeCount}
         documentTypeCount={checklist.documentTypeCount}
+        outboundPaymentMethodCount={checklist.outboundPaymentMethodCount}
         readyToActivate={checklist.readyToActivate}
         status={country.status}
+        countrySlug={country.slug}
       />
 
       <CountryReadinessActions
@@ -144,6 +148,7 @@ export default async function CountryDetailPage({ params }: Props) {
         readyForVendorOnboarding={country.readyForVendorOnboarding}
         readyForCustomerOperations={country.readyForCustomerOperations}
         checklistReady={checklist.readyToActivate}
+        hasInboundPaymentMethod={checklist.inboundPaymentMethodCount > 0}
         canWrite={canWrite}
         isGlobal={session.scope.isGlobal}
       />

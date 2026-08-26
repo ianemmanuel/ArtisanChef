@@ -3,8 +3,8 @@ import type { SessionScopeContext }  from "@repo/types/admin-app"
 
 interface ScopeDisplayProps {
   scope    : SessionScopeContext
-  /** "badge" = compact pill, "card" = full detail block */
-  variant ?: "badge" | "card"
+  /** "badge" = compact pill, "card" = full detail block, "inline" = bare text/icon for embedding inside an already-styled container (e.g. overview's location pill) */
+  variant ?: "badge" | "card" | "inline"
 }
 
 /**
@@ -32,7 +32,11 @@ export function ScopeDisplay({ scope, variant = "badge" }: ScopeDisplayProps) {
 
 // ─── Global ───────────────────────────────────────────────────────────────────
 
-function GlobalScope({ variant }: { variant: "badge" | "card" }) {
+function GlobalScope({ variant }: { variant: "badge" | "card" | "inline" }) {
+  if (variant === "inline") {
+    return <span className="text-xs font-medium text-foreground">Global</span>
+  }
+
   if (variant === "badge") {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
@@ -62,7 +66,7 @@ function CountryScope({
   variant,
 }: {
   scope  : SessionScopeContext
-  variant: "badge" | "card"
+  variant: "badge" | "card" | "inline"
 }) {
   const count = scope.countryIds.length
 
@@ -71,6 +75,14 @@ function CountryScope({
   const flags = scope.countryIds
     .slice(0, 3)
     .map((id) => getFlagOrInitials(id))
+
+  if (variant === "inline") {
+    return (
+      <span className="text-xs font-medium text-foreground">
+        {count === 1 ? scope.countryIds[0] : `${count} Countries`}
+      </span>
+    )
+  }
 
   if (variant === "badge") {
     return (
@@ -107,9 +119,17 @@ function CityScope({
   variant,
 }: {
   scope  : SessionScopeContext
-  variant: "badge" | "card"
+  variant: "badge" | "card" | "inline"
 }) {
   const count = scope.cityIds.length
+
+  if (variant === "inline") {
+    return (
+      <span className="text-xs font-medium text-foreground">
+        {count === 1 ? scope.cityIds[0] : `${count} Cities`}
+      </span>
+    )
+  }
 
   if (variant === "badge") {
     return (

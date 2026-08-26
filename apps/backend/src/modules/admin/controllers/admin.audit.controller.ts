@@ -2,7 +2,7 @@ import { RequestHandler } from "express"
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/middleware/error"
-import { listAuditLogs, getAuditLog } from "../services/admin.audit.service"
+import { listAuditLogs, getAuditLog, exportAuditLogsCsv } from "../services/admin.audit.service"
 
 export const handleListAuditLogs: RequestHandler = async (req, res, next) => {
   try {
@@ -25,6 +25,26 @@ export const handleListAuditLogs: RequestHandler = async (req, res, next) => {
       adminScope,
     )
     return sendSuccess(res, result, "Audit logs fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleExportAuditLogsCsv: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { action, search, dateFrom, dateTo } = req.query as {
+      action?: string; search?: string; dateFrom?: string; dateTo?: string
+    }
+    const csv = await exportAuditLogsCsv(
+      {
+        action, search,
+        dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+        dateTo  : dateTo   ? new Date(`${dateTo}T23:59:59.999`) : undefined,
+      },
+      adminScope,
+    )
+    res.setHeader("Content-Type", "text/csv; charset=utf-8")
+    res.setHeader("Content-Disposition", `attachment; filename="audit-log-${new Date().toISOString().slice(0, 10)}.csv"`)
+    return res.status(200).send(csv)
   } catch (err) { next(err) }
 }
 

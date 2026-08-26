@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, FileText, AlertTriangle, ShieldCheck, MapPin, Store, Wallet, TrendingUp, TrendingDown } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -15,7 +15,16 @@ import { getAdminSession }     from "@/lib/auth/session"
 import { getInitials }         from "@/lib/initials"
 import { DocumentsSection }    from "@/components/vendors/DocumentsSection"
 import { VendorAccountActions } from "@/components/vendors/VendorAccountActions"
+import { VendorOutletsMap }    from "@/components/vendors/VendorOutletsMap"
+import { RevenueAreaChart }    from "@/components/countries/RevenueAreaChart"
+import { EmptyState }          from "@/components/shared/EmptyState"
+import { ComplianceIssueBadge } from "@/components/vendors/ComplianceIssueBadge"
+import { VendorPayoutAccountsSection } from "@/components/vendors/VendorPayoutAccountsSection"
+import { VendorCommissionRateSection } from "@/components/vendors/VendorCommissionRateSection"
+import { LogAppealDialog }     from "@/components/vendors/LogAppealDialog"
+import { getMockVendorRevenue, getMockVendorRevenueSeries, getMockOutletRevenue, formatMockCurrency } from "@/lib/mock/vendor-revenue"
 import { AdminPermissions } from "@repo/types/admin-app"
+import type { ComplianceIssueItem, CommissionRateHistoryEntry } from "@/types"
 
 export const metadata: Metadata = { title: "Vendor Account" }
 
@@ -54,6 +63,15 @@ export default async function VendorAccountDetailPage({ params }: Props) {
   const canSuspend   = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_SUSPEND)
   const canReinstate = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_REINSTATE)
   const canBan       = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_BAN)
+  const canManagePayouts = session.permissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_MANAGE)
+  const canManageCommission = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_COMMISSION_MANAGE)
+  // Roadmap VM-P1-04 (CLAUDE.md) — log a formal appeal against a ban or suspension.
+  const canLogAppeal = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_MANAGE)
+  const commissionHistory = canManageCommission
+    ? await adminFetch<CommissionRateHistoryEntry[]>(`/admin/v1/vendors/accounts/${id}/commission-rate/history`, {
+        next: { revalidate: 60, tags: [`vendor-account-${id}-commission`] },
+      }).catch(() => [])
+    : []
   const isBanned     = account.user?.isBanned ?? false
   const ownerName   = `${account.ownerFirstName ?? ""} ${account.ownerLastName ?? ""}`.trim() || "—"
 
@@ -70,6 +88,19 @@ export default async function VendorAccountDetailPage({ params }: Props) {
     ["Owner phone", account.ownerPhone ?? "—"],
   ]
 
+  // STATIC — no Orders/Payments model exists yet, see lib/mock/vendor-revenue.ts.
+  // A vendor's own revenue trend, aggregated across all its outlets.
+  const outlets: {
+    id: string; name: string; adminStatus: string; reviewStatus: string
+    latitude: number; longitude: number; city: { id: string; name: string } | null
+  }[] = account.outlets ?? []
+  const mappableOutlets = outlets.filter((o) => o.latitude != null && o.longitude != null)
+  const revenue = getMockVendorRevenue(account.id)
+  const revenueSeries = getMockVendorRevenueSeries(account.id)
+  const outletsByRevenue = [...outlets]
+    .map((o) => ({ ...o, mockRevenue: getMockOutletRevenue(o.id) }))
+    .sort((a, b) => b.mockRevenue.revenue - a.mockRevenue.revenue)
+
   return (
     <div className="page-content animate-slide-up">
 
@@ -82,6 +113,20 @@ export default async function VendorAccountDetailPage({ params }: Props) {
         </span>
         Back to Accounts
       </Link>
+
+      {/* Application history — the vendor account's originating application
+          is already loaded server-side (account.application, included by
+          getVendorAccount); this just links to its existing review page
+          rather than duplicating any application data here. */}
+      {account.application?.id && (
+        <Link
+          href={`/vendors/applications/${account.application.id}`}
+          className="inline-flex w-fit items-center gap-1.5 text-sm text-primary hover:underline"
+        >
+          <FileText className="h-3.5 w-3.5" />
+          View original application
+        </Link>
+      )}
 
       {/* Header card */}
       <div className="admin-card flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -133,6 +178,11 @@ export default async function VendorAccountDetailPage({ params }: Props) {
               Since {new Date(account.user.bannedAt).toLocaleDateString()}
             </p>
           )}
+          {canLogAppeal && (
+            <div className="pt-2">
+              <LogAppealDialog subjectType="ACCOUNT_BAN" vendorId={id} />
+            </div>
+          )}
         </div>
       )}
 
@@ -145,6 +195,72 @@ export default async function VendorAccountDetailPage({ params }: Props) {
             <p className="mt-1 text-xs text-muted-foreground">
               Since {new Date(account.suspendedAt).toLocaleDateString()}
             </p>
+          )}
+          {canLogAppeal && (
+            <div className="pt-2">
+              <LogAppealDialog subjectType="ACCOUNT_SUSPENSION" vendorId={id} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Compliance — document expiry + missing-document visibility. Data
+          comes pre-computed from getVendorAccount (account.compliance,
+          only present at all if the viewer holds VENDORS_COMPLIANCE_READ);
+          this only renders it. Actions (waive/notify/claim/escalate) stay
+          centralized on /vendors/compliance rather than duplicated here —
+          this section is read + link-out only. */}
+      {account.compliance && (
+        <div
+          className={[
+            "rounded-2xl border px-5 py-4",
+            account.compliance.hasIssues ? "border-warning/30 bg-warning-bg" : "border-border/60 bg-muted/20",
+          ].join(" ")}
+        >
+          <div className="flex items-center gap-2">
+            {account.compliance.hasIssues
+              ? <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+              : <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" />}
+            <p className="text-sm font-semibold text-foreground">Compliance</p>
+          </div>
+          {account.compliance.hasIssues ? (
+            <>
+              <p className="mt-0.5 text-sm text-foreground">
+                {[
+                  account.compliance.missingCount > 0
+                    ? `${account.compliance.missingCount} document${account.compliance.missingCount === 1 ? "" : "s"} missing`
+                    : null,
+                  account.compliance.expiredCount > 0
+                    ? `${account.compliance.expiredCount} expired`
+                    : null,
+                  account.compliance.expiringCount > 0
+                    ? `${account.compliance.expiringCount} expiring soon`
+                    : null,
+                ].filter(Boolean).join(" · ")}
+              </p>
+              <ul className="mt-3 space-y-1.5">
+                {account.compliance.issues
+                  .filter((i: ComplianceIssueItem) => i.issueStatus !== "WAIVED")
+                  .map((issue: ComplianceIssueItem) => (
+                    <li key={issue.id} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="text-foreground">{issue.documentType.name}</span>
+                      <span className="flex items-center gap-2">
+                        {issue.expiryDate && (
+                          <span className="text-muted-foreground">
+                            {issue.issueStatus === "EXPIRING_SOON" ? "Expires" : "Expired"} {new Date(issue.expiryDate).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                        <ComplianceIssueBadge issue={issue} />
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+              <Link href="/vendors/compliance" className="view-all-link mt-3 inline-block text-xs">
+                Manage compliance issues →
+              </Link>
+            </>
+          ) : (
+            <p className="mt-0.5 text-sm text-muted-foreground">No compliance issues</p>
           )}
         </div>
       )}
@@ -176,12 +292,76 @@ export default async function VendorAccountDetailPage({ params }: Props) {
         </div>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <VendorPayoutAccountsSection vendorId={id} accounts={account.payoutAccounts ?? []} canManage={canManagePayouts} />
+        {canManageCommission && (
+          <VendorCommissionRateSection vendorId={id} currentRate={account.commissionRate} history={commissionHistory} canManage={canManageCommission} />
+        )}
+      </div>
+
+      {/* Locations — read-only map of this vendor's outlets. Not a
+          moderation surface; outlet administration itself stays deferred
+          (see CLAUDE.md), this just visualizes what already exists. */}
+      <div className="admin-card space-y-4">
+        <h2 className="text-sm font-semibold text-foreground">Locations</h2>
+        {mappableOutlets.length === 0 ? (
+          <EmptyState
+            icon={MapPin}
+            title="No outlets yet"
+            description="This vendor hasn't added any outlets — locations will appear here once they do."
+          />
+        ) : (
+          <VendorOutletsMap outlets={mappableOutlets} />
+        )}
+      </div>
+
+      {/* Performance — mock revenue, aggregated across this vendor's outlets. */}
+      {outlets.length > 0 && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="stat-card">
+              <div className="icon-badge icon-badge-primary h-12 w-12">
+                <Wallet className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="stat-card-value">{formatMockCurrency(revenue.revenue)}</p>
+                <p className="stat-card-label">Revenue — Last Quarter</p>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="icon-badge icon-badge-info h-12 w-12">
+                <Store className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="stat-card-value">{outlets.length}</p>
+                <p className="stat-card-label">Outlet{outlets.length === 1 ? "" : "s"}</p>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className={`icon-badge h-12 w-12 ${revenue.deltaPct >= 0 ? "icon-badge-success" : "icon-badge-danger"}`}>
+                {revenue.deltaPct >= 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+              </div>
+              <div>
+                <p className="stat-card-value">{revenue.deltaPct >= 0 ? "+" : ""}{revenue.deltaPct}%</p>
+                <p className="stat-card-label">vs Prior Quarter</p>
+              </div>
+            </div>
+          </div>
+          <p className="-mt-4 text-xs text-muted-foreground">
+            Revenue is illustrative — replace once Orders/Payments ships. See the platform-wide{" "}
+            <Link href="/vendors/revenue" className="view-all-link">Vendor Revenue</Link> page for how this vendor ranks.
+          </p>
+
+          <RevenueAreaChart data={revenueSeries} label={account.legalBusinessName} />
+        </>
+      )}
+
       {/* Outlets */}
-      {account.outlets?.length > 0 && (
+      {outlets.length > 0 && (
         <div className="admin-card overflow-hidden p-0">
           <div className="border-b border-border/60 px-5 py-3">
             <h2 className="text-sm font-semibold text-foreground">
-              Outlets ({account.outlets.length})
+              Outlets ({outlets.length})
             </h2>
           </div>
           <Table>
@@ -190,10 +370,11 @@ export default async function VendorAccountDetailPage({ params }: Props) {
                 <TableHead className="text-xs uppercase tracking-wide">Name</TableHead>
                 <TableHead className="hidden text-xs uppercase tracking-wide sm:table-cell">City</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
+                <TableHead className="text-right text-xs uppercase tracking-wide">Revenue — Last Quarter</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {account.outlets.map((outlet: any) => (
+              {outletsByRevenue.map((outlet) => (
                 <TableRow key={outlet.id} className="hover:bg-muted/10">
                   <TableCell className="font-medium text-foreground">{outlet.name}</TableCell>
                   <TableCell className="hidden text-sm text-muted-foreground sm:table-cell">
@@ -203,6 +384,9 @@ export default async function VendorAccountDetailPage({ params }: Props) {
                     <span className={outlet.adminStatus === "ACTIVE" ? "badge-success" : "badge-warning"}>
                       {outlet.adminStatus === "ACTIVE" ? "Active" : outlet.adminStatus}
                     </span>
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums text-foreground">
+                    {formatMockCurrency(outlet.mockRevenue.revenue)}
                   </TableCell>
                 </TableRow>
               ))}

@@ -13,6 +13,7 @@ import {
   assignVendorTypeToCountry,
   removeVendorTypeFromCountry,
   getVendorTypeStats,
+  getVendorTypeAdoption,
 } from "../services/admin.vendorType.service"
 import type { VendorTypeStatus } from "@repo/db"
 
@@ -32,6 +33,18 @@ export const handleListVendorTypes: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+export const handleGetVendorTypeAdoption: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { countryId, limit } = req.query
+    const data = await getVendorTypeAdoption(adminScope, {
+      countryId: countryId as string | undefined,
+      limit    : limit ? parseInt(limit as string) : undefined,
+    })
+    return sendSuccess(res, data, "Vendor type adoption fetched")
+  } catch (err) { next(err) }
+}
+
 export const handleGetVendorTypeStats: RequestHandler = async (req, res, next) => {
   try {
     const { adminScope } = req as unknown as AdminRequest
@@ -43,8 +56,9 @@ export const handleGetVendorTypeStats: RequestHandler = async (req, res, next) =
 
 export const handleGetVendorType: RequestHandler = async (req, res, next) => {
   try {
+    const { adminScope } = req as unknown as AdminRequest
     const { vendorTypeId } = req.params as { vendorTypeId: string }
-    const data = await getVendorType(vendorTypeId)
+    const data = await getVendorType(vendorTypeId, adminScope)
     return sendSuccess(res, data, "Vendor type fetched")
   } catch (err) { next(err) }
 }

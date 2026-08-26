@@ -5,9 +5,10 @@ import { FileText, Clock, AlertTriangle, CheckCircle, XCircle } from "lucide-rea
 import { adminFetch }  from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { VendorApplicationsTable } from "@/components/vendors/VendorApplicationsTable"
-import { TableFilterBar, type FilterStatusOption, type FilterSortOption } from "@/components/shared/TableFilterBar"
+import { TableFilterBar, type FilterStatusOption, type FilterSortOption, type FilterSelectOption } from "@/components/shared/TableFilterBar"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { ApplicationListResult } from "@/types"
+import type { CountryListLite, CountryLite } from "@/types/vendor-type.types"
 
 export const metadata: Metadata = { title: "Vendor Applications" }
 export const revalidate = 60
@@ -17,11 +18,23 @@ interface PageProps {
     page?     : string
     search?   : string
     status?   : string
-    countryId?: string
+    country?  : string
+    queue?    : string
     sort?     : string
     dir?      : string
   }>
 }
+
+// Operational queues — thin wrappers around fields the review workflow
+// already tracks (assignedReviewerId/escalatedByAdminId). Always applied
+// on top of the admin's existing country/city scope filter, never instead
+// of it — see listApplications' queueFilter.
+const QUEUE_OPTIONS: { value: string; label: string }[] = [
+  { value: "",           label: "All" },
+  { value: "mine",       label: "My Applications" },
+  { value: "unassigned", label: "Unassigned" },
+  { value: "escalated",  label: "Escalated" },
+]
 
 const STATUS_CARDS = [
   { status: "SUBMITTED",      label: "Submitted",      icon: FileText,      badgeClass: "icon-badge-info" },
@@ -56,35 +69,56 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
     redirect("/vendors")
   }
 
-  const params    = await searchParams
-  const page      = params.page      ?? "1"
-  const search    = params.search    ?? ""
-  const status    = params.status    ?? ""
-  const countryId = params.countryId ?? ""
-  const sort      = params.sort      ?? "submittedAt"
-  const dir       = params.dir       ?? "desc"
+  const params  = await searchParams
+  const page    = params.page    ?? "1"
+  const search  = params.search  ?? ""
+  const status  = params.status  ?? ""
+  const country = params.country ?? ""
+  const queue   = params.queue   ?? ""
+  const sort    = params.sort    ?? "submittedAt"
+  const dir     = params.dir     ?? "desc"
   // REVIEW is the base capability to act on an application at all — the
   // per-row "Review" link should be visible to anyone who can open and
   // act on an application, not just admins who specifically hold APPROVE
   // (a reviewer with only reject/needs-revision access still needs it).
   const canReview = session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_REVIEW)
 
+  // Country picker options — /admin/v1/countries is itself scope-aware, so
+  // a country-scoped admin already only gets their own country/countries
+  // back here (see admin.country.service.ts#getCountriesByStatus). A
+  // country filter must never widen access beyond that response.
+  const countriesResult = await adminFetch<CountryListLite>(`/admin/v1/countries?status=ACTIVE&pageSize=500`, {
+    next: { revalidate: 300, tags: ["active-countries"] },
+  }).catch(() => null)
+  const countryOptions: FilterSelectOption[] = (countriesResult?.countries ?? []).map((c: CountryLite) => ({
+    value: c.slug, label: c.name,
+  }))
+  // A single-country actor has nothing to pick between — the filter would
+  // just restate what their scope already guarantees, so it's omitted
+  // rather than shown-and-locked.
+  const showCountryFilter = countryOptions.length > 1
+
   const qs = new URLSearchParams({
     page, pageSize: "20",
-    ...(search    ? { search }    : {}),
-    ...(status    ? { status }    : {}),
-    ...(countryId ? { countryId } : {}),
+    ...(search  ? { search }        : {}),
+    ...(status  ? { status }        : {}),
+    ...(country ? { countrySlug: country } : {}),
+    ...(queue   ? { queue }         : {}),
     sort,
     dir,
   })
 
-  // Fetch count per status for overview cards + main list in parallel
+  // Fetch count per status for overview cards + main list in parallel —
+  // status-card counts respect the country/queue narrowing so they stay
+  // consistent with what the table below actually shows.
+  const countryQs = country ? `&countrySlug=${country}` : ""
+  const queueQs   = queue   ? `&queue=${queue}`         : ""
   const [result, ...statusCounts] = await Promise.all([
     adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?${qs}`, {
       next: { revalidate: 60, tags: ["vendor-applications"] },
     }).catch(() => null),
     ...STATUS_CARDS.map(({ status: s }) =>
-      adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?status=${s}&pageSize=1`, {
+      adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?status=${s}&pageSize=1${countryQs}${queueQs}`, {
         next: { revalidate: 60, tags: ["vendor-applications"] },
       }).catch(() => ({ total: 0 }))
     ),
@@ -114,6 +148,34 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
           </div>
         </div>
       </div>
+
+      {/* Operational queues — "what should I be working on", distinct from
+          the status breakdown below. Only meaningful for admins who can
+          actually own applications. */}
+      {canReview && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 p-1 w-fit">
+          {QUEUE_OPTIONS.map(({ value, label }) => {
+            const qp = new URLSearchParams()
+            if (status)  qp.set("status", status)
+            if (country) qp.set("country", country)
+            if (value)   qp.set("queue", value)
+            const href = qp.toString() ? `/vendors/applications?${qp}` : "/vendors/applications"
+            const active = queue === value
+            return (
+              <Link
+                key={value || "all"}
+                href={href}
+                className={[
+                  "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                  active ? "bg-card text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                {label}
+              </Link>
+            )
+          })}
+        </div>
+      )}
 
       {/* Status overview cards */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -148,6 +210,7 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
         sortOptions={SORT_OPTIONS}
         defaultSort={sort}
         defaultDir={dir}
+        {...(showCountryFilter ? { countryOptions, defaultCountry: country } : {})}
       />
 
       {/* Table */}
@@ -159,6 +222,8 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
         sort={sort}
         dir={dir}
         canReview={canReview}
+        country={country}
+        queue={queue}
       />
     </div>
   )

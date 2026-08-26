@@ -18,7 +18,11 @@ export interface Country {
   vendorOnboardingReadyAt    : string | null
   readyForCustomerOperations : boolean
   customerOperationsReadyAt  : string | null
-  checklist? : { vendorTypeCount: number; documentTypeCount: number; readyToActivate: boolean }
+  checklist? : {
+    vendorTypeCount: number; documentTypeCount: number
+    outboundPaymentMethodCount: number; inboundPaymentMethodCount: number
+    readyToActivate: boolean
+  }
   _count? : { cities: number; vendors: number }
   createdByAdminId: string | null
   createdAt : string

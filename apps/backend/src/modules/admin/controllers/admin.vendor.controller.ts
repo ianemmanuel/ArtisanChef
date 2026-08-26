@@ -29,20 +29,22 @@ import {
 
 export const handleListApplications: RequestHandler = async (req, res, next) => {
   try {
-    const { adminScope } = req as unknown as AdminRequest
-    const { status, countrySlug, search, sort, dir, page, pageSize } = req.query
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { status, countrySlug, search, queue, sort, dir, page, pageSize } = req.query
 
     const result = await listApplications(
       {
         status     : status      as VendorApplicationStatus | undefined,
         countrySlug: countrySlug as string | undefined,
         search     : search      as string | undefined,
+        queue      : queue       as "mine" | "unassigned" | "escalated" | undefined,
         sort       : sort        as string | undefined,
         dir        : dir         as string | undefined,
         page       : page        ? parseInt(page     as string) : undefined,
         pageSize   : pageSize    ? parseInt(pageSize as string) : undefined,
       },
       adminScope,
+      adminUser.id,
     )
     return sendSuccess(res, result, "Applications fetched")
   } catch (err) { next(err) }
@@ -219,9 +221,9 @@ export const handleListVendorAccounts: RequestHandler = async (req, res, next) =
 
 export const handleGetVendorAccount: RequestHandler = async (req, res, next) => {
   try {
-    const { adminScope } = req as unknown as AdminRequest
+    const { adminScope, adminPermissions } = req as unknown as AdminRequest
     const { id }         = req.params as { id: string }
-    const account        = await getVendorAccount(id, adminScope)
+    const account        = await getVendorAccount(id, adminScope, adminPermissions)
     return sendSuccess(res, account, "Vendor account fetched")
   } catch (err) { next(err) }
 }

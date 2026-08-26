@@ -22,6 +22,10 @@ import {
   UserPlus,
   UserCog,
   History,
+  PieChart,
+  ShieldAlert,
+  Scale,
+  CreditCard,
 } from "lucide-react"
 import { AdminPermissions, type AdminPermissionKey } from "@repo/types/admin-app"
 
@@ -66,13 +70,51 @@ export const navSections: NavSection[] = [
   {
     // Document types moved under Countries (they're country configuration,
     // not a vendor concept — see /countries/[slug]/documents) — no
-    // "Document Types" entry here anymore.
+    // "Document Types" entry here anymore. Vendor Categories (formerly
+    // "Vendor Types") also isn't here — see the section below for why.
     title: "Vendors",
     items: [
       { label: "Home",         href: "/vendors",              icon: Store },
       { label: "Applications", href: "/vendors/applications", icon: FileCheck2 },
       { label: "Accounts",     href: "/vendors/accounts",     icon: Briefcase },
-      { label: "Vendor Types", href: "/vendors/vendor-types", icon: Tag },
+      { label: "Compliance",   href: "/vendors/compliance",   icon: ShieldAlert, requiredPermission: AdminPermissions.VENDORS_COMPLIANCE_READ },
+      { label: "Appeals",      href: "/vendors/appeals",      icon: Scale,       requiredPermission: AdminPermissions.VENDORS_APPEALS_READ },
+      { label: "Revenue",      href: "/vendors/revenue",      icon: TrendingUp },
+    ],
+  },
+  {
+    // Deliberately its own top-level section, not nested under Vendors or
+    // Countries. It's reference/catalog data used across the whole vendor-
+    // management surface (applications, accounts, onboarding), not an
+    // instance record like a vendor or application, and not pure geography
+    // config like Country/City — VendorType is a global entity, not owned
+    // by any one country (see admin.vendorType.service.ts). Read access
+    // (vendor_ops, country/city-scoped) must reach it without the
+    // requiresGlobalTier + SETTINGS_GEOGRAPHY_WRITE gate the whole
+    // Countries section carries, or a country-scoped reviewer would lose
+    // visibility into vendor categories entirely — nesting under Countries
+    // would silently do exactly that. Gated only on the read permission;
+    // write actions (create/suspend/edit) are further gated inside the
+    // page itself to global-scope admins holding the write permission.
+    title: "Vendor Categories",
+    items: [
+      { label: "Home",     href: "/vendor-categories",          icon: Tag,        requiredPermission: AdminPermissions.SETTINGS_VENDOR_TYPES_READ },
+      { label: "Adoption", href: "/vendor-categories/adoption", icon: PieChart,   requiredPermission: AdminPermissions.SETTINGS_VENDOR_TYPES_READ },
+      { label: "Revenue",  href: "/vendor-categories/revenue",  icon: TrendingUp, requiredPermission: AdminPermissions.SETTINGS_VENDOR_TYPES_READ },
+    ],
+  },
+  {
+    // Roadmap "Payment gateway infrastructure" (CLAUDE.md, 2026-08-26) —
+    // same "own top-level section" reasoning as Vendor Categories above:
+    // this is a global catalog (PaymentMethod), not owned by any one
+    // country. Per-country activation lives on each country's own page,
+    // not here. READ is enough to see the link; every mutation still
+    // requires GLOBAL scope regardless of permission (see
+    // admin.paymentMethod.service.ts's assertGlobalScope) — a country-
+    // scoped finance/operations_admin can view but never gets action buttons.
+    title: "Payment Gateways",
+    items: [
+      { label: "Home", href: "/payment-gateways", icon: CreditCard, requiredPermission: AdminPermissions.FINANCE_PAYMENT_METHODS_READ },
     ],
   },
   {

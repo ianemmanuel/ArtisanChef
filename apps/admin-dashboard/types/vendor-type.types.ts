@@ -8,6 +8,7 @@ export type VendorTypeStatus = "ACTIVE" | "SUSPENDED"
 export interface VendorType {
   id: string
   name: string
+  slug: string
   description: string | null
   status: VendorTypeStatus
   createdAt: string
@@ -29,6 +30,8 @@ export interface VendorTypeCountryLink {
   status: string
   createdAt: string
   country: CountryLite
+  /** Vendor accounts of this category operating in this country — see getVendorType. */
+  vendorAccountCount?: number
 }
 
 export interface VendorTypeDetail extends VendorType {
@@ -73,4 +76,20 @@ export interface VendorTypeStats {
 // returns (breaking change from the old bare CountrySummaryResult[]).
 export interface CountryListLite {
   countries: CountryLite[]
+}
+
+// Mirrors GET /admin/v1/vendor-types/adoption — real vendor-account counts
+// grouped by category, scope-aware. Top N by count, plus an "others"
+// bucket for whatever didn't make the cut (omitted entirely if every
+// category fit in the top N).
+export interface VendorTypeAdoptionItem {
+  vendorType: { id: string; name: string; slug: string } | null
+  count: number
+  percentage: number
+}
+
+export interface VendorTypeAdoptionResult {
+  total: number
+  items: VendorTypeAdoptionItem[]
+  others: { count: number; percentage: number } | null
 }

@@ -1,6 +1,13 @@
 import { prisma } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { getManageableAdminUserIds } from "./admin.user.service"
+import { toCsv } from "@/lib/csv"
+
+// Roadmap VM-P2-01 (CLAUDE.md) — CSV export safety cap. An audit trail can
+// grow indefinitely; a regulator hand-off wants "everything matching these
+// filters," not literally unbounded rows in one response. Narrow the date
+// range if a deployment ever needs more than this in one export.
+const MAX_AUDIT_EXPORT_ROWS = 5000
 
 interface ListAuditLogsFilters {
   action?  : string
@@ -46,10 +53,8 @@ async function resolveSearchAdminIds(search: string): Promise<string[]> {
  * or a globally-scoped identity_admin — see actorHasFullAccess in
  * admin.user.service.ts) sees everything.
  */
-export async function listAuditLogs(filters: ListAuditLogsFilters, actorScope: AdminScopeContext) {
-  const { action, search, dateFrom, dateTo, page = 1, pageSize = 20 } = filters
-  const skip = (page - 1) * pageSize
-
+async function buildAuditLogsWhere(filters: Pick<ListAuditLogsFilters, "action" | "search" | "dateFrom" | "dateTo">, actorScope: AdminScopeContext) {
+  const { action, search, dateFrom, dateTo } = filters
   const manageableIds = await getManageableAdminUserIds(actorScope)
 
   // entityId is used by both the scope filter (target must be manageable)
@@ -74,6 +79,14 @@ export async function listAuditLogs(filters: ListAuditLogsFilters, actorScope: A
     } : {}),
     ...(andClauses.length ? { AND: andClauses } : {}),
   }
+  return where
+}
+
+export async function listAuditLogs(filters: ListAuditLogsFilters, actorScope: AdminScopeContext) {
+  const { page = 1, pageSize = 20 } = filters
+  const skip = (page - 1) * pageSize
+
+  const where = await buildAuditLogsWhere(filters, actorScope)
 
   const [logs, total] = await Promise.all([
     prisma.auditLog.findMany({
@@ -125,4 +138,45 @@ export async function getAuditLog(id: string, actorScope: AdminScopeContext) {
     : null
 
   return { ...log, target }
+}
+
+/*
+ * Roadmap VM-P2-01 (CLAUDE.md) — CSV export of the Identity & Access audit
+ * trail for a regulator hand-off. Same filters + scope as listAuditLogs,
+ * capped at MAX_AUDIT_EXPORT_ROWS instead of paginated.
+ */
+export async function exportAuditLogsCsv(filters: Omit<ListAuditLogsFilters, "page" | "pageSize">, actorScope: AdminScopeContext): Promise<string> {
+  const where = await buildAuditLogsWhere(filters, actorScope)
+
+  const logs = await prisma.auditLog.findMany({
+    where,
+    take   : MAX_AUDIT_EXPORT_ROWS,
+    orderBy: { createdAt: "desc" },
+    include: { adminUser: { select: { firstName: true, lastName: true, email: true } } },
+  })
+
+  const targetIds = [...new Set(logs.map((l) => l.entityId).filter((id): id is string => !!id))]
+  const targets = targetIds.length
+    ? await prisma.adminUser.findMany({ where: { id: { in: targetIds } }, select: { id: true, firstName: true, lastName: true, email: true } })
+    : []
+  const targetById = new Map(targets.map((t) => [t.id, t]))
+
+  return toCsv(logs.map((l) => {
+    const target = l.entityId ? targetById.get(l.entityId) : undefined
+    return {
+      createdAt: l.createdAt.toISOString(),
+      action   : l.action,
+      actor    : l.adminUser ? `${l.adminUser.firstName} ${l.adminUser.lastName} <${l.adminUser.email}>` : "System",
+      target   : target ? `${target.firstName} ${target.lastName} <${target.email}>` : (l.entityId ?? ""),
+      entityType: l.entityType,
+      entityId  : l.entityId ?? "",
+    }
+  }), [
+    { key: "createdAt",  label: "Timestamp" },
+    { key: "action",     label: "Action" },
+    { key: "actor",      label: "Actor" },
+    { key: "target",     label: "Target" },
+    { key: "entityType", label: "Entity Type" },
+    { key: "entityId",   label: "Entity ID" },
+  ])
 }

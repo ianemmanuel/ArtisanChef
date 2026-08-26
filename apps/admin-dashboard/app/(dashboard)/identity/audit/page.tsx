@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
-import { History } from "lucide-react"
+import { History, FileDown } from "lucide-react"
 import { adminFetch } from "@/lib/api"
 import { TableFilterBar, type FilterStatusOption } from "@/components/shared/TableFilterBar"
 import { AuditLogTable } from "@/components/identity/AuditLogTable"
@@ -64,6 +64,15 @@ export default async function IdentityAuditPage({ searchParams }: PageProps) {
     next: { revalidate: 30, tags: ["admin-audit"] },
   }).catch(() => null)
 
+  // Roadmap VM-P2-01 (CLAUDE.md) — export ignores page/pageSize, so build
+  // a separate querystring rather than reusing the paginated one above.
+  const exportQs = new URLSearchParams({
+    ...(action   && action !== "all" ? { action } : {}),
+    ...(search   ? { search }   : {}),
+    ...(dateFrom ? { dateFrom } : {}),
+    ...(dateTo   ? { dateTo }   : {}),
+  })
+
   return (
     <div className="page-content animate-slide-up">
 
@@ -79,6 +88,13 @@ export default async function IdentityAuditPage({ searchParams }: PageProps) {
             </p>
           </div>
         </div>
+        <a
+          href={`/api/identity/audit/export?${exportQs}`}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:border-primary/40 hover:text-primary"
+        >
+          <FileDown className="h-3.5 w-3.5" />
+          Export CSV
+        </a>
       </div>
 
       <TableFilterBar

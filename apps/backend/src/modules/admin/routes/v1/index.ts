@@ -13,6 +13,8 @@ import documentTypesRouter from "./admin.documentType.routes"
 import reviewerAvailabilityRouter from "./admin.reviewerAvailability.routes"
 import actionReasonsRouter from "./admin.actionReason.routes"
 import auditRouter from "./admin.audit.routes"
+import notificationsRouter from "./admin.notification.routes"
+import paymentMethodsRouter from "./admin.paymentMethod.routes"
 
 const v1Router: Router = Router()
 
@@ -29,6 +31,8 @@ v1Router.use("/document-types", documentTypesRouter)
 v1Router.use("/vendor-reviewers", reviewerAvailabilityRouter)
 v1Router.use("/action-reasons", actionReasonsRouter)
 v1Router.use("/audit", auditRouter)
+v1Router.use("/notifications", notificationsRouter)
+v1Router.use("/payment-methods", paymentMethodsRouter)
 v1Router.use("/kpis", kpiRouter)
 
 export default v1Router

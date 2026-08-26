@@ -19,10 +19,14 @@ interface Props {
   countryName: string
   readyForVendorOnboarding  : boolean
   readyForCustomerOperations: boolean
-  /** Launch checklist satisfied (vendor category + document present) — gates
-   *  turning vendor-onboarding readiness ON, per the backend's pre-activation
-   *  gate (see setVendorOnboardingReadiness). */
+  /** Launch checklist satisfied (vendor category + document + vendor payout
+   *  method present) — gates turning vendor-onboarding readiness ON, per the
+   *  backend's pre-activation gate (see setVendorOnboardingReadiness). */
   checklistReady: boolean
+  /** At least one active INBOUND (customer) payment method configured —
+   *  gates turning customer-operations readiness ON (see
+   *  setCustomerOperationsReadiness). */
+  hasInboundPaymentMethod: boolean
   canWrite: boolean
   isGlobal: boolean
 }
@@ -38,7 +42,7 @@ type Kind = "vendors" | "customers"
 export function CountryReadinessActions({
   countrySlug, countryName,
   readyForVendorOnboarding, readyForCustomerOperations,
-  checklistReady, canWrite, isGlobal,
+  checklistReady, hasInboundPaymentMethod, canWrite, isGlobal,
 }: Props) {
   const router = useRouter()
   const [open, setOpen]       = useState<Kind | null>(null)
@@ -53,7 +57,7 @@ export function CountryReadinessActions({
   // the country happens to be ACTIVE — readiness is confirmed BEFORE
   // activation, not after.
   const vendorsDisabled   = readyForVendorOnboarding ? false : !checklistReady
-  const customersDisabled = readyForCustomerOperations ? false : !readyForVendorOnboarding
+  const customersDisabled = readyForCustomerOperations ? false : (!readyForVendorOnboarding || !hasInboundPaymentMethod)
 
   async function confirm(kind: Kind) {
     const turningOn = kind === "vendors" ? !readyForVendorOnboarding : !readyForCustomerOperations
@@ -99,7 +103,7 @@ export function CountryReadinessActions({
       label: "Vendor Onboarding",
       ready: readyForVendorOnboarding,
       disabled: vendorsDisabled,
-      disabledHint: "Add a vendor category and a document first.",
+      disabledHint: "Add a vendor category, a document, and a vendor payout method first.",
       onDescription: `Vendors will be able to complete onboarding and go live in ${countryName}.`,
       offDescription: "New vendor onboarding will be paused in this country.",
     },
@@ -109,7 +113,9 @@ export function CountryReadinessActions({
       label: "Customer Operations",
       ready: readyForCustomerOperations,
       disabled: customersDisabled,
-      disabledHint: "Mark this country ready for vendor onboarding first.",
+      disabledHint: !readyForVendorOnboarding
+        ? "Mark this country ready for vendor onboarding first."
+        : "Add a customer payment method first.",
       onDescription: `It's now safe to advertise and open orders to customers in ${countryName}.`,
       offDescription: "Customer-facing operations will be paused in this country.",
     },

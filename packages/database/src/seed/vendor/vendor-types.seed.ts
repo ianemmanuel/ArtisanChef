@@ -10,8 +10,8 @@ export async function seedVendorTypes(): Promise<number> {
   for (const vendorType of VENDOR_TYPES) {
     await prisma.vendorType.upsert({
       where : { name: vendorType.name },
-      update: { description: vendorType.description },
-      create: { name: vendorType.name, description: vendorType.description },
+      update: { description: vendorType.description, slug: vendorType.slug },
+      create: { name: vendorType.name, slug: vendorType.slug, description: vendorType.description },
     })
   }
 

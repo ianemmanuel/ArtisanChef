@@ -208,7 +208,13 @@ export async function previewApplication(applicationId: string) {
 
 //* Completeness is checked against the persisted row here
 
-export async function submitApplication(vendorUser: VendorUser, application: VendorApplication) {
+export async function submitApplication(
+  vendorUser : VendorUser,
+  application: VendorApplication,
+  // Roadmap Phase 2 (CLAUDE.md) — optional until the vendor-dashboard
+  // client actually sends it; not enforced as a required field yet.
+  termsVersion?: string,
+) {
   ensureApplicationEditable(application.status)
 
   const missingFields = getMissingFields(application)
@@ -235,6 +241,10 @@ export async function submitApplication(vendorUser: VendorUser, application: Ven
       status     : VendorApplicationStatus.SUBMITTED,
       submittedAt: new Date(),
       ...(wasNeedsRevision && { revisionCount: { increment: 1 } }),
+      // Only set on a genuine first-time acceptance — a resubmission after
+      // NEEDS_REVISION shouldn't silently overwrite an earlier accepted
+      // version/timestamp with "now" if the client didn't actually re-ask.
+      ...(termsVersion && !application.termsAcceptedAt ? { termsVersion, termsAcceptedAt: new Date() } : {}),
     },
   })
 

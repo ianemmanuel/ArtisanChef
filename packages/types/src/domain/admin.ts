@@ -219,6 +219,12 @@ export interface AdminSessionData {
   role        : SessionRole | null
   permissions : AdminPermissionKey[]
   scope       : SessionScopeContext
+  // Powers the sidebar's Compliance nav dot — only ever set for a
+  // country-scoped admin holding VENDORS_COMPLIANCE_READ (a global admin
+  // always has issues somewhere, so the nudge wouldn't mean anything the
+  // way it does for a country team watching their own patch). Omitted
+  // entirely rather than false for anyone the check doesn't apply to.
+  hasOpenComplianceIssues?: boolean
 }
 
 //* VENDOR MANAGEMENT

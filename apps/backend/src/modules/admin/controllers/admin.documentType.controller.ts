@@ -53,11 +53,13 @@ export const handleCreateDocumentType: RequestHandler = async (req, res, next) =
     const {
       name, description, scope, countryId, cityId,
       isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl,
+      complianceSeverity, gracePeriodDays, enforcedFrom,
     } = req.body as {
       name?: string; description?: string
       scope?: "VENDOR" | "OUTLET" | "CITY"; countryId?: string; cityId?: string
       isRequired?: boolean; requiresExpiry?: boolean; expiryWarningDays?: number
       instructions?: string; sampleUrl?: string
+      complianceSeverity?: "LOW" | "MEDIUM" | "CRITICAL"; gracePeriodDays?: number; enforcedFrom?: string
     }
 
     if (!name?.trim())      throw new ApiError(400, "name is required", "MISSING_FIELDS")
@@ -67,7 +69,7 @@ export const handleCreateDocumentType: RequestHandler = async (req, res, next) =
     }
 
     const data = await createDocumentType(
-      { name, description, scope, countryId, cityId, isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl },
+      { name, description, scope, countryId, cityId, isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl, complianceSeverity, gracePeriodDays, enforcedFrom },
       adminUser.id,
       adminScope,
     )
@@ -79,15 +81,19 @@ export const handleUpdateDocumentType: RequestHandler = async (req, res, next) =
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
     const { documentTypeId } = req.params as { documentTypeId: string }
-    const { name, description, scope: docScope, cityId, isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl } = req.body as {
+    const {
+      name, description, scope: docScope, cityId, isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl,
+      complianceSeverity, gracePeriodDays, enforcedFrom,
+    } = req.body as {
       name?: string; description?: string
       scope?: "VENDOR" | "OUTLET" | "CITY"; cityId?: string
       isRequired?: boolean; requiresExpiry?: boolean; expiryWarningDays?: number; instructions?: string; sampleUrl?: string
+      complianceSeverity?: "LOW" | "MEDIUM" | "CRITICAL"; gracePeriodDays?: number; enforcedFrom?: string
     }
 
     const data = await updateDocumentType(
       documentTypeId,
-      { name, description, scope: docScope, cityId, isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl },
+      { name, description, scope: docScope, cityId, isRequired, requiresExpiry, expiryWarningDays, instructions, sampleUrl, complianceSeverity, gracePeriodDays, enforcedFrom },
       adminUser.id,
       adminScope,
     )

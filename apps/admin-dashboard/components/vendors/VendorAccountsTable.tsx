@@ -15,10 +15,16 @@ import { getInitials } from "@/lib/initials"
 import type { VendorListResult } from "@/types"
 
 interface Props {
-  result : VendorListResult | null
-  page   : string
-  search : string
-  status : string
+  result  : VendorListResult | null
+  page    : string
+  search  : string
+  status  : string
+  /** Country filter value (a slug) — preserved across pagination links */
+  country?: string
+  /** Category filter value (a vendorTypeId) — preserved across pagination links */
+  category?: string
+  sort?   : string
+  dir?    : string
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -35,7 +41,7 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={cls[status] ?? "badge-neutral"}>{label[status] ?? status}</span>
 }
 
-export function VendorAccountsTable({ result, page, search, status }: Props) {
+export function VendorAccountsTable({ result, page, search, status, country, category, sort, dir }: Props) {
   if (!result || result.accounts.length === 0) {
     return (
       <EmptyState
@@ -105,8 +111,12 @@ export function VendorAccountsTable({ result, page, search, status }: Props) {
         totalPages={result.totalPages}
         basePath="/vendors/accounts"
         params={{
-          ...(search ? { search } : {}),
-          ...(status ? { status } : {}),
+          ...(search   ? { search }   : {}),
+          ...(status   ? { status }   : {}),
+          ...(country  ? { country }  : {}),
+          ...(category ? { category } : {}),
+          ...(sort ? { sort } : {}),
+          ...(dir  ? { dir }  : {}),
         }}
         itemLabel="accounts"
       />

@@ -26,6 +26,9 @@
  *   4. Vendor    — vendor types + country/vendor-type joins. Depends on
  *      geography (VendorTypeCountry) and optionally on admin document
  *      type configs.
+ *   5. Finance   — payment-method catalog. Independent of everything
+ *      above (it's a global catalog, same shape as vendor types); ordered
+ *      last simply to keep reference-data seeding grouped together.
  */
 import 'dotenv/config'
 import { pathToFileURL } from 'node:url'
@@ -34,6 +37,7 @@ import { seedSystem } from './system'
 import { seedAdmin } from './admin'
 import { seedGeography } from './geography'
 import { seedVendor } from './vendor'
+import { seedFinance } from './finance'
 
 async function seed() {
   console.log("🌱 Seeding DailyBread database...\n")
@@ -52,6 +56,10 @@ async function seed() {
 
   console.log("── Vendor ─────────────────────────────────")
   await seedVendor()
+  console.log()
+
+  console.log("── Finance ────────────────────────────────")
+  await seedFinance()
   console.log()
 
   console.log("✅ All seeds complete.")

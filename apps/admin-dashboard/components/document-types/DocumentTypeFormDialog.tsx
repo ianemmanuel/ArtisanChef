@@ -48,6 +48,10 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
   const router = useRouter()
   const isEdit = !!documentType
   const effectiveCountryId = isEdit ? documentType?.countryId : countryId
+  // Roadmap VM-P1-05 — scope can't be changed once real documents exist
+  // against this type (backend enforces this; this just avoids letting an
+  // admin fill out the change only to have it rejected on save).
+  const hasDocuments = isEdit && (documentType?.documentCount ?? 0) > 0
 
   const [open, setOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -64,6 +68,9 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
       expiryWarningDays: 30,
       instructions     : "",
       sampleUrl        : "",
+      complianceSeverity: "MEDIUM",
+      gracePeriodDays   : 0,
+      enforcedFrom      : "",
     } as DocumentTypeCreateFormValues,
     validators: { onSubmit: documentTypeCreateSchema },
     onSubmit: async ({ value }) => {
@@ -77,6 +84,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
             description : value.description.trim() || undefined,
             instructions: value.instructions.trim() || undefined,
             sampleUrl   : value.sampleUrl.trim() || undefined,
+            enforcedFrom: value.enforcedFrom.trim() || undefined,
             cityId      : value.scope === "CITY" ? value.cityId : undefined,
             countryId,
           }),
@@ -110,6 +118,9 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
       expiryWarningDays: documentType?.expiryWarningDays ?? 30,
       instructions     : documentType?.instructions ?? "",
       sampleUrl        : documentType?.sampleUrl ?? "",
+      complianceSeverity: documentType?.complianceSeverity ?? "MEDIUM",
+      gracePeriodDays   : documentType?.gracePeriodDays ?? 0,
+      enforcedFrom      : documentType?.enforcedFrom?.slice(0, 10) ?? "",
     } as DocumentTypeUpdateFormValues,
     validators: { onSubmit: documentTypeUpdateSchema },
     onSubmit: async ({ value }) => {
@@ -124,6 +135,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
             description : value.description.trim() || undefined,
             instructions: value.instructions.trim() || undefined,
             sampleUrl   : value.sampleUrl.trim() || undefined,
+            enforcedFrom: value.enforcedFrom.trim() || "",
             cityId      : value.scope === "CITY" ? value.cityId : undefined,
           }),
         })
@@ -242,6 +254,7 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
                     <Label className="text-xs">Scope</Label>
                     <Select
                       value={scopeField.state.value}
+                      disabled={hasDocuments}
                       onValueChange={(v) => {
                         scopeField.handleChange(v as "VENDOR" | "OUTLET" | "CITY")
                         if (v !== "CITY") updateForm.setFieldValue("cityId", "")
@@ -256,6 +269,11 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
                         <SelectItem value="CITY" className="rounded-lg">City — once per vendor per city, inherited by their outlets there</SelectItem>
                       </SelectContent>
                     </Select>
+                    {hasDocuments && (
+                      <p className="text-xs text-muted-foreground">
+                        Scope can&apos;t be changed — {documentType?.documentCount} document{documentType?.documentCount === 1 ? "" : "s"} already exist against this type. Deactivate it and create a new one instead.
+                      </p>
+                    )}
                   </div>
                   {scopeField.state.value === "CITY" && (
                     <updateForm.Field name="cityId" validators={{ onBlur: documentTypeBaseSchema.shape.cityId }}>
@@ -505,6 +523,123 @@ export function DocumentTypeFormDialog({ countryId, documentType }: Props) {
               )}
             </createForm.Field>
           )}
+
+          <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-3">
+            <p className="text-xs font-semibold text-foreground">Compliance</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {isEdit ? (
+                <updateForm.Field name="complianceSeverity">
+                  {(field) => (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Severity</Label>
+                      <Select value={field.state.value} onValueChange={(v) => field.handleChange(v as "LOW" | "MEDIUM" | "CRITICAL")}>
+                        <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
+                          <SelectItem value="LOW" className="rounded-lg">Low</SelectItem>
+                          <SelectItem value="MEDIUM" className="rounded-lg">Medium</SelectItem>
+                          <SelectItem value="CRITICAL" className="rounded-lg">Critical</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </updateForm.Field>
+              ) : (
+                <createForm.Field name="complianceSeverity">
+                  {(field) => (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Severity</Label>
+                      <Select value={field.state.value} onValueChange={(v) => field.handleChange(v as "LOW" | "MEDIUM" | "CRITICAL")}>
+                        <SelectTrigger className="w-full rounded-xl text-sm" style={{ backgroundColor: "var(--input)", color: "var(--foreground)" }}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl" style={{ backgroundColor: "var(--popover)", color: "var(--popover-foreground)", border: "1px solid var(--border)" }}>
+                          <SelectItem value="LOW" className="rounded-lg">Low</SelectItem>
+                          <SelectItem value="MEDIUM" className="rounded-lg">Medium</SelectItem>
+                          <SelectItem value="CRITICAL" className="rounded-lg">Critical</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </createForm.Field>
+              )}
+
+              {isEdit ? (
+                <updateForm.Field name="gracePeriodDays">
+                  {(field) => (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs" htmlFor="doc-type-grace-days">Grace period after expiry (days)</Label>
+                      <Input
+                        id="doc-type-grace-days"
+                        type="number"
+                        min={0}
+                        max={365}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(Number(e.target.value))}
+                        className="rounded-xl text-sm"
+                      />
+                    </div>
+                  )}
+                </updateForm.Field>
+              ) : (
+                <createForm.Field name="gracePeriodDays">
+                  {(field) => (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs" htmlFor="doc-type-grace-days">Grace period after expiry (days)</Label>
+                      <Input
+                        id="doc-type-grace-days"
+                        type="number"
+                        min={0}
+                        max={365}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(Number(e.target.value))}
+                        className="rounded-xl text-sm"
+                      />
+                    </div>
+                  )}
+                </createForm.Field>
+              )}
+            </div>
+
+            {isEdit ? (
+              <updateForm.Field name="enforcedFrom">
+                {(field) => (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" htmlFor="doc-type-enforced-from">Enforced from (optional)</Label>
+                    <Input
+                      id="doc-type-enforced-from"
+                      type="date"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      className="rounded-xl text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to require it immediately. Set a future date to give already-approved vendors a transition window before it counts as a missing-document compliance issue.
+                    </p>
+                  </div>
+                )}
+              </updateForm.Field>
+            ) : (
+              <createForm.Field name="enforcedFrom">
+                {(field) => (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs" htmlFor="doc-type-enforced-from">Enforced from (optional)</Label>
+                    <Input
+                      id="doc-type-enforced-from"
+                      type="date"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      className="rounded-xl text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to require it immediately. Set a future date to give already-approved vendors a transition window before it counts as a missing-document compliance issue.
+                    </p>
+                  </div>
+                )}
+              </createForm.Field>
+            )}
+          </div>
         </form>
 
         <DialogFooter>

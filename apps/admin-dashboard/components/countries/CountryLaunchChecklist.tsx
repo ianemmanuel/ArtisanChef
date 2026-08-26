@@ -1,22 +1,27 @@
 import { CheckCircle2, XCircle } from "lucide-react"
 
 interface Props {
-  vendorTypeCount  : number
-  documentTypeCount: number
-  readyToActivate  : boolean
-  status           : string
+  vendorTypeCount           : number
+  documentTypeCount         : number
+  outboundPaymentMethodCount: number
+  readyToActivate           : boolean
+  status                    : string
+  countrySlug               : string
 }
 
 /**
- * Pre-activation checklist — a country needs at least one vendor type and
- * one document type before it can go ACTIVE (see activateCountry in
- * admin.country.service.ts). Shown even once active, as a record of what
- * unlocked activation.
+ * Pre-activation checklist — a country needs at least one vendor type, one
+ * document type, and one vendor payout method before it can go ACTIVE (see
+ * activateCountry in admin.country.service.ts). Shown even once active, as
+ * a record of what unlocked activation. The payout-method row links to a
+ * real page (unlike the other two's placeholder anchors, kept as-is —
+ * vendor types/document types don't have a dedicated country sub-page yet).
  */
-export function CountryLaunchChecklist({ vendorTypeCount, documentTypeCount, readyToActivate, status }: Props) {
+export function CountryLaunchChecklist({ vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, readyToActivate, status, countrySlug }: Props) {
   const rows = [
-    { label: "Vendor types linked",   count: vendorTypeCount,   href: "#vendor-types" },
-    { label: "Document types created", count: documentTypeCount, href: "#document-types" },
+    { label: "Vendor types linked",    count: vendorTypeCount,            href: "#vendor-types" },
+    { label: "Document types created", count: documentTypeCount,         href: "#document-types" },
+    { label: "Vendor payout methods configured", count: outboundPaymentMethodCount, href: `/countries/${countrySlug}/payment-methods` },
   ]
 
   return (
@@ -28,7 +33,7 @@ export function CountryLaunchChecklist({ vendorTypeCount, documentTypeCount, rea
             ? "What unlocked activation for this country."
             : readyToActivate
               ? "Requirements met — this country can now be activated."
-              : "Both items are required before this country can be activated."}
+              : "All three are required before this country can be activated."}
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">

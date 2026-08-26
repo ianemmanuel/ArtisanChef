@@ -10,6 +10,62 @@ export const AdminPermissions = {
   VENDORS_ACCOUNTS_REINSTATE : "vendors:accounts:reinstate",
   VENDORS_ACCOUNTS_BAN       : "vendors:accounts:ban",
   VENDORS_ACCOUNTS_EXPORT    : "vendors:accounts:export",
+  // Waive/un-waive a compliance issue and notify a vendor about one —
+  // distinct from ACCOUNTS_SUSPEND itself because granting a waiver is
+  // its own auditable judgment call, not implied by general suspend access.
+  // (Kept under the "accounts" submodule for historical reasons — it
+  // predates the "compliance" submodule below by one turn; the newer
+  // compliance:* keys are the more correct home going forward.)
+  VENDORS_ACCOUNTS_COMPLIANCE_MANAGE: "vendors:accounts:compliance_manage",
+
+  // ── Vendors — compliance case workflow ───────────────────────────────────
+  // Claim/escalate mirrors the applications review workflow below almost
+  // exactly — see VendorComplianceCase in schema.prisma.
+  VENDORS_COMPLIANCE_READ              : "vendors:compliance:read",
+  VENDORS_COMPLIANCE_CLAIM             : "vendors:compliance:claim",
+  VENDORS_COMPLIANCE_ESCALATE          : "vendors:compliance:escalate",
+  // Supervisory hand-off — reassigns a case directly (no claim step for
+  // the target, same convention as VENDORS_APPLICATIONS_REASSIGN). Does
+  // NOT require being the current owner — mirrors reassignApplication,
+  // which is deliberately an override permission, not an ownership action.
+  VENDORS_COMPLIANCE_REASSIGN          : "vendors:compliance:reassign",
+  // Distinct from ESCALATE, same relationship as APPLICATIONS_RECEIVE_ESCALATION
+  // has to APPLICATIONS_ESCALATE — granted individually to whoever
+  // compliance escalations should route to. Additionally, claiming from
+  // the escalation pool requires the claimant be country-scoped to the
+  // vendor's own country — a global-scoped holder of this permission still
+  // cannot claim (see claimEscalatedComplianceCase) — compliance
+  // follow-up deliberately stays with the local country team, unlike the
+  // applications escalation pool.
+  VENDORS_COMPLIANCE_RECEIVE_ESCALATION: "vendors:compliance:receive_escalation",
+
+  // Individually granted, same pattern as RECEIVE_ESCALATION — who gets an
+  // in-app AdminNotification when a case sits OPEN (unclaimed) for
+  // COMPLIANCE_CASE_STALE_NOTIFY_HOURS. Deliberately narrower than "every
+  // vendor_ops admin": only country-scoped holders of this specific
+  // permission, for their own country's cases (see compliance-case-sync.job.ts).
+  VENDORS_COMPLIANCE_RECEIVE_STALE_ALERT: "vendors:compliance:receive_stale_alert",
+
+  // Manually verify/reject a vendor's payout (bank/mobile-money/wallet)
+  // account — see Roadmap Phase 1 in CLAUDE.md. addPayoutAccount always
+  // creates a PENDING account; nothing else in the system ever moves it
+  // to VERIFIED, so without this a vendor can never actually get paid.
+  VENDORS_PAYOUT_ACCOUNTS_MANAGE: "vendors:payout_accounts:manage",
+
+  // Change a vendor's commission rate — always writes a
+  // VendorCommissionRateHistory row alongside the live value (Roadmap
+  // Phase 2, CLAUDE.md).
+  VENDORS_ACCOUNTS_COMMISSION_MANAGE: "vendors:accounts:commission_manage",
+
+  // ── Vendors — appeals ─────────────────────────────────────────────────────
+  // Formal appeal/dispute log against a rejected application, a
+  // suspension, or a ban (Roadmap VM-P1-04, CLAUDE.md) — admin-side only,
+  // logged on behalf of a vendor who raised it through another channel.
+  // Deliberately just READ/MANAGE, no claim/escalate split like
+  // compliance/applications — appeal volume doesn't justify that
+  // machinery (see VendorAppeal in schema.prisma).
+  VENDORS_APPEALS_READ  : "vendors:appeals:read",
+  VENDORS_APPEALS_MANAGE: "vendors:appeals:manage",
 
   // ── Vendors — applications ───────────────────────────────────────────────
   VENDORS_APPLICATIONS_READ     : "vendors:applications:read",
@@ -42,6 +98,14 @@ export const AdminPermissions = {
   FINANCE_DISCOUNTS_DEACTIVATE : "finance:discounts:deactivate",
   FINANCE_REPORTS_READ         : "finance:reports:read",
   FINANCE_REPORTS_EXPORT       : "finance:reports:export",
+  // Global payment-gateway catalog (PaymentMethod) + per-country config
+  // (CountryPaymentMethod — INBOUND for customer payments, OUTBOUND for
+  // vendor payouts). Deliberately global-scope-only, unlike most finance
+  // keys above (which are naturally country-scoped operational work) —
+  // this is platform-wide financial infrastructure, same governance tier
+  // as VendorType (see admin.paymentMethod.service.ts's assertGlobalScope).
+  FINANCE_PAYMENT_METHODS_READ  : "finance:payment_methods:read",
+  FINANCE_PAYMENT_METHODS_MANAGE: "finance:payment_methods:manage",
 
   // ── Customers ─────────────────────────────────────────────────────────────
   CUSTOMERS_PROFILES_READ     : "customers:profiles:read",

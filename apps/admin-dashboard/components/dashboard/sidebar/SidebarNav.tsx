@@ -68,7 +68,27 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
           // exact match so Home doesn't light up while on Create/Manage.
           : href === "/identity"
             ? pathname === "/identity"
-            : pathname.startsWith(href)
+            // "/vendor-categories" is both the Vendor Categories "Home"
+            // link and a prefix of "/vendor-categories/adoption" and
+            // "/vendor-categories/revenue", which have their own nav
+            // entries — same pattern as "/countries" above. Detail pages
+            // (/vendor-categories/[slug], .../vendors) still correctly
+            // light up Home, same as a country detail page does for
+            // Countries' Home.
+            : href === "/vendor-categories"
+              ? pathname === "/vendor-categories" ||
+                (pathname.startsWith("/vendor-categories/") &&
+                  !pathname.startsWith("/vendor-categories/adoption") &&
+                  !pathname.startsWith("/vendor-categories/revenue"))
+              : pathname.startsWith(href)
+
+  // Subtle "you have open compliance issues in your own country" nudge —
+  // never shown to global admins (session.hasOpenComplianceIssues is only
+  // ever set server-side for a country-scoped admin, see
+  // admin.session.controller.ts). Deliberately a glow, not a badge count —
+  // this is a "something needs your attention" signal, not a number to
+  // chase to zero.
+  const showComplianceDot = (href: string) => href === "/vendors/compliance" && !!session.hasOpenComplianceIssues
 
   const isCollapsed = collapsed && !isMobile
 
@@ -137,6 +157,12 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                                   isActive ? "text-[var(--sidebar-active-icon)]" : "text-muted-foreground"
                                 )} />
                                 <span className="flex-1 truncate">{item.label}</span>
+                                {showComplianceDot(item.href) && (
+                                  <span className="relative flex h-2 w-2 shrink-0" aria-label="Open compliance issues">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
+                                  </span>
+                                )}
                                 {item.badge && (
                                   <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary">
                                     {item.badge}
@@ -204,6 +230,12 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                                 )}
                               />
                               <span className="flex-1 truncate">{item.label}</span>
+                              {showComplianceDot(item.href) && (
+                                <span className="relative flex h-2 w-2 shrink-0" aria-label="Open compliance issues">
+                                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                                  <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
+                                </span>
+                              )}
                               {item.badge && (
                                 <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary">
                                   {item.badge}

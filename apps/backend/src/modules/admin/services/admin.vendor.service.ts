@@ -17,6 +17,9 @@ import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
 import { assertAllRequiredDocumentsApproved } from "@/modules/vendor/services/vendor.document.service"
 import { REQUIRED_APPLICATION_FIELDS } from "@/modules/vendor/schemas/vendor.application.schema"
 import { ClerkVendorStateService } from "@/lib/clerk"
+import { getVendorComplianceIssues } from "./admin.vendor.compliance.service"
+import { getDuplicatePayoutFlags } from "./admin.vendor.payout.service"
+import { assertVendorDocumentReviewableByActor } from "./admin.vendor.compliance-case.service"
 
 function assertCountryInScope(countryId: string, scope: AdminScopeContext): void {
   if (!scope.isGlobal && !scope.countryIds.includes(countryId)) {
@@ -174,7 +177,10 @@ const serviceLog = logger.child({ module: "vendor-ops-service" })
 
 //* Scope helper
 
-function buildVendorScopeFilter(scope: AdminScopeContext, requestedCountryId?: string) {
+// Exported for admin.vendor.compliance.service.ts's MISSING-document scan,
+// which needs the same scope filter directly against VendorAccount rather
+// than through the VendorDocument -> vendor relation.
+export function buildVendorScopeFilter(scope: AdminScopeContext, requestedCountryId?: string) {
   if (scope.isGlobal) {
     return requestedCountryId ? { countryId: requestedCountryId } : {}
   }
@@ -197,15 +203,27 @@ export async function listApplications(
     status?   : VendorApplicationStatus | VendorApplicationStatus[]
     countrySlug?: string
     search?   : string
+    /*
+     * Operational queues — thin filters over fields the review workflow
+     * already tracks, not a new workflow concept. Always layered on top
+     * of buildVendorScopeFilter below, never a substitute for it — a
+     * country-scoped admin's "mine"/"unassigned"/"escalated" queues stay
+     * confined to their own scope exactly like the unfiltered list.
+     *   mine       — assignedReviewerId = actorId
+     *   unassigned — no reviewer AND never escalated (a fresh, untouched application)
+     *   escalated  — escalatedByAdminId set, regardless of current assignment
+     */
+    queue?    : "mine" | "unassigned" | "escalated"
     sort?     : string
     dir?      : string
     page?     : number
     pageSize? : number
   },
   adminScope: AdminScopeContext,
+  actorId?  : string,
 ) {
 
-  const { status, countrySlug, search, page = 1, pageSize = 20 } = filters
+  const { status, countrySlug, search, queue, page = 1, pageSize = 20 } = filters
 
   // countrySlug is optional — most admins browse across their entire scope,
   // not one country at a time. Only resolve/narrow when one was actually
@@ -219,6 +237,12 @@ export async function listApplications(
   const sortDir    = filters.dir === "asc" ? "asc" : "desc"
   const skip       = (page - 1) * pageSize
 
+  const queueFilter =
+    queue === "mine" && actorId  ? { assignedReviewerId: actorId }
+    : queue === "unassigned"    ? { assignedReviewerId: null, escalatedByAdminId: null }
+    : queue === "escalated"     ? { escalatedByAdminId: { not: null } }
+    : {}
+
   const where: any = {
     ...buildVendorScopeFilter(adminScope, countryId),
     // DRAFT applications are the vendor's own in-progress, unsubmitted
@@ -228,6 +252,7 @@ export async function listApplications(
     ...(status
       ? Array.isArray(status) ? { status: { in: status } } : { status }
       : { status: { not: VendorApplicationStatus.DRAFT } }),
+    ...queueFilter,
     ...(search ? {
       OR: [
         { legalBusinessName: { contains: search, mode: "insensitive" } },
@@ -896,6 +921,15 @@ export async function approveDocument(
     throw new ApiError(403, "This document is outside your scope", "SCOPE_FORBIDDEN")
   }
 
+  // 2026-08-26 refinement (CLAUDE.md) — a vendor-account document (not an
+  // application-time one) currently tied to an active compliance case can
+  // only be reviewed by that case's claimed owner. A no-op if no case
+  // exists for this vendor+documentType (e.g. a future non-compliance
+  // account-document flow) — see assertVendorDocumentReviewableByActor.
+  if (doc.vendorId) {
+    await assertVendorDocumentReviewableByActor(doc.vendorId, doc.documentTypeId, actorId)
+  }
+
   const updated = await prisma.vendorDocument.update({
     where: { id: documentId },
     data : {
@@ -951,6 +985,14 @@ export async function rejectDocument(
 
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(countryId)) {
     throw new ApiError(403, "This document is outside your scope", "SCOPE_FORBIDDEN")
+  }
+
+  // 2026-08-26 refinement (CLAUDE.md) — see approveDocument's identical
+  // gate above. For a compliance-linked document this is what the admin
+  // dashboard frames as "send back for revision" (REJECTED + revisionNotes
+  // is already exactly that shape — no rejecting outright, just this).
+  if (doc.vendorId) {
+    await assertVendorDocumentReviewableByActor(doc.vendorId, doc.documentTypeId, actorId)
   }
 
   const updated = await prisma.vendorDocument.update({
@@ -1055,7 +1097,7 @@ export async function listVendorAccounts(
 
 //* Get one vendor account
 
-export async function getVendorAccount(vendorId: string, actorScope: AdminScopeContext) {
+export async function getVendorAccount(vendorId: string, actorScope: AdminScopeContext, actorPermissions: AdminPermissionKey[] = []) {
   const account = await prisma.vendorAccount.findUnique({
     where  : { id: vendorId },
     include: {
@@ -1074,11 +1116,15 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
           adminStatus : true,
           reviewStatus: true,
           cityId      : true,
+          latitude    : true,
+          longitude   : true,
+          addressLine1: true,
+          createdAt   : true,
         },
       },
       documents: {
         where  : { supersededAt: null },
-        include: { documentType: { select: { id: true, name: true } } },
+        include: { documentType: { select: { id: true, name: true, expiryWarningDays: true } } },
         orderBy: { uploadedAt: "desc" },
       },
       payoutAccounts: {
@@ -1098,10 +1144,51 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
     throw new ApiError(403, "This vendor is outside your scope", "SCOPE_FORBIDDEN")
   }
 
-  return account
+  // Outlet.cityId is a plain scalar FK, not a Prisma relation (City has no
+  // back-relation to Outlet in schema.prisma) — so the city name can't come
+  // through an `include`. Batch-fetch it separately rather than N+1ing.
+  const cityIds = [...new Set(account.outlets.map((o) => o.cityId))]
+  const cities = cityIds.length
+    ? await prisma.city.findMany({ where: { id: { in: cityIds } }, select: { id: true, name: true } })
+    : []
+  const cityById = new Map(cities.map((c) => [c.id, c]))
+  const outlets = account.outlets.map((o) => ({ ...o, city: cityById.get(o.cityId) ?? null }))
+
+  // Compliance visibility is its own permission (VENDORS_COMPLIANCE_READ) —
+  // an admin who can read the vendor directory but wasn't granted
+  // compliance access gets no `compliance` field at all, not an empty one.
+  // Includes MISSING (no document uploaded at all for something required)
+  // alongside EXPIRED/EXPIRING_SOON — account.documents alone can't tell
+  // you about a document that was never uploaded, which is exactly the
+  // blind spot this used to have (see getVendorComplianceIssues).
+  const canReadCompliance = actorPermissions.includes(AdminPermissions.VENDORS_COMPLIANCE_READ)
+  const complianceIssues = canReadCompliance ? await getVendorComplianceIssues(vendorId, actorScope) : null
+  const compliance = complianceIssues && {
+    hasIssues    : complianceIssues.some((i) => i.issueStatus !== "WAIVED"),
+    missingCount : complianceIssues.filter((i) => i.issueStatus === "MISSING").length,
+    expiredCount : complianceIssues.filter((i) => i.issueStatus === "EXPIRED").length,
+    expiringCount: complianceIssues.filter((i) => i.issueStatus === "EXPIRING_SOON").length,
+    issues       : complianceIssues,
+  }
+
+  // Roadmap VM-P2-02 (CLAUDE.md) — duplicate bank/mobile-money account
+  // detection, gated the same way as compliance above: only computed (and
+  // only ever shown) for an admin who actually holds payout-management
+  // access, not exposed as a side channel to anyone who can merely view
+  // the vendor.
+  const canManagePayouts = actorPermissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_MANAGE)
+  const duplicateFlags = canManagePayouts
+    ? await getDuplicatePayoutFlags(vendorId, account.countryId)
+    : new Map<string, number>()
+  const payoutAccounts = account.payoutAccounts.map((p) => ({
+    ...p,
+    duplicateElsewhere: duplicateFlags.get(p.id) ?? 0,
+  }))
+
+  return { ...account, outlets, compliance, payoutAccounts }
 }
 
-//* Suspend 
+//* Suspend
 // Also deactivates all payout accounts — vendor should not receive payouts while suspended.
 
 export async function suspendVendor(

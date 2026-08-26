@@ -64,6 +64,8 @@ export interface ApplicationDetail {
   rejectionReason   : string | null
   revisionNotes     : string | null
   reasonCode        : string | null
+  termsVersion      : string | null
+  termsAcceptedAt   : string | null
   assignedReviewerId: string | null
   assignedReviewerName: string | null
   escalatedByAdminId  : string | null
@@ -129,6 +131,142 @@ export interface VendorMetrics {
     type: string
     count: number
   }[]
+}
+
+export type ComplianceIssueStatus = "MISSING" | "EXPIRED" | "EXPIRING_SOON" | "WAIVED"
+export type ComplianceIssueKind   = "MISSING" | "EXPIRED" | "EXPIRING_SOON"
+export type ComplianceSeverity    = "LOW" | "MEDIUM" | "CRITICAL"
+export type ComplianceCaseStatus  = "OPEN" | "CLAIMED" | "ESCALATED" | "RESOLVED" | "WAIVED"
+
+export interface ComplianceWaiver {
+  id              : string
+  reason          : string
+  expiresAt       : string
+  grantedByAdminId: string
+}
+
+export interface ComplianceCaseInfo {
+  id                  : string
+  status              : ComplianceCaseStatus
+  createdAt           : string
+  assignedReviewerId  : string | null
+  assignedReviewerName: string | null
+  assignedAt          : string | null
+  escalatedByAdminId  : string | null
+  escalatedByAdminName: string | null
+  escalatedAt         : string | null
+  escalationReason    : string | null
+  // 2026-08-26 refinement (CLAUDE.md) — true only while the CURRENT
+  // assignment was claimed directly out of the open escalation pool;
+  // gates whether the current owner may escalate again.
+  claimedFromEscalation: boolean
+}
+
+export interface ComplianceIssueItem {
+  /** A real VendorDocument id, or `missing:{vendorId}:{documentTypeId}` for a MISSING issue — there's no document row to key by. */
+  id            : string
+  issueStatus   : ComplianceIssueStatus
+  /** The original trigger kind — stable even once issueStatus flips to WAIVED. Used to act on the issue (claim/escalate/notify all key on this triple). */
+  caseKind      : ComplianceIssueKind
+  severity      : ComplianceSeverity
+  inGracePeriod : boolean
+  expiryDate    : string | null
+  documentType  : { id: string; name: string }
+  vendor        : { id: string; legalBusinessName: string; countryId: string; status: string }
+  waiver?       : ComplianceWaiver
+  case?         : ComplianceCaseInfo
+}
+
+export interface ComplianceOverviewResult {
+  issues              : ComplianceIssueItem[]
+  total               : number
+  page                : number
+  pageSize            : number
+  totalPages          : number
+  missingCount        : number
+  expiredCount        : number
+  expiringCount       : number
+  waivedCount         : number
+  affectedVendorCount : number
+}
+
+export interface VendorComplianceSummary {
+  hasIssues    : boolean
+  missingCount : number
+  expiredCount : number
+  expiringCount: number
+  issues       : ComplianceIssueItem[]
+}
+
+export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
+
+export interface VendorPayoutAccount {
+  id                : string
+  isDefault         : boolean
+  isActive          : boolean
+  accountHolderName : string | null
+  bankName          : string | null
+  branchName        : string | null
+  accountNumber     : string | null
+  mobileNetwork     : string | null
+  mobileNumber      : string | null
+  paypalEmail       : string | null
+  stripeAccountId   : string | null
+  verificationStatus: PayoutVerificationStatus
+  verificationMethod: string | null
+  failureReason     : string | null
+  verifiedAt        : string | null
+  createdAt         : string
+  // Roadmap VM-P2-02 (CLAUDE.md) — count of other vendors (same country)
+  // with a payout account sharing this account/mobile number. 0 = none.
+  // Only ever non-zero for a viewer holding VENDORS_PAYOUT_ACCOUNTS_MANAGE.
+  duplicateElsewhere: number
+  countryPaymentMethod: {
+    paymentMethod: { name: string; type: string; code: string }
+  }
+}
+
+export interface CommissionRateHistoryEntry {
+  id                 : string
+  previousRate       : number | null
+  newRate            : number
+  reason             : string | null
+  changedByAdminId   : string
+  changedByAdminName : string | null
+  createdAt          : string
+}
+
+export type AppealSubjectType = "APPLICATION_REJECTION" | "ACCOUNT_SUSPENSION" | "ACCOUNT_BAN"
+export type AppealStatus      = "OPEN" | "UNDER_REVIEW" | "UPHELD" | "OVERTURNED"
+
+export interface VendorAppeal {
+  id                  : string
+  applicationId       : string | null
+  vendorId            : string | null
+  subjectType         : AppealSubjectType
+  subjectName         : string
+  countryId           : string | null
+  reason              : string
+  status              : AppealStatus
+  assignedReviewerId  : string | null
+  assignedReviewerName: string | null
+  assignedAt          : string | null
+  resolvedAt          : string | null
+  resolvedByAdminId   : string | null
+  resolvedByAdminName : string | null
+  resolutionNote      : string | null
+  createdByAdminId    : string
+  createdByAdminName  : string | null
+  createdAt           : string
+  updatedAt           : string
+}
+
+export interface VendorAppealListResult {
+  appeals   : VendorAppeal[]
+  total     : number
+  page      : number
+  pageSize  : number
+  totalPages: number
 }
 
 export interface LatestVendorApplication {

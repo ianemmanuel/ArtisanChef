@@ -77,9 +77,16 @@ export const ROLE_SCOPE_RULES: Record<string, {
     description  : "Identity admin manages users within a country. Global scope available for cross-country HR leads.",
   },
   finance: {
-    allowedScopes: ["COUNTRY"],
+    // GLOBAL added 2026-08-26 (CLAUDE.md, "Payment gateway infrastructure")
+    // specifically for platform-wide payment-method governance
+    // (FINANCE_PAYMENT_METHODS_MANAGE) — a senior/global finance lead
+    // configuring payment gateways across every country. Ordinary
+    // per-country financial work (payouts, discounts, reports) stays
+    // COUNTRY-scoped by default; GLOBAL is an available, not automatic,
+    // choice for this role.
+    allowedScopes: ["GLOBAL", "COUNTRY"],
     defaultScope : "COUNTRY",
-    description  : "Finance operates per legal entity (country). City scope is not meaningful for financial data.",
+    description  : "Finance operates per legal entity (country) for day-to-day work; global scope is available for platform-wide payment-gateway governance.",
   },
   vendor_ops: {
     allowedScopes: ["COUNTRY", "CITY"],

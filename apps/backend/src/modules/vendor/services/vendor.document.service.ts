@@ -321,16 +321,23 @@ export async function deleteVendorDocument(vendorUserId: string, documentId: str
   return getUploadProgress(document.application)
 }
 
+/*
+ * Shared by both application-time documents (applicationId set) and
+ * account-level ones (vendorId set — see vendor.accountDocument.service.ts)
+ * — same preview endpoint, ownership just resolves through whichever
+ * parent the document actually has.
+ */
 export async function getVendorDocumentViewUrl(vendorUserId: string, documentId: string) {
   const document = await prisma.vendorDocument.findUnique({
     where  : { id: documentId },
-    include: { application: true },
+    include: { application: { select: { userId: true } }, vendor: { select: { userId: true } } },
   })
 
-  if (!document || !document.application) {
+  if (!document || (!document.application && !document.vendor)) {
     throw new ApiError(404, "Document not found", "DOCUMENT_NOT_FOUND")
   }
-  if (document.application.userId !== vendorUserId) {
+  const owns = document.application?.userId === vendorUserId || document.vendor?.userId === vendorUserId
+  if (!owns) {
     throw new ApiError(403, "Unauthorized", "FORBIDDEN")
   }
 

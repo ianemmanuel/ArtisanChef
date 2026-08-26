@@ -4,10 +4,11 @@ import Link from "next/link"
 import { Building2, ShieldAlert, CheckCircle, Ban } from "lucide-react"
 import { adminFetch } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
-import { TableFilterBar, type FilterStatusOption } from "@/components/shared/TableFilterBar"
+import { TableFilterBar, type FilterStatusOption, type FilterSelectOption, type FilterSortOption } from "@/components/shared/TableFilterBar"
 import { VendorAccountsTable } from "@/components/vendors/VendorAccountsTable"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { VendorListResult } from "@/types"
+import type { CountryListLite, CountryLite, VendorTypeListResult } from "@/types/vendor-type.types"
 
 export const metadata: Metadata = { title: "Vendor Accounts" }
 export const revalidate = 60
@@ -20,8 +21,14 @@ const STATUS_OPTIONS: FilterStatusOption[] = [
   { value: "BANNED",    label: "Banned",    dot: "bg-destructive" },
 ]
 
+const SORT_OPTIONS: FilterSortOption[] = [
+  { value: "createdAt",         label: "Date joined",   icon: "updown" },
+  { value: "legalBusinessName", label: "Business name", icon: "az" },
+  { value: "status",            label: "Status",         icon: "updown" },
+]
+
 interface PageProps {
-  searchParams: Promise<{ page?: string; search?: string; status?: string }>
+  searchParams: Promise<{ page?: string; search?: string; status?: string; country?: string; category?: string; sort?: string; dir?: string }>
 }
 
 export default async function VendorAccountsPage({ searchParams }: PageProps) {
@@ -29,33 +36,68 @@ export default async function VendorAccountsPage({ searchParams }: PageProps) {
 
   if (!session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_READ)) redirect("/vendors")
 
-  const params   = await searchParams
-  const page     = params.page   ?? "1"
-  const search   = params.search ?? ""
-  const status   = params.status ?? ""
+  const params  = await searchParams
+  const page    = params.page    ?? "1"
+  const search  = params.search  ?? ""
+  const status  = params.status  ?? ""
+  const country = params.country ?? ""
+  const category = params.category ?? ""
+  const sort    = params.sort    ?? "createdAt"
+  const dir     = params.dir     ?? "desc"
+
+  // Country picker options — /admin/v1/countries is itself scope-aware, so
+  // a country-scoped admin already only gets their own country/countries
+  // back here. A country filter must never widen access beyond that.
+  const canReadCategories = session.permissions.includes(AdminPermissions.SETTINGS_VENDOR_TYPES_READ)
+  const [countriesResult, categoriesResult] = await Promise.all([
+    adminFetch<CountryListLite>(`/admin/v1/countries?status=ACTIVE&pageSize=500`, {
+      next: { revalidate: 300, tags: ["active-countries"] },
+    }).catch(() => null),
+    // Gated the same way as the sidebar's Vendor Categories link — an admin
+    // without SETTINGS_VENDOR_TYPES_READ never gets a category filter,
+    // rather than the request 403ing.
+    canReadCategories
+      ? adminFetch<VendorTypeListResult>(`/admin/v1/vendor-types?status=ACTIVE&pageSize=200`, {
+          next: { revalidate: 300, tags: ["vendor-types"] },
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ])
+  const countryOptions: FilterSelectOption[] = (countriesResult?.countries ?? []).map((c: CountryLite) => ({
+    value: c.slug, label: c.name,
+  }))
+  const showCountryFilter = countryOptions.length > 1
+  // Value is the vendor type's id (not slug) — listVendorAccounts filters
+  // by vendorTypeId directly, no slug resolution needed.
+  const categoryOptions: FilterSelectOption[] = (categoriesResult?.vendorTypes ?? []).map((c) => ({
+    value: c.id, label: c.name,
+  }))
+  const showCategoryFilter = categoryOptions.length > 1
 
   // BANNED is identity-level (VendorUser.isBanned), not a VendorAccount
   // status — VendorStatus only has ACTIVE/SUSPENDED (see admin.vendor.service.ts).
   // The status dropdown still offers "Banned" as an option; translate it to
   // bannedOnly rather than passing an invalid status value straight through.
   const isBannedFilter = status === "BANNED"
-  const qs = new URLSearchParams({
-    page, pageSize: String(PAGE_SIZE),
-    ...(search ? { search }  : {}),
-    ...(isBannedFilter ? { bannedOnly: "true" } : status && status !== "all" ? { status } : {}),
-  })
+  const qsParams: Record<string, string> = { page, pageSize: String(PAGE_SIZE), sort, dir }
+  if (search) qsParams.search = search
+  if (isBannedFilter) qsParams.bannedOnly = "true"
+  else if (status && status !== "all") qsParams.status = status
+  if (country) qsParams.countrySlug = country
+  if (category) qsParams.vendorTypeId = category
+  const qs = new URLSearchParams(qsParams)
 
+  const countryQs = country ? `&countrySlug=${country}` : ""
   const [result, active, suspended, banned] = await Promise.all([
     adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?${qs}`, {
       next: { revalidate: 60, tags: ["vendor-accounts"] },
     }).catch(() => null),
-    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?status=ACTIVE&pageSize=1`, {
+    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?status=ACTIVE&pageSize=1${countryQs}`, {
       next: { revalidate: 60 },
     }).catch(() => null),
-    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?status=SUSPENDED&pageSize=1`, {
+    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?status=SUSPENDED&pageSize=1${countryQs}`, {
       next: { revalidate: 60 },
     }).catch(() => null),
-    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?bannedOnly=true&pageSize=1`, {
+    adminFetch<VendorListResult>(`/admin/v1/vendors/accounts?bannedOnly=true&pageSize=1${countryQs}`, {
       next: { revalidate: 60 },
     }).catch(() => null),
   ])
@@ -109,10 +151,24 @@ export default async function VendorAccountsPage({ searchParams }: PageProps) {
         defaultSearch={search}
         statusOptions={STATUS_OPTIONS}
         defaultStatus={status}
+        sortOptions={SORT_OPTIONS}
+        defaultSort={sort}
+        defaultDir={dir}
+        {...(showCountryFilter ? { countryOptions, defaultCountry: country } : {})}
+        {...(showCategoryFilter ? { categoryOptions, categoryLabel: "Category", defaultCategory: category } : {})}
       />
 
       {/* Table */}
-      <VendorAccountsTable result={result} page={page} search={search} status={status} />
+      <VendorAccountsTable
+        result={result}
+        page={page}
+        search={search}
+        status={status}
+        country={country}
+        category={category}
+        sort={sort}
+        dir={dir}
+      />
     </div>
   )
 }

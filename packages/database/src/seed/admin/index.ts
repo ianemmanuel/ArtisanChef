@@ -5,7 +5,10 @@
  * Ordering matters:
  *   1. Roles + Permissions have no dependency on each other — run in parallel.
  *   2. Role-Permission pools depend on both of the above existing first.
- *   3. Action reasons are independent of everything else.
+ *   3. Super admin permission sync depends on the pools existing (step 2) —
+ *      it grants existing super_admin AdminUsers whatever new pool
+ *      permissions they don't already individually hold.
+ *   4. Action reasons are independent of everything else.
  *
  * The system actor (SYSTEM_USER_ID) is seeded separately by
  * src/seed/system/index.ts — see the root orchestrator for ordering.
@@ -24,6 +27,7 @@ import { seedRoles } from './roles.seed'
 import { seedPermissions } from './permissions.seed'
 import { seedRolePermissions } from './role-permissions.seed'
 import { seedActionReasons } from './action-reasons.seed'
+import { syncSuperAdminPermissions } from './sync-super-admin-permissions.seed'
 // TODO: wire these in once their data files exist
 // import { seedFeatureFlags } from './feature-flags.seed'
 // import { seedSystemSettings } from './system-settings.seed'
@@ -31,7 +35,7 @@ import { seedActionReasons } from './action-reasons.seed'
 export async function seedAdmin() {
   console.log("🌱 Seeding DailyBread admin infrastructure...\n")
 
-  console.log("  [1/4] Roles + Permissions...")
+  console.log("  [1/5] Roles + Permissions...")
   const [roleCount, permCount] = await Promise.all([
     seedRoles(),
     seedPermissions(),
@@ -39,15 +43,19 @@ export async function seedAdmin() {
   console.log(`        ✓ ${roleCount} roles`)
   console.log(`        ✓ ${permCount} permissions`)
 
-  console.log("  [2/4] Role permission pools...")
+  console.log("  [2/5] Role permission pools...")
   const poolCount = await seedRolePermissions()
   console.log(`        ✓ ${poolCount} pool entries`)
 
-  console.log("  [3/4] Action reasons...")
+  console.log("  [3/5] Super admin permission sync...")
+  const syncedCount = await syncSuperAdminPermissions()
+  console.log(`        ✓ ${syncedCount} permission(s) granted to existing super admin(s)`)
+
+  console.log("  [4/5] Action reasons...")
   const reasonCount = await seedActionReasons()
   console.log(`        ✓ ${reasonCount} action reasons`)
 
-  // console.log("  [4/4] Feature flags + system settings...")
+  // console.log("  [5/5] Feature flags + system settings...")
   // await seedFeatureFlags()
   // await seedSystemSettings()
 

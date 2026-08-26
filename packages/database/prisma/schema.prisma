@@ -47,6 +47,7 @@ model AdminUser {
   permissions         AdminUserPermission[] @relation("UserPermissions")
   granted             AdminUserPermission[] @relation("PermissionGrantedBy")
   auditLogs           AuditLog[]
+  notifications       AdminNotification[]
 
   @@index([clerkUserId])
   @@index([roleId])
@@ -58,6 +59,35 @@ model AdminUser {
 enum AdminReviewAvailability {
   AVAILABLE
   UNAVAILABLE
+}
+
+//* Admin-facing in-app notification center — the AdminUser counterpart to
+//* VendorNotification. Starts with one type (a stale-unclaimed compliance
+//* case nudge, see compliance-case-sync.job.ts); metadata carries enough
+//* to deep-link (e.g. vendorId/documentTypeId) without needing per-type
+//* columns. Deliberately no email/push here — this is the in-app-only
+//* notification the user asked for; email escalation for admins, if ever
+//* needed, is a separate future decision, not assumed here.
+model AdminNotification {
+  id          String                @id @default(uuid())
+  adminUserId String
+  type        AdminNotificationType
+  title       String
+  message     String
+  metadata    Json?
+  isRead      Boolean               @default(false)
+  readAt      DateTime?
+  createdAt   DateTime              @default(now())
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([adminUserId, isRead])
+  @@index([createdAt])
+}
+
+enum AdminNotificationType {
+  COMPLIANCE_CASE_STALE
 }
 
 model AdminRole {
@@ -478,6 +508,7 @@ model VendorCommissionConfig {
 model VendorType {
   id               String           @id @default(uuid())
   name             String           @unique
+  slug             String           @unique
   description      String?
   status           VendorTypeStatus @default(ACTIVE)
   createdByAdminId String?
@@ -521,6 +552,21 @@ model DocumentTypeConfig {
   isRequired        Boolean            @default(true)
   requiresExpiry    Boolean            @default(true)
   expiryWarningDays Int                @default(30)
+  //* Compliance framework (phase 2) — see admin.vendor.compliance.service.ts.
+  //* complianceSeverity: how urgent an issue on this document type is,
+  //* shown/sorted on /vendors/compliance — purely informational today, no
+  //* automatic enforcement reads it yet.
+  //* gracePeriodDays: tolerance window after expiryDate before an expired
+  //* document counts as a hard EXPIRED issue instead of the softer
+  //* "in grace period" state.
+  //* enforcedFrom: when set, a vendor missing this (now-required) document
+  //* only becomes a MISSING compliance issue once this date has passed —
+  //* lets a newly-added requirement roll out with a transition window
+  //* instead of instantly flagging every existing vendor. Null = enforced
+  //* immediately (the default for a type with no rollout need).
+  complianceSeverity DocumentComplianceSeverity @default(MEDIUM)
+  gracePeriodDays    Int                         @default(0)
+  enforcedFrom       DateTime?
   instructions      String?
   sampleUrl         String?
   status            DocumentTypeStatus @default(ACTIVE)
@@ -540,6 +586,8 @@ model DocumentTypeConfig {
   storeDocuments    OutletDocument[]
   storeInheritances OutletDocumentInheritance[]
   vendorDocuments   VendorDocument[]
+  complianceWaivers VendorComplianceWaiver[]
+  complianceCases   VendorComplianceCase[]
 
   @@unique([code, countryId, cityId])
   @@index([countryId])
@@ -560,6 +608,163 @@ model DocumentTypeVendorType {
   @@unique([documentTypeId, vendorTypeId])
   @@index([documentTypeId])
   @@index([vendorTypeId])
+}
+
+//* Compliance framework (phase 3) — an admin-granted exception that
+//* suppresses one vendor+documentType compliance issue (of any kind —
+//* MISSING, EXPIRED, EXPIRING_SOON) from counting toward "open issues"
+//* until it expires, without faking the underlying document as approved.
+//* Vendor-scoped only for now (VendorComplianceWaiver, not a generic
+//* polymorphic waiver) — when outlet administration is built, an
+//* analogous OutletComplianceWaiver is the expected shape, not a
+//* migration of this model; see CLAUDE.md's compliance section.
+model VendorComplianceWaiver {
+  id               String    @id @default(uuid())
+  vendorId         String
+  documentTypeId   String
+  reason           String
+  expiresAt        DateTime
+  grantedByAdminId String
+
+  //* Revocation, not deletion — an admin can end a waiver early, but the
+  //* record (and who granted it) stays in the audit trail.
+  revokedAt        DateTime?
+  revokedByAdminId String?
+  revokedReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor       VendorAccount      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  documentType DocumentTypeConfig @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([documentTypeId])
+  @@index([expiresAt])
+}
+
+//* Compliance case workflow (phase "claim/escalate", 2026-08-25) — a
+//* persistent, claimable/escalatable record of one open compliance issue,
+//* modeled deliberately close to VendorApplication's review workflow
+//* (assignedReviewerId/escalatedByAdminId/escalationReason) so the two
+//* feel like siblings, not two different systems. Distinct from
+//* VendorComplianceWaiver (an exception on the underlying issue) — a case
+//* can be OPEN/CLAIMED/ESCALATED while a waiver is separately granted or
+//* not; when it is, the case moves to WAIVED too (see
+//* admin.vendor.compliance-case.service.ts).
+//*
+//* Kept in sync with live detection (getComplianceOverview's candidate
+//* list) by a periodic reconciliation job
+//* (jobs/vendor/compliance-case-sync.job.ts), not synchronously on every
+//* read — same "detect on a schedule, not instantly" philosophy as the
+//* document-expiry cron. A case for an issue that no longer exists (the
+//* vendor fixed it) is auto-marked RESOLVED by that same job.
+model VendorComplianceCase {
+  id             String               @id @default(uuid())
+  vendorId       String
+  documentTypeId String
+  issueType      ComplianceIssueKind
+  //* Snapshotted from DocumentTypeConfig.complianceSeverity at case-open
+  //* time — a later severity edit on the document type shouldn't silently
+  //* rewrite the urgency of a case already being worked.
+  severity       DocumentComplianceSeverity
+  status         ComplianceCaseStatus @default(OPEN)
+
+  assignedReviewerId String?
+  assignedAt         DateTime?
+
+  //* Escalation — permanent, non-clearing marker, same convention as
+  //* VendorApplication.escalatedByAdminId: the escalating admin is locked
+  //* out of claiming this case again. Claimable from the open-escalation
+  //* pool only by holders of VENDORS_COMPLIANCE_RECEIVE_ESCALATION who are
+  //* ALSO country-scoped to the vendor's own country — deliberately
+  //* excludes globally-scoped admins, unlike the applications escalation
+  //* pool (see claimEscalatedComplianceCase). Compliance follow-up stays
+  //* with the local country team.
+  escalatedByAdminId String?
+  escalatedAt        DateTime?
+  escalationReason   String?
+
+  //* Roadmap "compliance case workflow refinement" (CLAUDE.md) — true only
+  //* while the CURRENT assignment was obtained by self-service claiming
+  //* out of the open escalation pool (claimComplianceCase's escalation
+  //* branch). Distinct from escalatedByAdminId (which is permanent and
+  //* tracks WHO escalated, for their own lock-out) — this tracks HOW the
+  //* current holder got it, and gates whether THEY may escalate again:
+  //* a self-service escalation claim is terminal (must resolve directly),
+  //* but a reassignment (even one that lands on the same admin, or one
+  //* that hands an already-escalated case to someone new) resets this to
+  //* false, since reassignment is a deliberate supervisory hand-off, not
+  //* the admin opting into being the end of the line.
+  claimedFromEscalation Boolean @default(false)
+
+  resolvedAt        DateTime?
+  resolvedByAdminId String?
+  resolutionNote     String?
+
+  notifiedCount  Int       @default(0)
+  lastNotifiedAt DateTime?
+
+  //* Set once the 24h-unclaimed stale alert has fired for this case (see
+  //* COMPLIANCE_CASE_STALE_NOTIFY_HOURS, compliance-case-sync.job.ts) —
+  //* prevents re-notifying every cron run. Independent of the separate
+  //* 7-day auto-escalation threshold (COMPLIANCE_CASE_STALE_DAYS) — this
+  //* is a softer, earlier nudge to designated staff, not an escalation.
+  staleNotifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor       VendorAccount      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  documentType DocumentTypeConfig @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([documentTypeId])
+  @@index([status])
+  @@index([assignedReviewerId, status])
+  @@index([escalatedByAdminId, status])
+}
+
+//* Vendor-facing notifications (compliance for now — deliberately generic
+//* enough to carry other types later). Backend-only for this pass: writes
+//* here, plus the vendor-facing read/list route, exist so the data is
+//* ready the moment vendor-dashboard work picks this up — no
+//* vendor-dashboard UI reads it yet (see CLAUDE.md).
+model VendorNotification {
+  id        String                 @id @default(uuid())
+  vendorId  String
+  type      VendorNotificationType
+  title     String
+  message   String
+  metadata  Json?
+  isRead    Boolean                @default(false)
+  readAt    DateTime?
+  createdAt DateTime               @default(now())
+
+  vendor VendorAccount @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([vendorId, isRead])
+  @@index([createdAt])
+}
+
+//* Roadmap Phase 2 (CLAUDE.md) — VendorAccount.commissionRate was a
+//* mutable field with no admin action to change it and no record of what
+//* it was when. This is that record; admin.vendor.commission.service.ts
+//* is what actually writes both this and the live commissionRate together.
+model VendorCommissionRateHistory {
+  id               String   @id @default(uuid())
+  vendorId         String
+  previousRate     Float?
+  newRate          Float
+  reason           String?
+  changedByAdminId String
+  createdAt        DateTime @default(now())
+
+  vendor VendorAccount @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([createdAt])
 }
 
 model VendorUser {
@@ -622,6 +827,11 @@ model VendorAccount {
   documents             VendorDocument[]
   payoutAccounts        VendorPayoutAccount[]
   vendorProfile         VendorProfile?
+  complianceWaivers     VendorComplianceWaiver[]
+  complianceCases       VendorComplianceCase[]
+  notifications         VendorNotification[]
+  commissionRateHistory VendorCommissionRateHistory[]
+  appeals               VendorAppeal[]
 
   @@unique([companyRegNumber, countryId])
   @@unique([taxRegistrationNumber, countryId])
@@ -705,6 +915,15 @@ model VendorApplication {
   submittedAt        DateTime?
   reviewedAt         DateTime?
   approvedAt         DateTime?
+
+  //* Roadmap Phase 2 (CLAUDE.md) — legal/audit trail for "did they agree
+  //* to something, and which version." Set by submitApplication when the
+  //* submitting client sends termsVersion (vendor-dashboard integration
+  //* is a separate, later piece of work — these stay null until it sends
+  //* one). Deliberately not required to submit yet — enforcing it before
+  //* the client actually sends it would just break submission entirely.
+  termsVersion       String?
+  termsAcceptedAt    DateTime?
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
 
@@ -737,10 +956,80 @@ model VendorApplication {
   user          VendorUser?    @relation(fields: [userId], references: [id])
   vendorType    VendorType     @relation(fields: [vendorTypeId], references: [id])
   documents     VendorDocument[]
+  appeals       VendorAppeal[]
 
   @@index([status])
   @@index([countryId])
   @@index([assignedReviewerId, status])
+}
+
+//* Roadmap VM-P1-04 (CLAUDE.md) — admin-side log/track/resolve of a
+//* formal appeal against an adverse vendor decision (a rejected
+//* application, an account suspension, or a ban). Vendor self-service
+//* submission is deferred to the vendor-dashboard phase — every row here
+//* is logged by an admin who received the appeal through another channel
+//* (email, support ticket, etc.), same "record what happened" spirit as
+//* VendorComplianceCase, but deliberately simpler: no claim-race lockout,
+//* no escalation pool — appeal volume doesn't justify that machinery, and
+//* the roadmap explicitly calls for the simplest workable model.
+//*
+//* Exactly one of applicationId/vendorId is set, matching subjectType —
+//* same "one row, two possible anchors" convention as VendorDocument,
+//* needed because a rejected VendorApplication never becomes a
+//* VendorAccount, so there's no single FK that covers all three subject
+//* types.
+//*
+//* Deliberately does NOT auto-reverse the underlying decision when
+//* resolved OVERTURNED — reinstating a suspended account or unbanning a
+//* vendor stays a separate, deliberate action via the existing
+//* reinstateVendor/unbanVendor flows (same "human decision via the
+//* existing action" pattern as compliance issues never auto-suspending).
+//* Overturning a rejected APPLICATION currently has no reversal action
+//* at all yet (no reopen-a-rejected-application transition exists in
+//* admin.vendor.service.ts) — a known, documented gap, not silently
+//* built around here.
+model VendorAppeal {
+  id            String            @id @default(uuid())
+  applicationId String?
+  vendorId      String?
+  subjectType   AppealSubjectType
+  reason        String
+  status        AppealStatus      @default(OPEN)
+
+  assignedReviewerId String?
+  assignedAt         DateTime?
+
+  resolvedAt         DateTime?
+  resolvedByAdminId  String?
+  resolutionNote     String?
+
+  //* Who logged this appeal — always an admin, since vendor self-service
+  //* submission doesn't exist yet (see model comment above).
+  createdByAdminId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  application VendorApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  vendor      VendorAccount?     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([assignedReviewerId, status])
+}
+
+enum AppealSubjectType {
+  APPLICATION_REJECTION
+  ACCOUNT_SUSPENSION
+  ACCOUNT_BAN
+}
+
+enum AppealStatus {
+  OPEN
+  UNDER_REVIEW
+  UPHELD
+  OVERTURNED
 }
 
 model VendorDocument {
@@ -1190,6 +1479,36 @@ enum OutletAdminStatus {
   ACTIVE
   SUSPENDED
   BANNED
+}
+
+enum DocumentComplianceSeverity {
+  LOW
+  MEDIUM
+  CRITICAL
+}
+
+//* What triggered a VendorComplianceCase — mirrors the detection-time
+//* ComplianceIssueStatus in admin.vendor.compliance.service.ts minus
+//* WAIVED (a resolution/exception, not a trigger kind).
+enum ComplianceIssueKind {
+  MISSING
+  EXPIRED
+  EXPIRING_SOON
+}
+
+enum ComplianceCaseStatus {
+  OPEN
+  CLAIMED
+  ESCALATED
+  RESOLVED
+  WAIVED
+}
+
+enum VendorNotificationType {
+  COMPLIANCE_MISSING_DOCUMENT
+  COMPLIANCE_EXPIRING_DOCUMENT
+  COMPLIANCE_EXPIRED_DOCUMENT
+  COMPLIANCE_CASE_RESOLVED
 }
 
 enum DocumentScope {

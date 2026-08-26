@@ -75,7 +75,8 @@ export async function listDocumentTypesForCountry(
         vendorTypeConfigs: {
           include: { vendorType: { select: { id: true, name: true } } },
         },
-        city: { select: { id: true, name: true } },
+        city  : { select: { id: true, name: true } },
+        _count: { select: { vendorDocuments: true, storeDocuments: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -95,10 +96,14 @@ export async function listDocumentTypesForCountry(
     : new Map<string, string>()
 
   return {
-    documentTypes: documentTypes.map((d) => ({
-      ...d,
-      deactivatedByName: d.deactivatedByAdminId ? deactivatorMap.get(d.deactivatedByAdminId) ?? null : null,
-    })),
+    documentTypes: documentTypes.map((d) => {
+      const { _count, ...rest } = d
+      return {
+        ...rest,
+        documentCount    : _count.vendorDocuments + _count.storeDocuments,
+        deactivatedByName: d.deactivatedByAdminId ? deactivatorMap.get(d.deactivatedByAdminId) ?? null : null,
+      }
+    }),
     total,
     page,
     pageSize,
@@ -113,14 +118,16 @@ export async function getDocumentType(id: string, scope: AdminScopeContext) {
       vendorTypeConfigs: {
         include: { vendorType: { select: { id: true, name: true } } },
       },
-      city: { select: { id: true, name: true } },
+      city  : { select: { id: true, name: true } },
+      _count: { select: { vendorDocuments: true, storeDocuments: true } },
     },
   })
 
   if (!documentType) throw new ApiError(404, "Document type not found", "NOT_FOUND")
   assertCountryInScope(documentType.countryId, scope)
 
-  return documentType
+  const { _count, ...rest } = documentType
+  return { ...rest, documentCount: _count.vendorDocuments + _count.storeDocuments }
 }
 
 /*
@@ -158,6 +165,13 @@ export async function createDocumentType(
     expiryWarningDays?: number
     instructions?: string
     sampleUrl?: string
+    // Compliance framework (phase 2) — severity/grace default to the
+    // schema's own defaults (MEDIUM/0) when omitted; enforcedFrom stays
+    // null (enforced immediately) unless the admin deliberately sets a
+    // future rollout date. See DocumentTypeConfig in schema.prisma.
+    complianceSeverity?: "LOW" | "MEDIUM" | "CRITICAL"
+    gracePeriodDays?: number
+    enforcedFrom?: string
   },
   actorId: string,
   scope: AdminScopeContext,
@@ -185,6 +199,9 @@ export async function createDocumentType(
       instructions     : input.instructions ?? null,
       sampleUrl        : input.sampleUrl ?? null,
       createdByAdminId : actorId,
+      ...(input.complianceSeverity ? { complianceSeverity: input.complianceSeverity } : {}),
+      ...(input.gracePeriodDays != null ? { gracePeriodDays: input.gracePeriodDays } : {}),
+      ...(input.enforcedFrom ? { enforcedFrom: new Date(input.enforcedFrom) } : {}),
     },
   })
 
@@ -212,6 +229,10 @@ export async function updateDocumentType(
     expiryWarningDays?: number
     instructions?: string
     sampleUrl?: string
+    complianceSeverity?: "LOW" | "MEDIUM" | "CRITICAL"
+    gracePeriodDays?: number
+    /** Empty string clears it back to null (immediate enforcement). */
+    enforcedFrom?: string
   },
   actorId: string,
   scope: AdminScopeContext,
@@ -219,6 +240,24 @@ export async function updateDocumentType(
   const existing = await prisma.documentTypeConfig.findUnique({ where: { id } })
   if (!existing) throw new ApiError(404, "Document type not found", "NOT_FOUND")
   assertCountryInScope(existing.countryId, scope)
+
+  // Roadmap VM-P1-05 — changing scope (e.g. VENDOR -> CITY) after real
+  // documents already exist against this type would quietly change what
+  // those existing VendorDocument/OutletDocument rows mean. Once any exist,
+  // block the change — deactivate-and-recreate is the safe path instead.
+  if (input.scope != null && input.scope !== existing.scope) {
+    const [vendorDocCount, outletDocCount] = await Promise.all([
+      prisma.vendorDocument.count({ where: { documentTypeId: id } }),
+      prisma.outletDocument.count({ where: { documentTypeId: id } }),
+    ])
+    if (vendorDocCount + outletDocCount > 0) {
+      throw new ApiError(
+        400,
+        "This document type already has real documents uploaded against it — its scope can no longer be changed. Deactivate it and create a new one instead.",
+        "SCOPE_CHANGE_BLOCKED",
+      )
+    }
+  }
 
   // scope/cityId travel together — changing one without validating against
   // the other could leave a CITY-scoped doc with no city, or a stray city
@@ -240,6 +279,9 @@ export async function updateDocumentType(
       ...(input.expiryWarningDays != null ? { expiryWarningDays: input.expiryWarningDays } : {}),
       ...(input.instructions != null ? { instructions: input.instructions } : {}),
       ...(input.sampleUrl != null ? { sampleUrl: input.sampleUrl } : {}),
+      ...(input.complianceSeverity != null ? { complianceSeverity: input.complianceSeverity } : {}),
+      ...(input.gracePeriodDays != null ? { gracePeriodDays: input.gracePeriodDays } : {}),
+      ...(input.enforcedFrom !== undefined ? { enforcedFrom: input.enforcedFrom ? new Date(input.enforcedFrom) : null } : {}),
     },
   })
 

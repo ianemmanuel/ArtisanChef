@@ -86,7 +86,10 @@ export const handlePreviewApplication = async (req: Request, res: Response, next
 export const handleSubmitApplication = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { vendorUser, application } = await getVendorApplication(req)
-    const updated = await submitApplication(vendorUser, application)
+    // Roadmap Phase 2 (CLAUDE.md) — optional today; vendor-dashboard
+    // sending it is a separate, later piece of work.
+    const { termsVersion } = req.body as { termsVersion?: string }
+    const updated = await submitApplication(vendorUser, application, termsVersion)
     return sendSuccess(res, { id: updated.id, status: updated.status }, "Application submitted successfully")
   } catch (err) { next(err) }
 }

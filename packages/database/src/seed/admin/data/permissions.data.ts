@@ -43,6 +43,61 @@ export const PERMISSIONS = [
     description: "Export vendor account data as CSV for reporting or compliance",
   },
   {
+    key        : "vendors:accounts:compliance_manage",
+    module     : "vendors",
+    description: "Waive or un-waive a vendor's compliance issue, and notify a vendor about one",
+  },
+  {
+    key        : "vendors:compliance:read",
+    module     : "vendors",
+    description: "View the cross-vendor compliance queue (missing, expired, and expiring documents)",
+  },
+  {
+    key        : "vendors:compliance:claim",
+    module     : "vendors",
+    description: "Claim an unclaimed compliance case to work on it",
+  },
+  {
+    key        : "vendors:compliance:escalate",
+    module     : "vendors",
+    description: "Escalate a compliance case to the senior-review pool",
+  },
+  {
+    key        : "vendors:compliance:receive_escalation",
+    module     : "vendors",
+    description: "Claim compliance cases from the escalation pool (country-scoped admins only, for their own country)",
+  },
+  {
+    key        : "vendors:compliance:reassign",
+    module     : "vendors",
+    description: "Reassign a compliance case directly to another admin",
+  },
+  {
+    key        : "vendors:compliance:receive_stale_alert",
+    module     : "vendors",
+    description: "Receive an in-app notification when a compliance case sits unclaimed too long (country-scoped admins only, for their own country)",
+  },
+  {
+    key        : "vendors:payout_accounts:manage",
+    module     : "vendors",
+    description: "Manually verify or reject a vendor's payout (bank/mobile-money/wallet) account",
+  },
+  {
+    key        : "vendors:accounts:commission_manage",
+    module     : "vendors",
+    description: "Change a vendor's commission rate (recorded in a versioned history)",
+  },
+  {
+    key        : "vendors:appeals:read",
+    module     : "vendors",
+    description: "View formal appeals logged against a rejected application, suspension, or ban",
+  },
+  {
+    key        : "vendors:appeals:manage",
+    module     : "vendors",
+    description: "Log, assign, and resolve a formal appeal against a rejected application, suspension, or ban",
+  },
+  {
     key        : "vendors:applications:read",
     module     : "vendors",
     description: "View vendor applications, submitted documents, and applicant details",
@@ -128,6 +183,16 @@ export const PERMISSIONS = [
     key        : "finance:discounts:deactivate",
     module     : "finance",
     description: "Deactivate a running discount campaign before its natural expiry",
+  },
+  {
+    key        : "finance:payment_methods:read",
+    module     : "finance",
+    description: "View the global payment-method catalog and per-country payment gateway configuration",
+  },
+  {
+    key        : "finance:payment_methods:manage",
+    module     : "finance",
+    description: "Create/edit the global payment-method catalog and configure/activate/deactivate per-country payment gateways (customer collection and vendor payout)",
   },
   {
     key        : "finance:reports:read",

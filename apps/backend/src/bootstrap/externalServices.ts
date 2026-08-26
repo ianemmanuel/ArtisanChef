@@ -3,10 +3,14 @@ import cron from "node-cron"
 
 import { env } from "@/env"
 import { logger } from "@/lib/pino/logger"
+import { startDocumentExpiryCron } from "@/jobs/vendor/document-expiry.job"
+import { startComplianceCaseSyncCron } from "@/jobs/vendor/compliance-case-sync.job"
 // TODO: point this at your real audit deletion job function
 // import { runAuditDeletionJob } from "@/services/audit"
 
 let auditCronTask: ReturnType<typeof cron.schedule> | undefined
+let documentExpiryCronTask: ReturnType<typeof cron.schedule> | undefined
+let complianceCaseSyncCronTask: ReturnType<typeof cron.schedule> | undefined
 
 //* R2 client — construction is synchronous and doesn't touch the
 //* network, so there's nothing to await. Kept as a singleton here so
@@ -43,10 +47,15 @@ export async function initExternalServices() {
   } else {
     logger.info("Audit deletion disabled — skipping cron registration")
   }
+
+  documentExpiryCronTask = startDocumentExpiryCron()
+  complianceCaseSyncCronTask = startComplianceCaseSyncCron()
 }
 
 //* Called from shutdown.ts so a scheduled job doesn't fire mid-shutdown
 //* or hold the event loop open after server.close().
 export function stopExternalServices() {
   auditCronTask?.stop()
+  documentExpiryCronTask?.stop()
+  complianceCaseSyncCronTask?.stop()
 }

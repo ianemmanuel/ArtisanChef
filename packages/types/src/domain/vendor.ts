@@ -507,6 +507,64 @@ export interface UpsertDocumentResponse {
   progress : DocumentProgress
 }
 
+/*
+ * Roadmap "Vendor document remediation" (CLAUDE.md, 2026-08-26) — the
+ * account-level (post-approval) counterpart to DocumentRequirementsResponse
+ * above, which is application-scoped only. Reuses PresignUploadRequest/
+ * Response as-is for the presign step (identical shape) — only the
+ * upsert/status shapes differ, since account-level documents carry
+ * version history and richer status than a DRAFT application ever needs.
+ */
+export type VendorDocumentActionStatus =
+  | "MISSING"        // required, nothing currently uploaded
+  | "NOT_UPLOADED"    // optional, nothing currently uploaded
+  | "PENDING_REVIEW"
+  | "APPROVED"
+  | "EXPIRING_SOON"
+  | "EXPIRED"
+  | "REJECTED"
+
+export interface VendorAccountDocumentStatusRow {
+  documentTypeId  : string
+  documentTypeName: string
+  isRequired      : boolean
+  requiresExpiry  : boolean
+  instructions    : string | null
+  sampleUrl       : string | null
+  actionStatus    : VendorDocumentActionStatus
+  currentDocument : {
+    id             : string
+    documentTypeId : string
+    status         : DocumentStatus
+    documentName   : string | null
+    mimeType       : string | null
+    issueDate      : string | null
+    expiryDate     : string | null
+    rejectionReason: string | null
+    revisionNotes  : string | null
+    uploadedAt     : string
+    version        : number
+  } | null
+}
+
+export interface UpsertAccountDocumentRequest {
+  documentTypeId : string
+  storageKey     : string
+  documentName?  : string
+  fileSize?      : number
+  mimeType?      : string
+  documentNumber?: string
+  issueDate?     : string
+  expiryDate?    : string
+}
+
+export interface UpsertAccountDocumentResponse {
+  id            : string
+  documentTypeId: string
+  status        : DocumentStatus
+  version       : number
+}
+
 
 export interface CreateOutletRequest {
   name         : string

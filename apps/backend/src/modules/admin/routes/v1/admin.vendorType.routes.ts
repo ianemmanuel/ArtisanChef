@@ -9,6 +9,7 @@ import {
   handleActivateVendorType,
   handleDeactivateVendorType,
   handleGetVendorTypeStats,
+  handleGetVendorTypeAdoption,
 } from "../../controllers/admin.vendorType.controller"
 
 const vendorTypeRouter: Router = Router()
@@ -18,6 +19,10 @@ const WRITE = requirePermission(AdminPermissions.SETTINGS_VENDOR_TYPES_WRITE)
 
 vendorTypeRouter.get("/", READ, handleListVendorTypes)
 vendorTypeRouter.post("/", WRITE, handleCreateVendorType)
+// Registered before /:vendorTypeId — "adoption" would otherwise be parsed
+// as a vendorTypeId (and 404 or resolve as a slug), same ordering rule as
+// admin.country.routes.ts's /insights/onboarding.
+vendorTypeRouter.get("/adoption", READ, handleGetVendorTypeAdoption)
 vendorTypeRouter.get("/:vendorTypeId", READ, handleGetVendorType)
 vendorTypeRouter.get("/:vendorTypeId/stats", READ, handleGetVendorTypeStats)
 vendorTypeRouter.patch("/:vendorTypeId", WRITE, handleUpdateVendorType)

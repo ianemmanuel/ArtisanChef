@@ -52,6 +52,17 @@ export function DocumentTypeDetailCard({ documentType: dt, countryName, countryS
               ? `Requires expiry — warns ${dt.expiryWarningDays} day${dt.expiryWarningDays === 1 ? "" : "s"} before`
               : "No expiry tracking"}
           </Field>
+          <Field label="Compliance severity">
+            {dt.complianceSeverity.charAt(0) + dt.complianceSeverity.slice(1).toLowerCase()}
+            {dt.gracePeriodDays > 0 && ` · ${dt.gracePeriodDays}-day grace period after expiry`}
+          </Field>
+          {dt.enforcedFrom && (
+            <Field label="Enforced from">
+              {new Date(dt.enforcedFrom) > new Date()
+                ? `${new Date(dt.enforcedFrom).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })} — not yet enforced for existing vendors`
+                : new Date(dt.enforcedFrom).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+            </Field>
+          )}
           <Field label="Created">
             {new Date(dt.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
           </Field>

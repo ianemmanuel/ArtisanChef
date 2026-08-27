@@ -1,11 +1,11 @@
 import type { Metadata } from "next"
-import { redirect, notFound } from "next/navigation"
+import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Store } from "lucide-react"
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
+import { assertDocumentsHomeAccess, assertCountryInDocumentsScope } from "@/lib/countries/documents-access"
 import { ActiveDocumentsTable } from "@/components/document-types/ActiveDocumentsTable"
-import { AdminPermissions } from "@repo/types/admin-app"
 import type { Country } from "@repo/types/admin-app"
 import type { DocumentTypeListResult } from "@/types/document-type.types"
 
@@ -24,10 +24,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function OutletScopedDocumentsPage({ params, searchParams }: Props) {
   const session = await getAdminSession()
-  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) || !session.scope.isGlobal) {
-    redirect("/overview")
-  }
-  const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_DOCUMENTS_WRITE)
+  const { canWrite } = assertDocumentsHomeAccess(session)
 
   const { countrySlug } = await params
   const { page = "1" } = await searchParams
@@ -39,6 +36,7 @@ export default async function OutletScopedDocumentsPage({ params, searchParams }
     if (err instanceof ApiCallError && err.status === 404) notFound()
     throw err
   }
+  assertCountryInDocumentsScope(session, country.id)
 
   const result = await adminFetch<DocumentTypeListResult>(
     `/admin/v1/document-types?countryId=${country.id}&status=ACTIVE&scope=OUTLET&page=${page}&pageSize=${PAGE_SIZE}`,

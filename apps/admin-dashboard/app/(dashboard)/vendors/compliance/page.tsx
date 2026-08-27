@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { ShieldAlert, AlertTriangle, Clock, Users, Settings2, ArrowUpRight, FileX2, ShieldCheck, FileDown } from "lucide-react"
+import { ShieldAlert, AlertTriangle, Clock, Users, Settings2, ArrowUpRight, FileX2, ShieldCheck, FileDown, ArrowRight, Wallet } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -10,17 +10,17 @@ import {
   TableHeader,
   TableRow,
 } from "@repo/ui/components/table"
+import { Button } from "@repo/ui/components/button"
 import { adminFetch } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { getFilterableCountries } from "@/lib/countries/filterable-countries"
 import { TableFilterBar, type FilterSelectOption } from "@/components/shared/TableFilterBar"
 import { TablePagination } from "@/components/shared/TablePagination"
 import { EmptyState } from "@/components/shared/EmptyState"
-import { ComplianceIssueActions } from "@/components/vendors/ComplianceIssueActions"
-import { ComplianceIssueBadge } from "@/components/vendors/ComplianceIssueBadge"
+import { QueueDot } from "@/components/shared/QueueDot"
 import { getInitials } from "@/lib/initials"
 import { AdminPermissions } from "@repo/types/admin-app"
-import type { ComplianceOverviewResult, ComplianceSeverity } from "@/types"
+import type { ComplianceGroupsResult, ComplianceSeverity } from "@/types"
 import type { DocumentTypeListResult } from "@/types/document-type.types"
 
 export const metadata: Metadata = { title: "Vendor Compliance" }
@@ -56,15 +56,14 @@ const SEVERITY_CLASS: Record<ComplianceSeverity, string> = {
   CRITICAL: "badge-danger", MEDIUM: "badge-warning", LOW: "badge-neutral",
 }
 
-// Mirrors COMPLIANCE_CASE_STALE_DAYS in apps/backend/src/constants/vendor.ts
-// (the reconciliation cron auto-escalates an OPEN case past this age) —
-// used here purely for the visual "this has sat too long" cue.
-const STALE_CASE_DAYS = 7
-
-function caseAgeDays(createdAt: string): number {
-  return Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000)
-}
-
+/*
+ * Vendor-grouped, not issue-flat — see CLAUDE.md's compliance-ownership
+ * decision. One row per vendor (issue count + worst severity), driving to
+ * /vendors/compliance/[vendorId] where a single admin can see and act on
+ * everything affecting that vendor, including a "Claim all" convenience.
+ * Per-issue severity/claim/escalate/waive stays exactly as granular as
+ * before — this page is just a different shape of the same data.
+ */
 export default async function VendorCompliancePage({ searchParams }: PageProps) {
   const session = await getAdminSession()
 
@@ -72,11 +71,14 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
   // separately from the vendor directory in general (see CLAUDE.md).
   if (!session.permissions.includes(AdminPermissions.VENDORS_COMPLIANCE_READ)) redirect("/vendors")
 
-  const canManage    = session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_COMPLIANCE_MANAGE)
   const canClaim     = session.permissions.includes(AdminPermissions.VENDORS_COMPLIANCE_CLAIM)
   const canEscalate  = session.permissions.includes(AdminPermissions.VENDORS_COMPLIANCE_ESCALATE)
-  const canReassign  = session.permissions.includes(AdminPermissions.VENDORS_COMPLIANCE_REASSIGN)
   const showQueuePills = canClaim || canEscalate
+  // Same country-scoped-only eligibility as claimComplianceCase's actual
+  // enforcement (see ComplianceIssueActions) — a globally-scoped holder of
+  // this permission still can't self-claim out of the pool, so the
+  // Escalated tab's dot shouldn't light up for them either.
+  const canReceiveEscalation = session.permissions.includes(AdminPermissions.VENDORS_COMPLIANCE_RECEIVE_ESCALATION) && !session.scope.isGlobal
 
   const params  = await searchParams
   const page    = params.page   ?? "1"
@@ -96,13 +98,8 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
   const activeCountry = ownCountry ?? allCountries.find((c) => c.slug === country)
 
   // Document types are inherently country-scoped rows in the schema
-  // (DocumentTypeConfig.countryId is required — "Business License" in
-  // Kenya and "Business License" in Nigeria are two distinct config rows,
-  // even with the same name) — there's no cross-country document-type
-  // identity to filter by. So this picker only populates once a single
-  // country is in view (the admin's own, or one a global admin selected),
-  // same reasoning as why /vendor-categories' pickers gate on scope shape
-  // rather than always being present.
+  // (DocumentTypeConfig.countryId is required) — this picker only
+  // populates once a single country is in view.
   const canReadDocTypes = session.permissions.includes(AdminPermissions.SETTINGS_DOCUMENTS_READ)
   const docTypesResult = canReadDocTypes && activeCountry
     ? await adminFetch<DocumentTypeListResult>(
@@ -122,9 +119,32 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
   if (queue) qsParams.queue = queue
   const qs = new URLSearchParams(qsParams)
 
-  const result = await adminFetch<ComplianceOverviewResult>(`/admin/v1/vendors/compliance/overview?${qs}`, {
-    next: { revalidate: 60, tags: ["vendor-compliance"] },
-  }).catch(() => null)
+  // Base filters (country/docType), without status/queue — reused for the
+  // queue-pill notification-dot counts below so they narrow the same way
+  // the pills themselves do, minus the queue being counted itself.
+  const baseQsParams: Record<string, string> = {}
+  if (country) baseQsParams.countrySlug = country
+  if (docType) baseQsParams.documentTypeId = docType
+
+  const [result, unclaimedCount, escalatedCount] = await Promise.all([
+    adminFetch<ComplianceGroupsResult>(`/admin/v1/vendors/compliance/by-vendor?${qs}`, {
+      next: { revalidate: 60, tags: ["vendor-compliance"] },
+    }).catch(() => null),
+    showQueuePills
+      ? adminFetch<ComplianceGroupsResult>(`/admin/v1/vendors/compliance/by-vendor?${new URLSearchParams({ ...baseQsParams, queue: "unclaimed", pageSize: "1" })}`, {
+          next: { revalidate: 60, tags: ["vendor-compliance"] },
+        }).catch(() => ({ total: 0 }))
+      : Promise.resolve({ total: 0 }),
+    // Narrower than the tab's own "escalated" filter — only cases still
+    // sitting unclaimed in the open pool, i.e. actually pickable by this
+    // viewer, and only fetched at all when they're eligible to pick one
+    // up (see canReceiveEscalation above).
+    canReceiveEscalation
+      ? adminFetch<ComplianceGroupsResult>(`/admin/v1/vendors/compliance/by-vendor?${new URLSearchParams({ ...baseQsParams, queue: "escalated_unclaimed", pageSize: "1" })}`, {
+          next: { revalidate: 60, tags: ["vendor-compliance"] },
+        }).catch(() => ({ total: 0 }))
+      : Promise.resolve({ total: 0 }),
+  ])
 
   const openIssues = (result?.missingCount ?? 0) + (result?.expiredCount ?? 0) + (result?.expiringCount ?? 0)
   const statCards = [
@@ -152,13 +172,12 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
             <div>
               <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Compliance</h1>
               <p className="text-sm text-muted-foreground">
-                Vendors missing a required document, or with one expired or approaching expiry, across your scope.
+                One row per vendor — missing, expired, or soon-to-expire documents, plus payout-account issues, across your scope.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Roadmap VM-P2-01 (CLAUDE.md) — packages the same filtered
-                list already on screen, doesn't page it. */}
+            {/* Roadmap VM-P2-01 (CLAUDE.md) — still issue-level (unpaginated), same filters as this page. */}
             <a
               href={`/api/vendors/compliance/export?${qs}`}
               className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:border-primary/40 hover:text-primary"
@@ -213,11 +232,13 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
                 key={value || "all"}
                 href={href}
                 className={[
-                  "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                  "inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
                   active ? "bg-card text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
                 {label}
+                {value === "unclaimed" && <QueueDot show={(unclaimedCount as { total: number }).total > 0} />}
+                {value === "escalated" && <QueueDot show={(escalatedCount  as { total: number }).total > 0} />}
               </Link>
             )
           })}
@@ -263,8 +284,8 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
         </p>
       )}
 
-      {/* Table */}
-      {!result || result.issues.length === 0 ? (
+      {/* Table — one row per vendor */}
+      {!result || result.groups.length === 0 ? (
         <EmptyState
           icon={ShieldAlert}
           title="No compliance issues"
@@ -277,59 +298,51 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
                   <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
-                  <TableHead className="text-xs uppercase tracking-wide">Document Type</TableHead>
-                  <TableHead className="hidden text-xs uppercase tracking-wide sm:table-cell">Status</TableHead>
-                  <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Severity</TableHead>
-                  <TableHead className="hidden text-xs uppercase tracking-wide lg:table-cell">Owner</TableHead>
-                  <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Expiry Date</TableHead>
+                  <TableHead className="text-xs uppercase tracking-wide">Issues</TableHead>
+                  <TableHead className="hidden text-xs uppercase tracking-wide sm:table-cell">Worst Severity</TableHead>
+                  <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Status</TableHead>
                   <TableHead className="text-right text-xs uppercase tracking-wide">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {result.issues.map((issue) => (
-                  <TableRow key={issue.id} className="hover:bg-muted/10">
+                {result.groups.map((group) => (
+                  <TableRow key={group.vendor.id} className="hover:bg-muted/10">
                     <TableCell>
-                      <Link href={`/vendors/accounts/${issue.vendor.id}`} className="group flex items-center gap-3">
+                      <Link href={`/vendors/compliance/${group.vendor.id}`} className="group flex items-center gap-3">
                         <div className="avatar-circle h-8 w-8 text-xs">
-                          {getInitials(issue.vendor.legalBusinessName)}
+                          {getInitials(group.vendor.legalBusinessName)}
                         </div>
                         <span className="min-w-0 truncate font-medium text-foreground transition-colors group-hover:text-primary">
-                          {issue.vendor.legalBusinessName}
+                          {group.vendor.legalBusinessName}
                         </span>
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{issue.documentType.name}</TableCell>
-                    <TableCell className="hidden sm:table-cell"><ComplianceIssueBadge issue={issue} /></TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span className={SEVERITY_CLASS[issue.severity]}>{SEVERITY_LABEL[issue.severity]}</span>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <span>
-                          {issue.case?.escalatedByAdminId
-                            ? <span className="text-destructive">Escalated{issue.case.escalatedByAdminName ? ` by ${issue.case.escalatedByAdminName}` : ""}</span>
-                            : issue.case?.assignedReviewerId
-                              ? issue.case.assignedReviewerName ?? "Claimed"
-                              : "Unclaimed"}
-                        </span>
-                        {issue.case && (() => {
-                          const age = caseAgeDays(issue.case.createdAt)
-                          const stale = age >= STALE_CASE_DAYS && issue.case.status === "OPEN"
-                          return (
-                            <span className={stale ? "font-medium text-warning" : ""}>
-                              · {age === 0 ? "today" : `${age}d`}
-                            </span>
-                          )
-                        })()}
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {issue.expiryDate ? new Date(issue.expiryDate).toLocaleDateString() : "—"}
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1.5 text-sm text-foreground">
+                        {group.issueCount} issue{group.issueCount === 1 ? "" : "s"}
+                        {group.hasMissingPayoutAccount && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning">
+                            <Wallet className="h-3 w-3" /> Payout
+                          </span>
+                        )}
                       </span>
                     </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <span className={SEVERITY_CLASS[group.worstSeverity]}>{SEVERITY_LABEL[group.worstSeverity]}</span>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        {group.hasEscalated && <span className="badge-danger">Escalated</span>}
+                        {!group.hasEscalated && group.hasUnclaimed && <span className="badge-warning">Unclaimed</span>}
+                        {!group.hasEscalated && !group.hasUnclaimed && <span className="text-muted-foreground">In hand</span>}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right">
-                      <ComplianceIssueActions issue={issue} canManage={canManage} canClaim={canClaim} canEscalate={canEscalate} canReassign={canReassign} />
+                      <Button asChild variant="outline" size="sm" className="rounded-full gap-1.5">
+                        <Link href={`/vendors/compliance/${group.vendor.id}`}>
+                          View <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -349,7 +362,7 @@ export default async function VendorCompliancePage({ searchParams }: PageProps) 
               ...(status  ? { status }  : {}),
               ...(queue   ? { queue }   : {}),
             }}
-            itemLabel="issues"
+            itemLabel="vendors"
           />
         </div>
       )}

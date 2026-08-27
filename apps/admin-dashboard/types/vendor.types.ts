@@ -196,6 +196,49 @@ export interface VendorComplianceSummary {
   expiredCount : number
   expiringCount: number
   issues       : ComplianceIssueItem[]
+  hasMissingPayoutAccount: boolean
+}
+
+//* Vendor-grouped compliance view (CLAUDE.md's compliance-ownership
+//* decision) — one row per vendor on /vendors/compliance, driving to a
+//* per-vendor detail page. Per-issue severity/claim/escalate/waive stays
+//* exactly as it is on the detail page; this is just the grouping shape.
+export interface ComplianceVendorGroup {
+  vendor       : { id: string; legalBusinessName: string; countryId: string; status: string }
+  issueCount   : number
+  worstSeverity: ComplianceSeverity
+  hasEscalated : boolean
+  hasUnclaimed : boolean
+  hasMissingPayoutAccount: boolean
+}
+
+export interface ComplianceGroupsResult {
+  groups              : ComplianceVendorGroup[]
+  total               : number
+  page                : number
+  pageSize            : number
+  totalPages          : number
+  missingCount        : number
+  expiredCount        : number
+  expiringCount       : number
+  waivedCount         : number
+  affectedVendorCount : number
+}
+
+export interface VendorOperationalIssues {
+  hasMissingPayoutAccount: boolean
+}
+
+export interface VendorComplianceDetail {
+  vendor     : { id: string; legalBusinessName: string; countryId: string; status: string }
+  issues     : ComplianceIssueItem[]
+  operational: VendorOperationalIssues
+}
+
+export interface ClaimAllComplianceResult {
+  claimed    : string[]
+  alreadyMine: string[]
+  skipped    : { documentTypeId: string; documentTypeName: string; reason: string }[]
 }
 
 export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
@@ -263,6 +306,81 @@ export interface VendorAppeal {
 
 export interface VendorAppealListResult {
   appeals   : VendorAppeal[]
+  total     : number
+  page      : number
+  pageSize  : number
+  totalPages: number
+}
+
+//* Public-profile moderation queue — mirrors OutletReviewStatus's
+//* AUTO_APPROVED/FLAGGED/MANUALLY_APPROVED/MANUALLY_REJECTED convention.
+export type ProfileReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
+
+export interface VendorProfileAdmin {
+  id                : string
+  vendorAccountId   : string
+  displayName       : string
+  tagline           : string | null
+  description       : string | null
+  logoUrl           : string | null
+  isPublished       : boolean
+  reviewStatus      : ProfileReviewStatus
+  flagReasons       : string[]
+  flaggedAt         : string | null
+  reviewedAt        : string | null
+  reviewedByAdminId : string | null
+  rejectionReason   : string | null
+  createdAt         : string
+  updatedAt         : string
+  vendor: { id: string; legalBusinessName: string; countryId: string }
+}
+
+export interface VendorProfileListResult {
+  profiles: VendorProfileAdmin[]
+  counts: { flagged: number; autoApproved: number; manuallyApproved: number; manuallyRejected: number }
+  total     : number
+  page      : number
+  pageSize  : number
+  totalPages: number
+}
+
+//* Admin-side outlet moderation queue. reviewStatus mirrors
+//* ProfileReviewStatus's convention; adminStatus is the independent
+//* operational lifecycle (suspend/reinstate/ban/unban).
+export type OutletReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
+export type OutletAdminStatus  = "ACTIVE" | "SUSPENDED" | "BANNED"
+
+export interface AdminOutlet {
+  id                    : string
+  vendorId              : string
+  name                  : string
+  addressLine1          : string
+  cityId                : string
+  city                  : { id: string; name: string } | null
+  latitude              : number
+  longitude             : number
+  reviewStatus          : OutletReviewStatus
+  flagReasons           : string[]
+  flaggedAt             : string | null
+  reviewedAt            : string | null
+  adminReviewedBy       : string | null
+  rejectionReason       : string | null
+  adminStatus           : OutletAdminStatus
+  adminSuspendedAt      : string | null
+  adminSuspendUntil     : string | null
+  adminSuspensionReason : string | null
+  adminBannedAt         : string | null
+  adminBanReason        : string | null
+  vendorDisabledAt      : string | null
+  isTemporarilyClosed   : boolean
+  isMainOutlet          : boolean
+  createdAt             : string
+  vendor: { id: string; legalBusinessName: string; countryId: string }
+}
+
+export interface AdminOutletListResult {
+  outlets: AdminOutlet[]
+  counts: { flagged: number; suspended: number; banned: number }
   total     : number
   page      : number
   pageSize  : number

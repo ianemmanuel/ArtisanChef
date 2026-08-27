@@ -1,14 +1,14 @@
 import type { Metadata } from "next"
-import { redirect, notFound } from "next/navigation"
+import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, FileText } from "lucide-react"
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
+import { assertDocumentsHomeAccess, assertCountryInDocumentsScope } from "@/lib/countries/documents-access"
 import { SectionViewMoreHeader } from "@/components/countries/SectionViewMoreHeader"
 import { DocumentTypeFormSheet } from "@/components/document-types/DocumentTypeFormSheet"
 import { DocumentVendorCategoryGroups } from "@/components/document-types/DocumentVendorCategoryGroups"
 import { CountryDocumentsPreview } from "@/components/countries/CountryDocumentsPreview"
-import { AdminPermissions } from "@repo/types/admin-app"
 import type { Country } from "@repo/types/admin-app"
 import type { DocumentTypeListResult } from "@/types/document-type.types"
 
@@ -30,10 +30,7 @@ async function fetchDocs(countryId: string, query: string) {
 export default async function CountryDocumentsHubPage({ params }: Props) {
   const session = await getAdminSession()
 
-  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) || !session.scope.isGlobal) {
-    redirect("/overview")
-  }
-  const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_DOCUMENTS_WRITE)
+  const { canWrite } = assertDocumentsHomeAccess(session)
 
   const { countrySlug } = await params
 
@@ -46,6 +43,7 @@ export default async function CountryDocumentsHubPage({ params }: Props) {
     if (err instanceof ApiCallError && err.status === 404) notFound()
     throw err
   }
+  assertCountryInDocumentsScope(session, country.id)
 
   const [allActive, mandatory, optional, vendorScoped, outletScoped, cityScoped, deactivated] = await Promise.all([
     fetchDocs(country.id, "status=ACTIVE&pageSize=15"),

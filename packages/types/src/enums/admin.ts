@@ -1,33 +1,36 @@
-// packages/types/src/enums/admin.ts
-// All permission keys now follow: module:submodule:action
-// This makes every key self-describing without needing context.
-
+/* 
+  * packages/types/src/enums/admin.ts
+  * All permission keys now follow: module:submodule:action
+  * This makes every key self-describing without needing context.
+*/
 export const AdminPermissions = {
-  // ── Vendors — accounts ───────────────────────────────────────────────────
+  //* Vendors — accounts
   VENDORS_ACCOUNTS_READ      : "vendors:accounts:read",
   VENDORS_ACCOUNTS_CREATE    : "vendors:accounts:create",
   VENDORS_ACCOUNTS_SUSPEND   : "vendors:accounts:suspend",
   VENDORS_ACCOUNTS_REINSTATE : "vendors:accounts:reinstate",
   VENDORS_ACCOUNTS_BAN       : "vendors:accounts:ban",
   VENDORS_ACCOUNTS_EXPORT    : "vendors:accounts:export",
-  // Waive/un-waive a compliance issue and notify a vendor about one —
-  // distinct from ACCOUNTS_SUSPEND itself because granting a waiver is
-  // its own auditable judgment call, not implied by general suspend access.
-  // (Kept under the "accounts" submodule for historical reasons — it
-  // predates the "compliance" submodule below by one turn; the newer
-  // compliance:* keys are the more correct home going forward.)
+  /*
+    * Waive/un-waive a compliance issue and notify a vendor about one —
+    * distinct from ACCOUNTS_SUSPEND itself because granting a waiver is
+    * its own auditable judgment call, not implied by general suspend access.
+    * (Kept under the "accounts" submodule for historical reasons — it
+    * predates the "compliance" submodule below by one turn; the newer
+    * compliance:* keys are the more correct home going forward.)
+  */
   VENDORS_ACCOUNTS_COMPLIANCE_MANAGE: "vendors:accounts:compliance_manage",
 
-  // ── Vendors — compliance case workflow ───────────────────────────────────
-  // Claim/escalate mirrors the applications review workflow below almost
-  // exactly — see VendorComplianceCase in schema.prisma.
+  //* Vendors — compliance case workflow
   VENDORS_COMPLIANCE_READ              : "vendors:compliance:read",
   VENDORS_COMPLIANCE_CLAIM             : "vendors:compliance:claim",
   VENDORS_COMPLIANCE_ESCALATE          : "vendors:compliance:escalate",
-  // Supervisory hand-off — reassigns a case directly (no claim step for
-  // the target, same convention as VENDORS_APPLICATIONS_REASSIGN). Does
-  // NOT require being the current owner — mirrors reassignApplication,
-  // which is deliberately an override permission, not an ownership action.
+  /*
+    * Supervisory hand-off — reassigns a case directly (no claim step for
+    * the target, same convention as VENDORS_APPLICATIONS_REASSIGN). Does
+    * NOT require being the current owner — mirrors reassignApplication,
+    * which is deliberately an override permission, not an ownership action.
+  */
   VENDORS_COMPLIANCE_REASSIGN          : "vendors:compliance:reassign",
   // Distinct from ESCALATE, same relationship as APPLICATIONS_RECEIVE_ESCALATION
   // has to APPLICATIONS_ESCALATE — granted individually to whoever
@@ -87,6 +90,25 @@ export const AdminPermissions = {
 
   // ── Vendors — documents ──────────────────────────────────────────────────
   VENDORS_DOCUMENTS_VIEW      : "vendors:documents:view",
+
+  // ── Vendors — public profiles ────────────────────────────────────────────
+  // Profanity/impersonation moderation queue for VendorProfile — mirrors
+  // VENDORS_APPEALS_*'s simplicity (no claim/escalate machinery, direct
+  // approve/reject) since profile-moderation volume doesn't justify it
+  // either. See ProfileReviewStatus in schema.prisma.
+  VENDORS_PROFILES_READ    : "vendors:profiles:read",
+  VENDORS_PROFILES_MODERATE: "vendors:profiles:moderate",
+
+  // ── Vendors — outlets ─────────────────────────────────────────────────────
+  // Admin-side moderation of a vendor's outlets (locations) — review a
+  // vendor-flagged outlet (approve/reject-with-reason), and suspend/
+  // reinstate/ban/unban one independently of the vendor account itself.
+  // Deliberately one MODERATE permission covering all of that (not split
+  // like VENDORS_ACCOUNTS_SUSPEND/REINSTATE/BAN) — a single outlet action
+  // is lower-stakes than a whole-account action, same simplicity tier as
+  // VENDORS_APPEALS_MANAGE/VENDORS_PROFILES_MODERATE.
+  VENDORS_OUTLETS_READ    : "vendors:outlets:read",
+  VENDORS_OUTLETS_MODERATE: "vendors:outlets:moderate",
 
   // ── Finance ──────────────────────────────────────────────────────────────
   FINANCE_TRANSACTIONS_READ    : "finance:transactions:read",

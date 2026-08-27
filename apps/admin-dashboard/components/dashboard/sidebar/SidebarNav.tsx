@@ -80,7 +80,16 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                 (pathname.startsWith("/vendor-categories/") &&
                   !pathname.startsWith("/vendor-categories/adoption") &&
                   !pathname.startsWith("/vendor-categories/revenue"))
-              : pathname.startsWith(href)
+              // "/finance" is both the Finance "Home" link and a prefix of
+              // every other Finance nav entry — same pattern as above.
+              : href === "/finance"
+                ? pathname === "/finance" ||
+                  (pathname.startsWith("/finance/") &&
+                    !pathname.startsWith("/finance/vendors") &&
+                    !pathname.startsWith("/finance/outlets") &&
+                    !pathname.startsWith("/finance/vendor-categories") &&
+                    !pathname.startsWith("/finance/needs-attention"))
+                : pathname.startsWith(href)
 
   // Subtle "you have open compliance issues in your own country" nudge —
   // never shown to global admins (session.hasOpenComplianceIssues is only

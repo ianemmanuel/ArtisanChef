@@ -17,9 +17,11 @@ import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
 import { assertAllRequiredDocumentsApproved } from "@/modules/vendor/services/vendor.document.service"
 import { REQUIRED_APPLICATION_FIELDS } from "@/modules/vendor/schemas/vendor.application.schema"
 import { ClerkVendorStateService } from "@/lib/clerk"
-import { getVendorComplianceIssues } from "./admin.vendor.compliance.service"
+import { getVendorComplianceIssues, getVendorOperationalIssues } from "./admin.vendor.compliance.service"
 import { getDuplicatePayoutFlags } from "./admin.vendor.payout.service"
 import { assertVendorDocumentReviewableByActor } from "./admin.vendor.compliance-case.service"
+import { MAX_APPLICATION_PRIORITY_SCAN } from "@/constants/vendor"
+import { toCsv } from "@/lib/csv"
 
 function assertCountryInScope(countryId: string, scope: AdminScopeContext): void {
   if (!scope.isGlobal && !scope.countryIds.includes(countryId)) {
@@ -198,32 +200,42 @@ const ALLOWED_SORT_COLUMNS: Record<string, string> = {
   legalBusinessName: "legalBusinessName",
 }
 
-export async function listApplications(
-  filters: {
-    status?   : VendorApplicationStatus | VendorApplicationStatus[]
-    countrySlug?: string
-    search?   : string
-    /*
-     * Operational queues — thin filters over fields the review workflow
-     * already tracks, not a new workflow concept. Always layered on top
-     * of buildVendorScopeFilter below, never a substitute for it — a
-     * country-scoped admin's "mine"/"unassigned"/"escalated" queues stay
-     * confined to their own scope exactly like the unfiltered list.
-     *   mine       — assignedReviewerId = actorId
-     *   unassigned — no reviewer AND never escalated (a fresh, untouched application)
-     *   escalated  — escalatedByAdminId set, regardless of current assignment
-     */
-    queue?    : "mine" | "unassigned" | "escalated"
-    sort?     : string
-    dir?      : string
-    page?     : number
-    pageSize? : number
-  },
-  adminScope: AdminScopeContext,
-  actorId?  : string,
-) {
+// Ranks used by sort=priority — needs-action statuses first (SUBMITTED
+// hasn't been looked at yet at all; NEEDS_REVISION is the vendor's turn
+// having just ended, so it's equally fresh to review), UNDER_REVIEW next
+// (already someone's plate, less urgent to surface), terminal states last
+// (nothing left to do). Anything not listed (DRAFT, in practice never
+// reached — see the status filter above) sorts after everything.
+const APPLICATION_PRIORITY_RANK: Record<string, number> = {
+  SUBMITTED      : 0,
+  NEEDS_REVISION : 0,
+  UNDER_REVIEW   : 1,
+  APPROVED       : 2,
+  REJECTED       : 2,
+}
 
-  const { status, countrySlug, search, queue, page = 1, pageSize = 20 } = filters
+interface ApplicationFilters {
+  status?   : VendorApplicationStatus | VendorApplicationStatus[]
+  countrySlug?: string
+  search?   : string
+  /*
+   * Operational queues — thin filters over fields the review workflow
+   * already tracks, not a new workflow concept. Always layered on top
+   * of buildVendorScopeFilter below, never a substitute for it — a
+   * country-scoped admin's "mine"/"unassigned"/"escalated" queues stay
+   * confined to their own scope exactly like the unfiltered list.
+   *   mine       — assignedReviewerId = actorId
+   *   unassigned — no reviewer AND never escalated (a fresh, untouched application)
+   *   escalated  — escalatedByAdminId set, regardless of current assignment
+   */
+  queue?    : "mine" | "unassigned" | "escalated"
+}
+
+//* Shared where-builder — used by both listApplications and
+//* exportApplicationsCsv so the export can never drift from what the page
+//* shows (same convention as detectAndFilterCandidates/buildAuditLogsWhere).
+async function buildApplicationsWhere(filters: ApplicationFilters, adminScope: AdminScopeContext, actorId?: string) {
+  const { status, countrySlug, search, queue } = filters
 
   // countrySlug is optional — most admins browse across their entire scope,
   // not one country at a time. Only resolve/narrow when one was actually
@@ -233,9 +245,6 @@ export async function listApplications(
   const countryId = countrySlug
     ? await getCountryIdFromSlug(countrySlug, adminScope)
     : undefined
-  const sortColumn = ALLOWED_SORT_COLUMNS[filters.sort ?? ""] ?? "submittedAt"
-  const sortDir    = filters.dir === "asc" ? "asc" : "desc"
-  const skip       = (page - 1) * pageSize
 
   const queueFilter =
     queue === "mine" && actorId  ? { assignedReviewerId: actorId }
@@ -262,6 +271,54 @@ export async function listApplications(
       ],
     } : {}),
   }
+  return where
+}
+
+export async function listApplications(
+  filters: ApplicationFilters & { sort?: string; dir?: string; page?: number; pageSize?: number },
+  adminScope: AdminScopeContext,
+  actorId?  : string,
+) {
+
+  const { page = 1, pageSize = 20 } = filters
+  const sortColumn = ALLOWED_SORT_COLUMNS[filters.sort ?? ""] ?? "submittedAt"
+  const sortDir    = filters.dir === "asc" ? "asc" : "desc"
+  const skip       = (page - 1) * pageSize
+
+  const where = await buildApplicationsWhere(filters, adminScope, actorId)
+
+  const includeShape = {
+    country   : { select: { id: true, name: true, code: true } },
+    vendorType: { select: { id: true, name: true } },
+    user      : { select: { id: true, email: true } },
+    _count    : { select: { documents: true } },
+  } as const
+
+  if (filters.sort === "priority") {
+    // Postgres can't express "SUBMITTED and NEEDS_REVISION tie for first,
+    // then UNDER_REVIEW, then terminal" as a plain column sort — rank in
+    // application code over a bounded window instead (same convention as
+    // MAX_COMPLIANCE_VENDOR_SCAN's documented ceiling), then re-page.
+    const total = await prisma.vendorApplication.count({ where })
+    const candidates = await prisma.vendorApplication.findMany({
+      where,
+      take   : MAX_APPLICATION_PRIORITY_SCAN,
+      orderBy: { submittedAt: { sort: "asc", nulls: "last" } }, // FIFO tiebreak within a rank
+      select : { id: true, status: true },
+    })
+    const ranked = candidates
+      .map((c, index) => ({ id: c.id, index, rank: APPLICATION_PRIORITY_RANK[c.status] ?? 3 }))
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .slice(skip, skip + pageSize)
+
+    const rows = ranked.length
+      ? await prisma.vendorApplication.findMany({ where: { id: { in: ranked.map((r) => r.id) } }, include: includeShape })
+      : []
+    const rowById = new Map(rows.map((r) => [r.id, r]))
+    const applications = ranked.map((r) => rowById.get(r.id)).filter((r): r is NonNullable<typeof r> => !!r)
+
+    return { applications, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+  }
 
   const orderBy = sortColumn === "submittedAt"
     ? { submittedAt: { sort: sortDir as "asc" | "desc", nulls: "last" as const } }
@@ -273,17 +330,51 @@ export async function listApplications(
       skip,
       take   : pageSize,
       orderBy,
-      include: {
-        country   : { select: { id: true, name: true, code: true } },
-        vendorType: { select: { id: true, name: true } },
-        user      : { select: { id: true, email: true } },
-        _count    : { select: { documents: true } },
-      },
+      include: includeShape,
     }),
     prisma.vendorApplication.count({ where }),
   ])
 
   return { applications, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+}
+
+const MAX_APPLICATIONS_EXPORT_ROWS = 5000
+
+//* CSV export — same filters/scope as listApplications (buildApplicationsWhere),
+//* just unpaginated and bounded, same "give me everything that matches"
+//* shape as the compliance/audit exports.
+export async function exportApplicationsCsv(filters: ApplicationFilters, adminScope: AdminScopeContext, actorId?: string): Promise<string> {
+  const where = await buildApplicationsWhere(filters, adminScope, actorId)
+  const rows = await prisma.vendorApplication.findMany({
+    where,
+    take   : MAX_APPLICATIONS_EXPORT_ROWS,
+    orderBy: { submittedAt: { sort: "desc", nulls: "last" } },
+    include: {
+      country   : { select: { name: true } },
+      vendorType: { select: { name: true } },
+    },
+  })
+  return toCsv(rows.map((a) => ({
+    legalBusinessName: a.legalBusinessName ?? "",
+    businessEmail    : a.businessEmail ?? "",
+    country          : a.country?.name ?? "",
+    vendorType       : a.vendorType?.name ?? "",
+    status           : a.status,
+    submittedAt      : a.submittedAt ? a.submittedAt.toISOString().slice(0, 10) : "",
+    assignedReviewerId : a.assignedReviewerId ?? "",
+    escalatedByAdminId : a.escalatedByAdminId ?? "",
+    createdAt        : a.createdAt.toISOString().slice(0, 10),
+  })), [
+    { key: "legalBusinessName",  label: "Business Name" },
+    { key: "businessEmail",      label: "Business Email" },
+    { key: "country",            label: "Country" },
+    { key: "vendorType",         label: "Category" },
+    { key: "status",             label: "Status" },
+    { key: "submittedAt",        label: "Submitted" },
+    { key: "assignedReviewerId", label: "Assigned Reviewer Id" },
+    { key: "escalatedByAdminId", label: "Escalated By Admin Id" },
+    { key: "createdAt",          label: "Created" },
+  ])
 }
 
 //* Get one application
@@ -674,6 +765,13 @@ export async function claimApplication(
     // it was escalated from), enforced by the same permanent lock-out and
     // receiver-only gate as every other action on an escalated application.
     assertReviewerOwnership(application, actorId, actorPermissions)
+    // Escalated applications stay with the local country team — a
+    // globally-scoped RECEIVE_ESCALATION holder still cannot self-claim
+    // out of the pool, only reassign into it (same rule and reasoning as
+    // claimComplianceCase in admin.vendor.compliance-case.service.ts).
+    if (actorScope.isGlobal || !actorScope.countryIds.includes(application.countryId)) {
+      throw new ApiError(403, "Escalated applications can only be claimed by country-scoped admins for that country", "GLOBAL_CANNOT_CLAIM_ESCALATION")
+    }
   } else if (application.status !== VendorApplicationStatus.SUBMITTED) {
     throw new ApiError(
       400,
@@ -812,6 +910,40 @@ export async function listEligibleReviewTargets(
   return candidates
 }
 
+/*
+ * Guards against escalating an application into a pool nobody can ever
+ * pick up — a case that sat unclaimable would just be a silent dead end.
+ * Eligibility mirrors the actual claim restriction added to
+ * claimApplication above: GLOBAL scope doesn't count, since a global
+ * admin can't self-claim out of the pool either (they'd have to
+ * reassign it explicitly instead, which doesn't need this check).
+ */
+async function assertEscalationReceiverExists(countryId: string): Promise<void> {
+  const receiver = await prisma.adminUser.findFirst({
+    where: {
+      status            : AdminUserStatus.active,
+      reviewAvailability: AdminReviewAvailability.AVAILABLE,
+      permissions       : { some: { permission: { key: AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION, isActive: true } } },
+      scopes: {
+        some: {
+          OR: [
+            { scopeType: AdminScopeType.COUNTRY, countryId },
+            { scopeType: AdminScopeType.CITY, countryId },
+          ],
+        },
+      },
+    },
+    select: { id: true },
+  })
+  if (!receiver) {
+    throw new ApiError(
+      400,
+      "No admin can currently receive escalations for this country — reassign it directly to a specific reviewer instead, or ask a supervisor to grant the receive-escalation permission to someone in this country.",
+      "NO_ESCALATION_RECEIVER",
+    )
+  }
+}
+
 //* Escalate an application — hands it to a superior/receiving team and
 //* permanently locks the escalating admin out of acting on it again
 //* (enforced by assertReviewerOwnership, not by anything here). With no
@@ -857,6 +989,10 @@ export async function escalateApplication(
 
   if (targetAdminId) {
     await assertEligibleReviewTarget(targetAdminId, application.countryId, AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION)
+  } else {
+    // No explicit target — it's going into the open pool, so make sure
+    // someone in this country can actually pick it up.
+    await assertEscalationReceiverExists(application.countryId)
   }
 
   const escalatedAt = new Date()
@@ -1033,24 +1169,19 @@ const VENDOR_SORT_COLUMNS: Record<string, string> = {
   createdAt         : "createdAt",
 }
 
-export async function listVendorAccounts(
-  filters: {
-    status?      : VendorStatus
-    countrySlug? : string
-    search?      : string
-    vendorTypeId?: string
-    bannedOnly?  : boolean
-    sort?        : string
-    dir?         : string
-    page?        : number
-    pageSize?    : number
-  },
-  adminScope: AdminScopeContext,
-) {
-  const { status, countrySlug, search, vendorTypeId, bannedOnly, sort, dir, page = 1, pageSize = 20 } = filters
-  const sortColumn = VENDOR_SORT_COLUMNS[sort ?? ""] ?? "createdAt"
-  const sortDir     = dir === "asc" ? "asc" : "desc"
+interface VendorAccountFilters {
+  status?      : VendorStatus
+  countrySlug? : string
+  search?      : string
+  vendorTypeId?: string
+  bannedOnly?  : boolean
+}
 
+//* Shared where-builder — used by both listVendorAccounts and
+//* exportVendorAccountsCsv (same "export can never drift from the page"
+//* convention as buildApplicationsWhere above).
+async function buildVendorAccountsWhere(filters: VendorAccountFilters, adminScope: AdminScopeContext) {
+  const { status, countrySlug, search, vendorTypeId, bannedOnly } = filters
   // countrySlug is optional — most admins browse across their entire
   // scope, not one country at a time. Only resolve/narrow when one was
   // actually requested; resolving unconditionally (the previous
@@ -1060,7 +1191,6 @@ export async function listVendorAccounts(
   const countryId = countrySlug
     ? await getCountryIdFromSlug(countrySlug, adminScope)
     : undefined
-  const skip = (page - 1) * pageSize
 
   const where: any = {
     deletedAt: null,
@@ -1075,6 +1205,19 @@ export async function listVendorAccounts(
       ],
     } : {}),
   }
+  return where
+}
+
+export async function listVendorAccounts(
+  filters: VendorAccountFilters & { sort?: string; dir?: string; page?: number; pageSize?: number },
+  adminScope: AdminScopeContext,
+) {
+  const { sort, dir, page = 1, pageSize = 20 } = filters
+  const sortColumn = VENDOR_SORT_COLUMNS[sort ?? ""] ?? "createdAt"
+  const sortDir     = dir === "asc" ? "asc" : "desc"
+  const skip = (page - 1) * pageSize
+
+  const where = await buildVendorAccountsWhere(filters, adminScope)
 
   const [accounts, total] = await Promise.all([
     prisma.vendorAccount.findMany({
@@ -1093,6 +1236,42 @@ export async function listVendorAccounts(
   ])
 
   return { accounts, total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+}
+
+const MAX_VENDOR_ACCOUNTS_EXPORT_ROWS = 5000
+
+export async function exportVendorAccountsCsv(filters: VendorAccountFilters, adminScope: AdminScopeContext): Promise<string> {
+  const where = await buildVendorAccountsWhere(filters, adminScope)
+  const rows = await prisma.vendorAccount.findMany({
+    where,
+    take   : MAX_VENDOR_ACCOUNTS_EXPORT_ROWS,
+    orderBy: { createdAt: "desc" },
+    include: {
+      country   : { select: { name: true } },
+      vendorType: { select: { name: true } },
+      user      : { select: { isBanned: true } },
+      _count    : { select: { outlets: true } },
+    },
+  })
+  return toCsv(rows.map((v) => ({
+    legalBusinessName: v.legalBusinessName,
+    businessEmail    : v.businessEmail,
+    country          : v.country?.name ?? "",
+    vendorType       : v.vendorType?.name ?? "",
+    status           : v.user?.isBanned ? "BANNED" : v.status,
+    outletCount      : v._count.outlets,
+    commissionRate   : v.commissionRate ?? "",
+    createdAt        : v.createdAt.toISOString().slice(0, 10),
+  })), [
+    { key: "legalBusinessName", label: "Business Name" },
+    { key: "businessEmail",     label: "Business Email" },
+    { key: "country",           label: "Country" },
+    { key: "vendorType",        label: "Category" },
+    { key: "status",            label: "Status" },
+    { key: "outletCount",       label: "Outlets" },
+    { key: "commissionRate",    label: "Commission Rate" },
+    { key: "createdAt",         label: "Joined" },
+  ])
 }
 
 //* Get one vendor account
@@ -1135,6 +1314,7 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
           },
         },
       },
+      vendorProfile: true,
     },
   })
 
@@ -1162,13 +1342,18 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
   // you about a document that was never uploaded, which is exactly the
   // blind spot this used to have (see getVendorComplianceIssues).
   const canReadCompliance = actorPermissions.includes(AdminPermissions.VENDORS_COMPLIANCE_READ)
-  const complianceIssues = canReadCompliance ? await getVendorComplianceIssues(vendorId, actorScope) : null
+  const [complianceIssues, operationalIssues] = canReadCompliance
+    ? await Promise.all([getVendorComplianceIssues(vendorId, actorScope), getVendorOperationalIssues(vendorId, actorScope)])
+    : [null, null]
   const compliance = complianceIssues && {
-    hasIssues    : complianceIssues.some((i) => i.issueStatus !== "WAIVED"),
+    hasIssues    : complianceIssues.some((i) => i.issueStatus !== "WAIVED") || !!operationalIssues?.hasMissingPayoutAccount,
     missingCount : complianceIssues.filter((i) => i.issueStatus === "MISSING").length,
     expiredCount : complianceIssues.filter((i) => i.issueStatus === "EXPIRED").length,
     expiringCount: complianceIssues.filter((i) => i.issueStatus === "EXPIRING_SOON").length,
     issues       : complianceIssues,
+    // Operational (non-document) issue — see admin.vendor.compliance.service.ts's
+    // getVendorOperationalIssues for why this isn't folded into `issues`.
+    hasMissingPayoutAccount: !!operationalIssues?.hasMissingPayoutAccount,
   }
 
   // Roadmap VM-P2-02 (CLAUDE.md) — duplicate bank/mobile-money account

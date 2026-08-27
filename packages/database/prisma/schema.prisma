@@ -873,6 +873,21 @@ model VendorProfile {
   galleryImages       String[]
   videoUrls           String[]
   publishedAt         DateTime?
+
+  //* Profanity/impersonation flagging — mirrors Outlet's reviewStatus/
+  //* flagReasons/flaggedAt convention exactly (see runFlagChecks in
+  //* vendor.outlet.service.ts). A profile can only be published while
+  //* reviewStatus is AUTO_APPROVED or MANUALLY_APPROVED — see
+  //* publishVendorProfile in vendor.profile.service.ts.
+  reviewStatus      ProfileReviewStatus @default(AUTO_APPROVED)
+  flagReasons       String[]
+  flaggedAt         DateTime?
+  reviewedAt        DateTime?
+  reviewedByAdminId String?
+  //* Set on MANUALLY_REJECTED — shown to the vendor so they know what to
+  //* fix. Cleared on the next edit (recomputed flags supersede it).
+  rejectionReason   String?
+
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -887,6 +902,14 @@ model VendorProfile {
   @@index([averageRating])
   @@index([createdAt])
   @@index([totalReviews])
+  @@index([reviewStatus])
+}
+
+enum ProfileReviewStatus {
+  AUTO_APPROVED      // Passed all coded checks — publishable immediately
+  FLAGGED            // Failed one or more coded checks — in admin queue, cannot be published
+  MANUALLY_APPROVED  // Admin reviewed and cleared it — publishable
+  MANUALLY_REJECTED  // Admin reviewed and rejected — cannot be published, force-unpublished if it already was
 }
 
 model VendorApplication {
@@ -1154,9 +1177,15 @@ model Outlet {
   temporarilyClosedUntil DateTime?
 
   adminReviewedBy   String?
+  //* Set on MANUALLY_REJECTED — mirrors VendorProfile.rejectionReason.
+  //* Cleared on the next vendor edit that recomputes flags (same
+  //* "a fresh edit supersedes a prior rejection" convention).
+  rejectionReason   String?
   adminSuspendedAt  DateTime?
   adminSuspendUntil DateTime?
+  adminSuspensionReason String?
   adminBannedAt     DateTime?
+  adminBanReason    String?
   vendorDisabledAt  DateTime?
   deletedAt         DateTime?
   vendorUpdatedAt   DateTime?
@@ -1509,6 +1538,12 @@ enum VendorNotificationType {
   COMPLIANCE_EXPIRING_DOCUMENT
   COMPLIANCE_EXPIRED_DOCUMENT
   COMPLIANCE_CASE_RESOLVED
+  PROFILE_REJECTED
+  // "Operational" compliance issue — not document-shaped, so it never
+  // gets a VendorComplianceCase row (see getVendorOperationalIssues in
+  // admin.vendor.compliance.service.ts). Notify is a one-off nudge, no
+  // case/claim/waive workflow behind it.
+  PAYOUT_ACCOUNT_MISSING
 }
 
 enum DocumentScope {

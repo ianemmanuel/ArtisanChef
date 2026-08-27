@@ -236,17 +236,30 @@ export interface VendorAccountWithDetails extends VendorAccount {
 
 //* Vendor profile
 
+//* Mirrors OutletReviewStatus's AUTO_APPROVED/FLAGGED/MANUALLY_APPROVED/
+//* MANUALLY_REJECTED convention exactly — see ProfileReviewStatus in
+//* schema.prisma. A profile can only be published while AUTO_APPROVED or
+//* MANUALLY_APPROVED — see publishVendorProfile.
+export type ProfileReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
+
 export interface VendorProfile {
   id : string
   vendorAccountId : string
   displayName : string
   tagline : string | null
   description : string | null
+  story : string | null
   logoUrl : string | null
   coverImageUrl : string | null
   publicEmail : string | null
   publicPhone : string | null
   website : string | null
+  socialLinks : Record<string, string> | null
+  reservationLink : string | null
+  primaryCuisineId : string | null
+  specialties : string[]
+  dietaryOptions : string[]
+  foundedYear : number | null
   isVerifiedBadge : boolean
   isTopRated : boolean
   isCommunityFavorite : boolean
@@ -254,9 +267,66 @@ export interface VendorProfile {
   isFeatured : boolean
   totalReviews : number
   averageRating : number
+  galleryImages : string[]
+  videoUrls : string[]
   publishedAt : string | null
+  //* Profanity/impersonation moderation — see admin.vendorProfile.service.ts
+  reviewStatus : ProfileReviewStatus
+  flagReasons : string[]
+  flaggedAt : string | null
+  reviewedAt : string | null
+  reviewedByAdminId : string | null
+  rejectionReason : string | null
   createdAt : string
   updatedAt : string
+}
+
+//* Vendor-facing create/edit payload — a full-form save (not a partial
+//* PATCH), same "whole profile at once" contract as most public-profile
+//* editors. Deliberately excludes every admin/system-owned field above
+//* (isVerifiedBadge, isPublished, reviewStatus, etc.).
+export interface UpsertVendorProfileRequest {
+  displayName      : string
+  tagline?         : string | null
+  description?     : string | null
+  story?           : string | null
+  logoUrl?         : string | null
+  coverImageUrl?   : string | null
+  publicEmail?     : string | null
+  publicPhone?     : string | null
+  website?         : string | null
+  socialLinks?     : Record<string, string> | null
+  reservationLink? : string | null
+  primaryCuisineId?: string | null
+  specialties?     : string[]
+  dietaryOptions?  : string[]
+  foundedYear?     : number | null
+}
+
+/*
+ * Roadmap "Vendor go-live gating" (CLAUDE.md) — a vendor can't go live
+ * (publish its profile) without a verified payout account, a profile, and
+ * at least one active outlet, following how Uber Eats/Bolt Food gate a new
+ * merchant's storefront going live. Computed live, never stored — same
+ * "one derived field the frontend switches UI on" convention as
+ * VendorLifecycleState. See getVendorGoLiveStatus/publishVendorProfile in
+ * vendor.profile.service.ts.
+ */
+export interface VendorGoLiveStatus {
+  hasVerifiedPayoutAccount: boolean
+  hasActiveOutlet         : boolean
+  hasProfile               : boolean
+  isProfileReviewClear    : boolean
+  isPublished              : boolean
+  canGoLive                : boolean
+  blockers                 : string[]
+}
+
+//* Admin-facing profile row — the cross-vendor moderation queue at
+//* /vendors/profiles needs the owning vendor's name/country alongside the
+//* profile itself, same shape convention as VendorAppeal's admin rows.
+export interface VendorProfileWithVendor extends VendorProfile {
+  vendor: { id: string; legalBusinessName: string; countryId: string }
 }
 
 
@@ -624,6 +694,48 @@ export interface AddPayoutAccountRequest {
   // Digital wallets
   paypalEmail?    : string
   stripeAccountId?: string
+}
+
+//* Available OUTBOUND CountryPaymentMethod rows a vendor can choose from —
+//* GET /vendor/v1/payouts/methods. Slimmer than admin-dashboard's own
+//* CountryPaymentMethodConfig (types/payment-method.types.ts) — no
+//* ourAccountDetails/verificationConfig, which are platform-internal.
+export interface AvailablePayoutMethod {
+  id           : string
+  countryId    : string
+  direction    : "OUTBOUND"
+  status       : "ACTIVE" | "INACTIVE" | "DEPRECATED"
+  displayOrder : number
+  paymentMethod: { name: string; type: "MOBILE_MONEY" | "BANK" | "DIGITAL_WALLET" | "CARD"; logoUrl: string | null; code: string; description: string | null }
+}
+
+export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
+
+export interface VendorPayoutAccount {
+  id                    : string
+  vendorId              : string
+  countryPaymentMethodId: string
+  isDefault             : boolean
+  isActive              : boolean
+  accountHolderName     : string | null
+  bankName              : string | null
+  branchName            : string | null
+  bankCode              : string | null
+  accountNumber         : string | null
+  swiftCode             : string | null
+  iban                  : string | null
+  routingNumber         : string | null
+  mobileNetwork         : string | null
+  mobileNumber          : string | null
+  paypalEmail           : string | null
+  stripeAccountId       : string | null
+  verificationStatus    : PayoutVerificationStatus
+  verificationMethod    : string | null
+  failureReason         : string | null
+  verifiedAt            : string | null
+  createdAt             : string
+  updatedAt             : string
+  countryPaymentMethod  : { paymentMethod: { name: string; type: string; logoUrl: string | null; code: string } }
 }
 
 export type idParam = { id: string }

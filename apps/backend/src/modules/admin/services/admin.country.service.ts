@@ -46,15 +46,23 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
  * see setVendorOnboardingReadiness/setCustomerOperationsReadiness.
  */
 async function getCountryChecklistCounts(countryId: string) {
-  const [vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount] = await Promise.all([
+  const [vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount, cityCount] = await Promise.all([
     prisma.vendorTypeCountry.count({ where: { countryId, status: GeoStatus.ACTIVE } }),
     prisma.documentTypeConfig.count({ where: { countryId, status: DocumentTypeStatus.ACTIVE } }),
     prisma.countryPaymentMethod.count({ where: { countryId, direction: PaymentDirection.OUTBOUND, status: CountryPaymentMethodStatus.ACTIVE } }),
     prisma.countryPaymentMethod.count({ where: { countryId, direction: PaymentDirection.INBOUND, status: CountryPaymentMethodStatus.ACTIVE } }),
+    // Same tier as vendorTypeCount/documentTypeCount/outboundPaymentMethodCount
+    // below — a country with zero cities has nowhere for a vendor to
+    // register an outlet, same "nothing to actually do X with" reasoning.
+    // Deliberately just presence, not boundary/service-area configuration —
+    // that's ongoing operational map work (still deferred), not a launch
+    // gate, same way Uber Eats/Bolt Food add cities to a live market
+    // incrementally rather than mapping every service area before launch.
+    prisma.city.count({ where: { countryId, status: GeoStatus.ACTIVE } }),
   ])
   return {
-    vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount,
-    readyToActivate: vendorTypeCount > 0 && documentTypeCount > 0 && outboundPaymentMethodCount > 0,
+    vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount, cityCount,
+    readyToActivate: vendorTypeCount > 0 && documentTypeCount > 0 && outboundPaymentMethodCount > 0 && cityCount > 0,
   }
 }
 
@@ -163,12 +171,13 @@ export async function activateCountry(
         throw new ApiError(400, "Country is already active", "ALREADY_ACTIVE")
     }
 
-    const { vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, readyToActivate } = await getCountryChecklistCounts(countryId)
+    const { vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, cityCount, readyToActivate } = await getCountryChecklistCounts(countryId)
     if (!readyToActivate) {
         const missing = [
             vendorTypeCount === 0 ? "a vendor category" : null,
             documentTypeCount === 0 ? "a document" : null,
             outboundPaymentMethodCount === 0 ? "a vendor payout method" : null,
+            cityCount === 0 ? "a city" : null,
         ].filter(Boolean).join(", ")
         throw new ApiError(400, `Add at least ${missing} before activating this country`, "COUNTRY_NOT_READY")
     }

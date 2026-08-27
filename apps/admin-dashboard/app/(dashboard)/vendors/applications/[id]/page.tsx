@@ -41,7 +41,13 @@ export default async function ApplicationDetailPage({ params }: Props) {
   const canClaim           = canReview && session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_CLAIM)
   const canReassign        = session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_REASSIGN)
   const canEscalate        = canReview && session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_ESCALATE)
+  // Escalated applications stay with the local country team — a
+  // globally-scoped holder of this permission can't self-claim out of the
+  // pool (see claimApplication's country-scope block), so the frontend
+  // shouldn't offer the button either. Same pattern as
+  // ComplianceIssueActions' canReceiveEscalation.
   const canReceiveEscalation = session.permissions.includes(AdminPermissions.VENDORS_APPLICATIONS_RECEIVE_ESCALATION)
+    && !session.scope.isGlobal && !!application.country?.id && session.scope.countryIds.includes(application.country.id)
   const canActOnDocuments  = session.permissions.includes(AdminPermissions.VENDORS_DOCUMENTS_VIEW)
   // Roadmap VM-P1-04 (CLAUDE.md) — log a formal appeal against the rejection.
   const canLogAppeal       = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_MANAGE)

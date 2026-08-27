@@ -1,11 +1,13 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { FileText, Clock, AlertTriangle, CheckCircle, XCircle } from "lucide-react"
+import { FileText, Clock, AlertTriangle, CheckCircle, XCircle, FileDown } from "lucide-react"
 import { adminFetch }  from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { VendorApplicationsTable } from "@/components/vendors/VendorApplicationsTable"
 import { TableFilterBar, type FilterStatusOption, type FilterSortOption, type FilterSelectOption } from "@/components/shared/TableFilterBar"
+import { QueueDot } from "@/components/shared/QueueDot"
+import { HowApplicationReviewDialog } from "@/components/vendors/HowApplicationReviewDialog"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { ApplicationListResult } from "@/types"
 import type { CountryListLite, CountryLite } from "@/types/vendor-type.types"
@@ -57,6 +59,10 @@ const STATUS_OPTIONS: FilterStatusOption[] = [
 ]
 
 const SORT_OPTIONS: FilterSortOption[] = [
+  // Default — needs-action statuses (Submitted/Needs Revision) first, then
+  // Under Review, terminal statuses last; oldest-first within each bucket
+  // so nothing starves. Computed server-side (listApplications' sort=priority).
+  { value: "priority",          label: "Priority (needs action first)", icon: "updown" },
   { value: "submittedAt",       label: "Date submitted", icon: "updown" },
   { value: "createdAt",         label: "Date created",   icon: "updown" },
   { value: "legalBusinessName", label: "Business name",  icon: "az" },
@@ -75,7 +81,7 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
   const status  = params.status  ?? ""
   const country = params.country ?? ""
   const queue   = params.queue   ?? ""
-  const sort    = params.sort    ?? "submittedAt"
+  const sort    = params.sort    ?? "priority"
   const dir     = params.dir     ?? "desc"
   // REVIEW is the base capability to act on an application at all — the
   // per-row "Review" link should be visible to anyone who can open and
@@ -113,10 +119,22 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
   // consistent with what the table below actually shows.
   const countryQs = country ? `&countrySlug=${country}` : ""
   const queueQs   = queue   ? `&queue=${queue}`         : ""
-  const [result, ...statusCounts] = await Promise.all([
+  const [result, unassignedCount, escalatedCount, ...statusCounts] = await Promise.all([
     adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?${qs}`, {
       next: { revalidate: 60, tags: ["vendor-applications"] },
     }).catch(() => null),
+    // Backs the queue-pill notification dots below — only fetched when
+    // the pills themselves are shown (canReview).
+    canReview
+      ? adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?queue=unassigned&pageSize=1${countryQs}`, {
+          next: { revalidate: 60, tags: ["vendor-applications"] },
+        }).catch(() => ({ total: 0 }))
+      : Promise.resolve({ total: 0 }),
+    canReview
+      ? adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?queue=escalated&pageSize=1${countryQs}`, {
+          next: { revalidate: 60, tags: ["vendor-applications"] },
+        }).catch(() => ({ total: 0 }))
+      : Promise.resolve({ total: 0 }),
     ...STATUS_CARDS.map(({ status: s }) =>
       adminFetch<ApplicationListResult>(`/admin/v1/vendors/applications?status=${s}&pageSize=1${countryQs}${queueQs}`, {
         next: { revalidate: 60, tags: ["vendor-applications"] },
@@ -134,18 +152,27 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
           <span>/</span>
           <span className="text-foreground">Applications</span>
         </nav>
-        <div className="mt-2 flex items-center gap-3">
-          <div className="icon-badge icon-badge-primary h-10 w-10">
-            <FileText className="h-5 w-5" />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="icon-badge icon-badge-primary h-10 w-10">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+                Applications
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Review and action vendor applications.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
-              Applications
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Review and action vendor applications.
-            </p>
-          </div>
+          <a
+            href={`/api/vendors/applications/export?${qs}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:border-primary/40 hover:text-primary"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            Export CSV
+          </a>
         </div>
       </div>
 
@@ -166,11 +193,13 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
                 key={value || "all"}
                 href={href}
                 className={[
-                  "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                  "inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
                   active ? "bg-card text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground",
                 ].join(" ")}
               >
                 {label}
+                {value === "unassigned" && <QueueDot show={(unassignedCount as { total: number }).total > 0} />}
+                {value === "escalated"  && <QueueDot show={(escalatedCount  as { total: number }).total > 0} />}
               </Link>
             )
           })}
@@ -225,6 +254,10 @@ export default async function VendorApplicationsPage({ searchParams }: PageProps
         country={country}
         queue={queue}
       />
+
+      <div className="flex justify-center">
+        <HowApplicationReviewDialog />
+      </div>
     </div>
   )
 }

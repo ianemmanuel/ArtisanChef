@@ -21,6 +21,8 @@ export interface CountryLite {
   code: string
   slug: string
   status?: string
+  /** ISO 4217 code (e.g. "KES") — already seeded on every Country row (packages/database's geography seed), just not previously surfaced to the frontend. See CLAUDE.md's Finance-domain currency note. */
+  currency?: string
 }
 
 export interface VendorTypeCountryLink {

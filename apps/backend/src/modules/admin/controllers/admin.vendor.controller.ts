@@ -6,6 +6,7 @@ import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/errors/ApiError"
 import {
   listApplications,
+  exportApplicationsCsv,
   getApplication,
   approveApplication,
   rejectApplication,
@@ -16,6 +17,7 @@ import {
   escalateApplication,
   listEligibleReviewTargets,
   listVendorAccounts,
+  exportVendorAccountsCsv,
   getVendorAccount,
   suspendVendor,
   reinstateVendor,
@@ -47,6 +49,27 @@ export const handleListApplications: RequestHandler = async (req, res, next) => 
       adminUser.id,
     )
     return sendSuccess(res, result, "Applications fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleExportApplicationsCsv: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { status, countrySlug, search, queue } = req.query
+
+    const csv = await exportApplicationsCsv(
+      {
+        status     : status      as VendorApplicationStatus | undefined,
+        countrySlug: countrySlug as string | undefined,
+        search     : search      as string | undefined,
+        queue      : queue       as "mine" | "unassigned" | "escalated" | undefined,
+      },
+      adminScope,
+      adminUser.id,
+    )
+    res.setHeader("Content-Type", "text/csv; charset=utf-8")
+    res.setHeader("Content-Disposition", `attachment; filename="vendor-applications-${new Date().toISOString().slice(0, 10)}.csv"`)
+    return res.status(200).send(csv)
   } catch (err) { next(err) }
 }
 
@@ -216,6 +239,27 @@ export const handleListVendorAccounts: RequestHandler = async (req, res, next) =
       adminScope,
     )
     return sendSuccess(res, result, "Vendor accounts fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleExportVendorAccountsCsv: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { status, countrySlug, search, vendorTypeId, bannedOnly } = req.query
+
+    const csv = await exportVendorAccountsCsv(
+      {
+        status      : status       as VendorStatus | undefined,
+        countrySlug : countrySlug  as string | undefined,
+        search      : search       as string | undefined,
+        vendorTypeId: vendorTypeId as string | undefined,
+        bannedOnly  : bannedOnly === "true",
+      },
+      adminScope,
+    )
+    res.setHeader("Content-Type", "text/csv; charset=utf-8")
+    res.setHeader("Content-Disposition", `attachment; filename="vendor-accounts-${new Date().toISOString().slice(0, 10)}.csv"`)
+    return res.status(200).send(csv)
   } catch (err) { next(err) }
 }
 

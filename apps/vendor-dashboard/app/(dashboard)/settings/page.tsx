@@ -1,9 +1,15 @@
-import React from 'react'
+import { PageHeader } from "@/components/dashboard/layout/PageHeader"
+import { PageGrid } from "@/components/dashboard/layout/DashboardShell"
+import { PayoutAccountsSection } from "@/components/payout/PayoutAccountsSection"
 
-const SettingsPage = () => {
+export default function SettingsPage() {
   return (
-    <div>Settings Page</div>
+    <PageGrid>
+      <PageHeader
+        title="Payout accounts"
+        description="Manage the bank, mobile money, or wallet accounts we pay you out to."
+      />
+      <PayoutAccountsSection />
+    </PageGrid>
   )
 }
-
-export default SettingsPage

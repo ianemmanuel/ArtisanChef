@@ -11,7 +11,8 @@ import type { MockRevenueShareResult } from "@/lib/mock/vendor-type-revenue"
 interface Props {
   data       : MockRevenueShareResult
   scopeLabel : string
-  viewMoreHref: string
+  /** Omit when the viewer lacks FINANCE_REPORTS_READ — the destination (/finance/vendor-categories) is gated on it, so linking there for someone without it would be a dead link. */
+  viewMoreHref?: string
 }
 
 const SLICE_COLORS = [
@@ -89,9 +90,11 @@ export function RevenueDonutChart({ data, scopeLabel, viewMoreHref }: Props) {
 
       <p className="mt-3 text-[11px] text-muted-foreground">Illustrative — replace once Orders/Payments ships.</p>
 
-      <Link href={viewMoreHref} className="view-all-link mt-2 self-start">
-        View revenue trend <ArrowRight className="h-3 w-3" />
-      </Link>
+      {viewMoreHref && (
+        <Link href={viewMoreHref} className="view-all-link mt-2 self-start">
+          View revenue trend <ArrowRight className="h-3 w-3" />
+        </Link>
+      )}
     </div>
   )
 }

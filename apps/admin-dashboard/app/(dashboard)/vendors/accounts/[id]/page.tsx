@@ -236,9 +236,16 @@ export default async function VendorAccountDetailPage({ params }: Props) {
                   account.compliance.expiringCount > 0
                     ? `${account.compliance.expiringCount} expiring soon`
                     : null,
+                  account.compliance.hasMissingPayoutAccount ? "no verified payout account" : null,
                 ].filter(Boolean).join(" · ")}
               </p>
               <ul className="mt-3 space-y-1.5">
+                {account.compliance.hasMissingPayoutAccount && (
+                  <li className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-foreground">Payout account</span>
+                    <span className="badge-warning">No verified account</span>
+                  </li>
+                )}
                 {account.compliance.issues
                   .filter((i: ComplianceIssueItem) => i.issueStatus !== "WAIVED")
                   .map((issue: ComplianceIssueItem) => (
@@ -255,7 +262,7 @@ export default async function VendorAccountDetailPage({ params }: Props) {
                     </li>
                   ))}
               </ul>
-              <Link href="/vendors/compliance" className="view-all-link mt-3 inline-block text-xs">
+              <Link href={`/vendors/compliance/${id}`} className="view-all-link mt-3 inline-block text-xs">
                 Manage compliance issues →
               </Link>
             </>
@@ -359,10 +366,16 @@ export default async function VendorAccountDetailPage({ params }: Props) {
       {/* Outlets */}
       {outlets.length > 0 && (
         <div className="admin-card overflow-hidden p-0">
-          <div className="border-b border-border/60 px-5 py-3">
+          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
             <h2 className="text-sm font-semibold text-foreground">
               Outlets ({outlets.length})
             </h2>
+            <Link
+              href={`/vendors/outlets?vendor=${account.id}&vendorName=${encodeURIComponent(account.legalBusinessName)}`}
+              className="view-all-link text-xs"
+            >
+              View in Outlet Moderation →
+            </Link>
           </div>
           <Table>
             <TableHeader>
@@ -376,7 +389,9 @@ export default async function VendorAccountDetailPage({ params }: Props) {
             <TableBody>
               {outletsByRevenue.map((outlet) => (
                 <TableRow key={outlet.id} className="hover:bg-muted/10">
-                  <TableCell className="font-medium text-foreground">{outlet.name}</TableCell>
+                  <TableCell className="font-medium text-foreground">
+                    <Link href={`/vendors/outlets/${outlet.id}`} className="hover:text-primary hover:underline">{outlet.name}</Link>
+                  </TableCell>
                   <TableCell className="hidden text-sm text-muted-foreground sm:table-cell">
                     {outlet.city?.name ?? "—"}
                   </TableCell>

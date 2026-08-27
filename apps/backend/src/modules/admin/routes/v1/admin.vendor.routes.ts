@@ -3,6 +3,7 @@ import { AdminPermissions } from "@repo/types/enums"
 import { requirePermission } from "@/modules/admin/middleware"
 import {
   handleListApplications,
+  handleExportApplicationsCsv,
   handleGetApplication,
   handleApproveApplication,
   handleRejectApplication,
@@ -13,6 +14,7 @@ import {
   handleEscalateApplication,
   handleListEligibleReviewTargets,
   handleListVendorAccounts,
+  handleExportVendorAccountsCsv,
   handleGetVendorAccount,
   handleSuspendVendor,
   handleReinstateVendor,
@@ -28,6 +30,10 @@ import {
   handleGetExpiringDocuments,
   handleGetExpiredDocuments,
   handleGetComplianceOverview,
+  handleGetVendorComplianceGroups,
+  handleGetVendorComplianceDetail,
+  handleClaimAllComplianceIssuesForVendor,
+  handleNotifyVendorAboutMissingPayoutAccount,
   handleExportComplianceIssuesCsv,
   handleCreateComplianceWaiver,
   handleRevokeComplianceWaiver,
@@ -40,10 +46,29 @@ import {
 import {
   handleLogAppeal,
   handleListAppeals,
+  handleExportAppealsCsv,
   handleGetAppeal,
   handleAssignAppeal,
   handleResolveAppeal,
 } from "../../controllers/admin.vendor.appeal.controller"
+import {
+  handleListVendorProfiles,
+  handleExportVendorProfilesCsv,
+  handleGetVendorProfileForAdmin,
+  handleApproveVendorProfile,
+  handleRejectVendorProfile,
+} from "../../controllers/admin.vendorProfile.controller"
+import {
+  handleListOutlets,
+  handleExportOutletsCsv,
+  handleGetOutletForAdmin,
+  handleApproveOutlet,
+  handleRejectOutlet,
+  handleSuspendOutlet,
+  handleReinstateOutlet,
+  handleBanOutlet,
+  handleUnbanOutlet,
+} from "../../controllers/admin.outlet.controller"
 
 
  
@@ -51,6 +76,9 @@ const vendorRouter: Router = Router()
 
 // Applications
 vendorRouter.get("/applications", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_READ ), handleListApplications)
+// Must be registered before "/applications/:id" — otherwise Express would
+// match "export" as an :id value first.
+vendorRouter.get("/applications/export", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_READ), handleExportApplicationsCsv)
 vendorRouter.get("/applications/:id", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_READ ), handleGetApplication)
 vendorRouter.post("/applications/:id/review", requirePermission(AdminPermissions.VENDORS_APPLICATIONS_REVIEW ), handleMarkUnderReview)
 // review = fundamental capability to participate in vendor application review.
@@ -86,6 +114,12 @@ vendorRouter.get("/applications/:id/eligible-reviewers", requirePermission(Admin
 
 // Accounts
 vendorRouter.get("/accounts", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_READ ), handleListVendorAccounts)
+// vendors:accounts:export already existed in the permission catalog and
+// vendor_ops's pool (pre-provisioned, never wired to an actual endpoint
+// until now) — its own dedicated permission, distinct from READ, matching
+// its description ("Export vendor account data as CSV..."). Must be
+// registered before "/accounts/:id".
+vendorRouter.get("/accounts/export", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_EXPORT), handleExportVendorAccountsCsv)
 vendorRouter.get("/accounts/:id", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_READ), handleGetVendorAccount)
 vendorRouter.post("/accounts/:id/suspend", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_SUSPEND), handleSuspendVendor)
 vendorRouter.post("/accounts/:id/reinstate", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_REINSTATE), handleReinstateVendor)
@@ -121,6 +155,13 @@ vendorRouter.get("/compliance/overview", requirePermission(AdminPermissions.VEND
 // Roadmap VM-P2-01 (CLAUDE.md) — CSV export, same filters + permission as the overview.
 vendorRouter.get("/compliance/export", requirePermission(AdminPermissions.VENDORS_COMPLIANCE_READ), handleExportComplianceIssuesCsv)
 
+// Vendor-grouped view (compliance-ownership rework, CLAUDE.md) — one row
+// per vendor on /vendors/compliance, driving to a per-vendor detail page.
+// Same permission as the flat overview above — this is a different shape
+// of the same data, not a different capability.
+vendorRouter.get("/compliance/by-vendor", requirePermission(AdminPermissions.VENDORS_COMPLIANCE_READ), handleGetVendorComplianceGroups)
+vendorRouter.get("/compliance/vendor/:vendorId", requirePermission(AdminPermissions.VENDORS_COMPLIANCE_READ), handleGetVendorComplianceDetail)
+
 // Claim/escalate — the case workflow, modeled closely on the applications
 // review workflow above. Both require base READ too (same "review is the
 // fundamental capability" pattern as applications' REVIEW gate).
@@ -155,15 +196,52 @@ vendorRouter.get(
 vendorRouter.post("/compliance/waivers", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_COMPLIANCE_MANAGE), handleCreateComplianceWaiver)
 vendorRouter.post("/compliance/waivers/:waiverId/revoke", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_COMPLIANCE_MANAGE), handleRevokeComplianceWaiver)
 vendorRouter.post("/compliance/notify", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_COMPLIANCE_MANAGE), handleNotifyVendorAboutComplianceIssue)
+vendorRouter.post("/compliance/vendor/:vendorId/notify-payout", requirePermission(AdminPermissions.VENDORS_ACCOUNTS_COMPLIANCE_MANAGE), handleNotifyVendorAboutMissingPayoutAccount)
+
+// "Claim all" — the vendor-detail-page bulk convenience (see the
+// vendor-grouped routes above); same CLAIM permission as a per-issue claim,
+// each issue individually re-checked by claimComplianceCase.
+vendorRouter.post(
+  "/compliance/vendor/:vendorId/claim-all",
+  requirePermission(AdminPermissions.VENDORS_COMPLIANCE_READ),
+  requirePermission(AdminPermissions.VENDORS_COMPLIANCE_CLAIM),
+  handleClaimAllComplianceIssuesForVendor,
+)
 
 // Appeals — Roadmap VM-P1-04 (CLAUDE.md). Admin-side log/track/resolve of
 // a formal appeal against a rejected application, suspension, or ban.
 // Deliberately simpler than compliance/applications: no claim-race lock,
 // no escalation pool — just READ (view) and MANAGE (log/assign/resolve).
 vendorRouter.get("/appeals", requirePermission(AdminPermissions.VENDORS_APPEALS_READ), handleListAppeals)
+// Must be registered before "/appeals/:id".
+vendorRouter.get("/appeals/export", requirePermission(AdminPermissions.VENDORS_APPEALS_READ), handleExportAppealsCsv)
 vendorRouter.get("/appeals/:id", requirePermission(AdminPermissions.VENDORS_APPEALS_READ), handleGetAppeal)
 vendorRouter.post("/appeals", requirePermission(AdminPermissions.VENDORS_APPEALS_MANAGE), handleLogAppeal)
 vendorRouter.patch("/appeals/:id/assign", requirePermission(AdminPermissions.VENDORS_APPEALS_MANAGE), handleAssignAppeal)
 vendorRouter.patch("/appeals/:id/resolve", requirePermission(AdminPermissions.VENDORS_APPEALS_MANAGE), handleResolveAppeal)
+
+// Public-profile moderation — mirrors Appeals' simplicity (no claim/
+// escalate machinery, direct approve/reject-with-reason). See
+// admin.vendorProfile.service.ts.
+vendorRouter.get("/profiles", requirePermission(AdminPermissions.VENDORS_PROFILES_READ), handleListVendorProfiles)
+// Must be registered before "/profiles/:vendorId".
+vendorRouter.get("/profiles/export", requirePermission(AdminPermissions.VENDORS_PROFILES_READ), handleExportVendorProfilesCsv)
+vendorRouter.get("/profiles/:vendorId", requirePermission(AdminPermissions.VENDORS_PROFILES_READ), handleGetVendorProfileForAdmin)
+vendorRouter.post("/profiles/:vendorId/approve", requirePermission(AdminPermissions.VENDORS_PROFILES_MODERATE), handleApproveVendorProfile)
+vendorRouter.post("/profiles/:vendorId/reject", requirePermission(AdminPermissions.VENDORS_PROFILES_MODERATE), handleRejectVendorProfile)
+
+// Outlet moderation — Roadmap "Admin-side outlet moderation" (CLAUDE.md).
+// Review resolves a vendor-side flag (approve/reject); suspend/reinstate/
+// ban/unban is the operational lifecycle, independent of review.
+vendorRouter.get("/outlets", requirePermission(AdminPermissions.VENDORS_OUTLETS_READ), handleListOutlets)
+// Must be registered before "/outlets/:outletId".
+vendorRouter.get("/outlets/export", requirePermission(AdminPermissions.VENDORS_OUTLETS_READ), handleExportOutletsCsv)
+vendorRouter.get("/outlets/:outletId", requirePermission(AdminPermissions.VENDORS_OUTLETS_READ), handleGetOutletForAdmin)
+vendorRouter.post("/outlets/:outletId/approve", requirePermission(AdminPermissions.VENDORS_OUTLETS_MODERATE), handleApproveOutlet)
+vendorRouter.post("/outlets/:outletId/reject", requirePermission(AdminPermissions.VENDORS_OUTLETS_MODERATE), handleRejectOutlet)
+vendorRouter.post("/outlets/:outletId/suspend", requirePermission(AdminPermissions.VENDORS_OUTLETS_MODERATE), handleSuspendOutlet)
+vendorRouter.post("/outlets/:outletId/reinstate", requirePermission(AdminPermissions.VENDORS_OUTLETS_MODERATE), handleReinstateOutlet)
+vendorRouter.post("/outlets/:outletId/ban", requirePermission(AdminPermissions.VENDORS_OUTLETS_MODERATE), handleBanOutlet)
+vendorRouter.post("/outlets/:outletId/unban", requirePermission(AdminPermissions.VENDORS_OUTLETS_MODERATE), handleUnbanOutlet)
 
 export default vendorRouter

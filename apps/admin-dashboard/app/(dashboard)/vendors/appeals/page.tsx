@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Scale, Clock, Gavel, CheckCircle2 } from "lucide-react"
+import { Scale, Clock, Gavel, CheckCircle2, FileDown } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -82,13 +82,36 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
   if (status)  qsParams.status      = status
   const qs = new URLSearchParams(qsParams)
 
-  const result = await adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?${qs}`, {
-    next: { revalidate: 60, tags: ["vendor-appeals"] },
-  }).catch(() => null)
+  // Stat cards are server-computed counts (same Promise.all(pageSize=1)
+  // pattern as Applications/Accounts/Outlets), not derived from the
+  // current page's slice — an appeal on page 2 was previously invisible
+  // to these cards entirely, since result.appeals only ever holds one
+  // page's worth of rows.
+  const countryFilterQs = country ? `&countrySlug=${country}` : ""
+  const typeFilterQs    = type    ? `&subjectType=${type}`    : ""
+  const scopedQs        = `${countryFilterQs}${typeFilterQs}`
 
-  const openCount   = result?.appeals.filter((a) => a.status === "OPEN").length ?? 0
-  const reviewCount = result?.appeals.filter((a) => a.status === "UNDER_REVIEW").length ?? 0
-  const resolvedCount = result?.appeals.filter((a) => a.status === "UPHELD" || a.status === "OVERTURNED").length ?? 0
+  const [result, openCountResult, reviewCountResult, upheldCountResult, overturnedCountResult] = await Promise.all([
+    adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?${qs}`, {
+      next: { revalidate: 60, tags: ["vendor-appeals"] },
+    }).catch(() => null),
+    adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?status=OPEN&pageSize=1${scopedQs}`, {
+      next: { revalidate: 60, tags: ["vendor-appeals"] },
+    }).catch(() => ({ total: 0 })),
+    adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?status=UNDER_REVIEW&pageSize=1${scopedQs}`, {
+      next: { revalidate: 60, tags: ["vendor-appeals"] },
+    }).catch(() => ({ total: 0 })),
+    adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?status=UPHELD&pageSize=1${scopedQs}`, {
+      next: { revalidate: 60, tags: ["vendor-appeals"] },
+    }).catch(() => ({ total: 0 })),
+    adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?status=OVERTURNED&pageSize=1${scopedQs}`, {
+      next: { revalidate: 60, tags: ["vendor-appeals"] },
+    }).catch(() => ({ total: 0 })),
+  ])
+
+  const openCount     = (openCountResult as { total: number }).total
+  const reviewCount   = (reviewCountResult as { total: number }).total
+  const resolvedCount = (upheldCountResult as { total: number }).total + (overturnedCountResult as { total: number }).total
 
   const statCards = [
     { label: "Open",         value: openCount,     icon: Scale,        badgeClass: "icon-badge-primary" },
@@ -104,16 +127,25 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
           <span>/</span>
           <span className="text-foreground">Appeals</span>
         </nav>
-        <div className="mt-2 flex items-center gap-3">
-          <div className="icon-badge icon-badge-primary h-10 w-10">
-            <Gavel className="h-5 w-5" />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="icon-badge icon-badge-primary h-10 w-10">
+              <Gavel className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Appeals</h1>
+              <p className="text-sm text-muted-foreground">
+                Formal appeals against a rejected application, account suspension, or ban — logged on behalf of a vendor who raised it through another channel.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Appeals</h1>
-            <p className="text-sm text-muted-foreground">
-              Formal appeals against a rejected application, account suspension, or ban — logged on behalf of a vendor who raised it through another channel.
-            </p>
-          </div>
+          <a
+            href={`/api/vendors/appeals/export?${qs}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:border-primary/40 hover:text-primary"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            Export CSV
+          </a>
         </div>
       </div>
 

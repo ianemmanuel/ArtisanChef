@@ -25,6 +25,10 @@ export type {
   VendorAccount,
   VendorAccountWithDetails,
   VendorProfile,
+  ProfileReviewStatus,
+  UpsertVendorProfileRequest,
+  VendorGoLiveStatus,
+  VendorProfileWithVendor,
   VendorDocument,
   OutletSummary,
   VendorLifecycleState,
@@ -52,6 +56,9 @@ export type {
   UpdateOutletRequest,
   OperatingHoursEntry,
   AddPayoutAccountRequest,
+  AvailablePayoutMethod,
+  VendorPayoutAccount,
+  PayoutVerificationStatus,
   idParam,
 } from "../domain/vendor"
 

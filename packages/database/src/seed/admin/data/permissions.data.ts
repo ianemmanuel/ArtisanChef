@@ -147,6 +147,26 @@ export const PERMISSIONS = [
     module     : "vendors",
     description: "Generate signed preview URLs to view vendor documents in-browser",
   },
+  {
+    key        : "vendors:profiles:read",
+    module     : "vendors",
+    description: "View vendor public profiles, including profiles flagged for review",
+  },
+  {
+    key        : "vendors:profiles:moderate",
+    module     : "vendors",
+    description: "Approve or reject a flagged vendor public profile, including force-unpublishing a rejected one",
+  },
+  {
+    key        : "vendors:outlets:read",
+    module     : "vendors",
+    description: "View vendor outlets, including ones flagged for review",
+  },
+  {
+    key        : "vendors:outlets:moderate",
+    module     : "vendors",
+    description: "Approve/reject a flagged outlet, and suspend, reinstate, ban, or unban an outlet independently of its vendor account",
+  },
 
   // ── Finance ───────────────────────────────────────────────────────────────
   {

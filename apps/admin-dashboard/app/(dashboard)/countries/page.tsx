@@ -76,7 +76,7 @@ export default async function CountriesPage({ searchParams }: PageProps) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/countries/revenue" className="view-all-link">
+          <Link href="/finance" className="view-all-link">
             <TrendingUp className="h-3.5 w-3.5" />
             Revenue →
           </Link>

@@ -4,6 +4,7 @@ import documentRouter from './vendor.documents.routes'
 import accountDocumentRouter from './vendor.accountDocuments.routes'
 import outletRouter from "./vendor.outlet.routes"
 import payoutRouter from "./vendor.payout.routes"
+import profileRouter from "./vendor.profile.routes"
 import authRouter from "../vendor.auth.routes"
 import { requireVendorState, NON_BANNED_STATES } from "../../middlewares"
 
@@ -23,6 +24,7 @@ v1Router.use('/documents', documentRouter)
 v1Router.use('/account-documents', accountDocumentRouter)
 v1Router.use('/outlets',outletRouter)
 v1Router.use('/payouts',payoutRouter)
+v1Router.use('/profile',profileRouter)
 
 // Vendor module info endpoint (optional)
 v1Router.get('/', (req: Request, res: Response) => {

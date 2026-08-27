@@ -21,6 +21,7 @@ export interface Country {
   checklist? : {
     vendorTypeCount: number; documentTypeCount: number
     outboundPaymentMethodCount: number; inboundPaymentMethodCount: number
+    cityCount: number
     readyToActivate: boolean
   }
   _count? : { cities: number; vendors: number }

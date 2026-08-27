@@ -7,6 +7,7 @@ import {
   CreditCard,
   Salad,
   FileCheck2,
+  Radio,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export const menuItems: NavItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', type: 'link' },
   { icon: Store, label: 'Outlets', href: '/outlets', type: 'link' },
   { icon: FileCheck2, label: 'Documents', href: '/documents', type: 'link' },
+  { icon: Radio, label: 'Profile', href: '/profile', type: 'link' },
   { icon: Salad, label: 'Meals', href: '/meals', type: 'link' },
   { icon: Package, label: 'Meal Plans', href: '/meal-plans', type: 'link' },
   { icon: ShoppingBag, label: 'Orders', href: '/orders', type: 'link' },

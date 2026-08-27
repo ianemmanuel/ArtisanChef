@@ -3,7 +3,7 @@ import type { AdminRequest } from "@repo/types/backend"
 import type { AppealSubjectType, AppealStatus } from "@repo/db"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/errors/ApiError"
-import { logAppeal, listAppeals, getAppeal, assignAppeal, resolveAppeal } from "../services/admin.vendor.appeal.service"
+import { logAppeal, listAppeals, exportAppealsCsv, getAppeal, assignAppeal, resolveAppeal } from "../services/admin.vendor.appeal.service"
 
 export const handleLogAppeal: RequestHandler = async (req, res, next) => {
   try {
@@ -33,6 +33,23 @@ export const handleListAppeals: RequestHandler = async (req, res, next) => {
       pageSize   : pageSize ? parseInt(pageSize as string) : undefined,
     })
     return sendSuccess(res, result, "Appeals fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleExportAppealsCsv: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { status, subjectType, countrySlug, search } = req.query
+
+    const csv = await exportAppealsCsv(adminScope, {
+      status     : status      as AppealStatus | undefined,
+      subjectType: subjectType as AppealSubjectType | undefined,
+      countrySlug: countrySlug as string | undefined,
+      search     : search      as string | undefined,
+    })
+    res.setHeader("Content-Type", "text/csv; charset=utf-8")
+    res.setHeader("Content-Disposition", `attachment; filename="vendor-appeals-${new Date().toISOString().slice(0, 10)}.csv"`)
+    return res.status(200).send(csv)
   } catch (err) { next(err) }
 }
 

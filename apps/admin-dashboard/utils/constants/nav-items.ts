@@ -26,6 +26,8 @@ import {
   ShieldAlert,
   Scale,
   CreditCard,
+  UserCheck,
+  MapPin,
 } from "lucide-react"
 import { AdminPermissions, type AdminPermissionKey } from "@repo/types/admin-app"
 
@@ -77,9 +79,12 @@ export const navSections: NavSection[] = [
       { label: "Home",         href: "/vendors",              icon: Store },
       { label: "Applications", href: "/vendors/applications", icon: FileCheck2 },
       { label: "Accounts",     href: "/vendors/accounts",     icon: Briefcase },
+      { label: "Outlets",      href: "/vendors/outlets",      icon: MapPin,      requiredPermission: AdminPermissions.VENDORS_OUTLETS_READ },
       { label: "Compliance",   href: "/vendors/compliance",   icon: ShieldAlert, requiredPermission: AdminPermissions.VENDORS_COMPLIANCE_READ },
       { label: "Appeals",      href: "/vendors/appeals",      icon: Scale,       requiredPermission: AdminPermissions.VENDORS_APPEALS_READ },
-      { label: "Revenue",      href: "/vendors/revenue",      icon: TrendingUp },
+      { label: "Profiles",     href: "/vendors/profiles",     icon: UserCheck,   requiredPermission: AdminPermissions.VENDORS_PROFILES_READ },
+      // Revenue moved to its own "Finance" section below (CLAUDE.md) —
+      // no entry here any more; /vendors/revenue still redirects there.
     ],
   },
   {
@@ -100,21 +105,10 @@ export const navSections: NavSection[] = [
     items: [
       { label: "Home",     href: "/vendor-categories",          icon: Tag,        requiredPermission: AdminPermissions.SETTINGS_VENDOR_TYPES_READ },
       { label: "Adoption", href: "/vendor-categories/adoption", icon: PieChart,   requiredPermission: AdminPermissions.SETTINGS_VENDOR_TYPES_READ },
-      { label: "Revenue",  href: "/vendor-categories/revenue",  icon: TrendingUp, requiredPermission: AdminPermissions.SETTINGS_VENDOR_TYPES_READ },
-    ],
-  },
-  {
-    // Roadmap "Payment gateway infrastructure" (CLAUDE.md, 2026-08-26) —
-    // same "own top-level section" reasoning as Vendor Categories above:
-    // this is a global catalog (PaymentMethod), not owned by any one
-    // country. Per-country activation lives on each country's own page,
-    // not here. READ is enough to see the link; every mutation still
-    // requires GLOBAL scope regardless of permission (see
-    // admin.paymentMethod.service.ts's assertGlobalScope) — a country-
-    // scoped finance/operations_admin can view but never gets action buttons.
-    title: "Payment Gateways",
-    items: [
-      { label: "Home", href: "/payment-gateways", icon: CreditCard, requiredPermission: AdminPermissions.FINANCE_PAYMENT_METHODS_READ },
+      // Revenue moved under Finance (CLAUDE.md, 2026-08-27) — catalog
+      // health (Adoption) stays here, financial reporting moved to where
+      // the rest of financial reporting lives. /vendor-categories/revenue
+      // still redirects to /finance/vendor-categories.
     ],
   },
   {
@@ -136,14 +130,45 @@ export const navSections: NavSection[] = [
     title: "Countries",
     items: [
       { label: "Home",        href: "/countries",            icon: Flag,       requiresGlobalTier: true, requiredPermission: AdminPermissions.SETTINGS_GEOGRAPHY_WRITE },
-      { label: "Revenue",     href: "/countries/revenue",     icon: TrendingUp, requiresGlobalTier: true, requiredPermission: AdminPermissions.SETTINGS_GEOGRAPHY_WRITE },
       { label: "Launch Queue", href: "/countries/activation",  icon: Power,      requiresGlobalTier: true, requiredPermission: AdminPermissions.SETTINGS_GEOGRAPHY_WRITE },
+      // Revenue moved to its own "Finance" section below (CLAUDE.md) —
+      // /countries/revenue still redirects there.
     ],
   },
   {
     title: "Cities",
     items: [
       { label: "Home", href: "/cities", icon: Building2 },
+    ],
+  },
+  {
+    // New top-level Finance domain (CLAUDE.md) — merges the old
+    // /countries/revenue + /vendors/revenue into one section. Gated on
+    // FINANCE_REPORTS_READ, which the finance role holds by default and
+    // vendor_ops holds only as a pool ceiling (individually grantable to
+    // a specific "regulated" vendor_ops admin, never automatic — see
+    // loadPermissions.ts) — so this is visible to finance admins and only
+    // the specific vendor_ops admins a super_admin/identity_admin has
+    // chosen to grant it to, not every vendor_ops admin by default.
+    title: "Finance",
+    items: [
+      { label: "Home",             href: "/finance",                    icon: TrendingUp,  requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      { label: "Vendors",          href: "/finance/vendors",             icon: Store,       requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      { label: "Outlets",          href: "/finance/outlets",             icon: MapPin,      requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      { label: "Vendor Categories", href: "/finance/vendor-categories",  icon: Tag,         requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      { label: "Needs Attention",  href: "/finance/needs-attention",     icon: ShieldAlert, requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      // Payment Gateways moved here from its own top-level section
+      // (CLAUDE.md, 2026-08-27) — it's platform financial infrastructure,
+      // same domain as everything else in this section, matching how
+      // enterprise marketplace ERPs (Uber Eats/DoorDash-style) group
+      // payment-gateway configuration under Finance rather than as a
+      // standalone module. Global-catalog-vs-per-country split unchanged:
+      // this is the global catalog; per-country activation still lives on
+      // each country's own /countries/[slug]/payment-methods page (linked
+      // from the country launch checklist), which stays under Countries —
+      // that page configures a specific country, it isn't itself a global
+      // financial-infrastructure catalog.
+      { label: "Payment Gateways", href: "/payment-gateways",            icon: CreditCard,  requiredPermission: AdminPermissions.FINANCE_PAYMENT_METHODS_READ },
     ],
   },
   {

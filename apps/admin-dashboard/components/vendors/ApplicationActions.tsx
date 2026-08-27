@@ -331,7 +331,7 @@ export function ApplicationActions({
             </p>
             {escalationReason && <p className="text-xs italic text-muted-foreground">&ldquo;{escalationReason}&rdquo;</p>}
             {!canReceiveEscalation && (
-              <p className="text-xs text-muted-foreground">Only admins who handle escalations can claim it.</p>
+              <p className="text-xs text-muted-foreground">Only country-scoped admins who handle escalations for this country can claim it — a globally-scoped admin can reassign it directly instead.</p>
             )}
           </div>
         </div>

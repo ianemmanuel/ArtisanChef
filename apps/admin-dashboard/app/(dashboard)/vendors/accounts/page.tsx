@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Building2, ShieldAlert, CheckCircle, Ban } from "lucide-react"
+import { Building2, ShieldAlert, CheckCircle, Ban, FileDown } from "lucide-react"
 import { adminFetch } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { TableFilterBar, type FilterStatusOption, type FilterSelectOption, type FilterSortOption } from "@/components/shared/TableFilterBar"
@@ -117,14 +117,28 @@ export default async function VendorAccountsPage({ searchParams }: PageProps) {
           <span>/</span>
           <span className="text-foreground">Accounts</span>
         </nav>
-        <div className="mt-2 flex items-center gap-3">
-          <div className="icon-badge icon-badge-primary h-10 w-10">
-            <Building2 className="h-5 w-5" />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="icon-badge icon-badge-primary h-10 w-10">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Vendor Accounts</h1>
+              <p className="text-sm text-muted-foreground">Active vendor accounts on the platform.</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Vendor Accounts</h1>
-            <p className="text-sm text-muted-foreground">Active vendor accounts on the platform.</p>
-          </div>
+          {/* Own dedicated permission (vendors:accounts:export), distinct
+              from READ — not every admin who can view accounts should
+              necessarily be able to bulk-export them. */}
+          {session.permissions.includes(AdminPermissions.VENDORS_ACCOUNTS_EXPORT) && (
+            <a
+              href={`/api/vendors/accounts/export?${qs}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-card px-3.5 py-2 text-xs font-medium text-foreground shadow-[var(--shadow-xs)] transition-colors hover:border-primary/40 hover:text-primary"
+            >
+              <FileDown className="h-3.5 w-3.5" />
+              Export CSV
+            </a>
+          )}
         </div>
       </div>
 

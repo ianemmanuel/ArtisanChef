@@ -1,4 +1,4 @@
-import { prisma, DocumentStatus, type DocumentComplianceSeverity } from "@repo/db"
+import { prisma, DocumentStatus, VendorStatus, PayoutVerificationStatus, type DocumentComplianceSeverity } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/errors/ApiError"
 import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
@@ -347,7 +347,7 @@ export async function detectComplianceCandidates(scope: AdminScopeContext, param
  * candidate if it were truly fixed — reconciliation keeps these in sync,
  * see jobs/vendor/compliance-case-sync.job.ts).
  */
-async function attachCaseInfo(candidates: ComplianceIssueRow[]): Promise<void> {
+export async function attachCaseInfo(candidates: ComplianceIssueRow[]): Promise<void> {
   if (candidates.length === 0) return
   const vendorIds = [...new Set(candidates.map((c) => c.vendor.id))]
 
@@ -402,7 +402,7 @@ function sortByUrgency(candidates: ComplianceIssueRow[]): ComplianceIssueRow[] {
  * urgency sort; the only difference is whether the caller slices a page
  * off the end or takes the whole filtered list.
  */
-async function detectAndFilterCandidates(
+export async function detectAndFilterCandidates(
   scope : AdminScopeContext,
   params: Omit<ComplianceOverviewParams, "page" | "pageSize">,
 ): Promise<{ filtered: ComplianceIssueRow[]; queued: ComplianceIssueRow[] }> {
@@ -416,10 +416,16 @@ async function detectAndFilterCandidates(
   // "unclaimed" (never assigned AND never escalated), "escalated"
   // (escalatedByAdminId set, regardless of whether it's since been
   // claimed from the pool — it stays visible under this pill).
+  // "escalated_unclaimed" is narrower still — escalated AND still sitting
+  // in the open pool (nobody's claimed it back out yet) — used only to
+  // power the Escalated tab's notification dot, not a tab of its own: an
+  // escalated case someone already claimed isn't "pick this up if you
+  // choose" any more (2026-08-27, user-requested — see CLAUDE.md).
   const queued =
-    queue === "mine" && actorId ? allCandidates.filter((c) => c.case?.assignedReviewerId === actorId)
-    : queue === "unclaimed"     ? allCandidates.filter((c) => !c.case?.assignedReviewerId && !c.case?.escalatedByAdminId)
-    : queue === "escalated"     ? allCandidates.filter((c) => !!c.case?.escalatedByAdminId)
+    queue === "mine" && actorId    ? allCandidates.filter((c) => c.case?.assignedReviewerId === actorId)
+    : queue === "unclaimed"        ? allCandidates.filter((c) => !c.case?.assignedReviewerId && !c.case?.escalatedByAdminId)
+    : queue === "escalated"        ? allCandidates.filter((c) => !!c.case?.escalatedByAdminId)
+    : queue === "escalated_unclaimed" ? allCandidates.filter((c) => !!c.case?.escalatedByAdminId && !c.case?.assignedReviewerId)
     : allCandidates
 
   return { filtered: sortByUrgency(status ? queued.filter((c) => c.issueStatus === status) : queued), queued }
@@ -450,6 +456,84 @@ export async function getComplianceOverview(scope: AdminScopeContext, params: Co
     expiringCount: queued.filter((c) => c.issueStatus === "EXPIRING_SOON").length,
     waivedCount  : queued.filter((c) => c.issueStatus === "WAIVED").length,
     affectedVendorCount: new Set(queued.filter((c) => c.issueStatus !== "WAIVED").map((c) => c.vendor.id)).size,
+  }
+}
+
+//* ─── Vendor-grouped view (compliance ownership rework) ───────────────────
+//* /vendors/compliance groups by vendor rather than listing every issue
+//* flat — the point being a single admin can see (and eventually "Claim
+//* all") everything affecting one vendor, without collapsing the
+//* per-issue severity/SLA/waiver mechanics that stay issue-grained on
+//* purpose (see CLAUDE.md's compliance-ownership decision). Built over the
+//* exact same filtered/queued candidate set as getComplianceOverview, just
+//* aggregated by vendor.id instead of paginated flat.
+
+export interface ComplianceVendorGroup {
+  vendor       : { id: string; legalBusinessName: string; countryId: string; status: string }
+  issueCount   : number
+  worstSeverity: DocumentComplianceSeverity
+  hasEscalated : boolean
+  hasUnclaimed : boolean
+  /** Folded in from getOperationalIssuesForScope — see that function's comment. */
+  hasMissingPayoutAccount: boolean
+}
+
+export async function getVendorComplianceGroups(scope: AdminScopeContext, params: ComplianceOverviewParams = {}) {
+  const { page = 1, pageSize = 20 } = params
+  const countryId = params.countrySlug ? await getCountryIdFromSlug(params.countrySlug, scope) : undefined
+  const [{ filtered, queued }, operationalByVendor] = await Promise.all([
+    detectAndFilterCandidates(scope, params),
+    // Only worth computing when the caller isn't narrowed to a specific
+    // document type or a document-only status (MISSING/EXPIRED/EXPIRING_SOON
+    // filters already can't match an operational issue) — cheap guard, not
+    // a correctness requirement.
+    params.documentTypeId ? Promise.resolve(new Map()) : getOperationalIssuesForScope(scope, countryId),
+  ])
+
+  const groups = new Map<string, ComplianceVendorGroup>()
+  for (const issue of filtered) {
+    let g = groups.get(issue.vendor.id)
+    if (!g) {
+      g = { vendor: issue.vendor, issueCount: 0, worstSeverity: "LOW", hasEscalated: false, hasUnclaimed: false, hasMissingPayoutAccount: false }
+      groups.set(issue.vendor.id, g)
+    }
+    g.issueCount++
+    if (SEVERITY_RANK[issue.severity] < SEVERITY_RANK[g.worstSeverity]) g.worstSeverity = issue.severity
+    if (issue.case?.escalatedByAdminId) g.hasEscalated = true
+    if (!issue.case?.assignedReviewerId && !issue.case?.escalatedByAdminId) g.hasUnclaimed = true
+  }
+  // Fold in operational issues — a vendor whose only problem is a missing
+  // payout account still needs its own row, even with zero document-based
+  // issues (queue/status filters don't apply to it; it's always CRITICAL
+  // and always "unclaimed" in spirit, since nothing to claim exists).
+  if (!params.status || params.status === "MISSING") {
+    for (const [vendorId, op] of operationalByVendor as Map<string, { vendor: ComplianceVendorGroup["vendor"]; hasMissingPayoutAccount: boolean }>) {
+      if (!op.hasMissingPayoutAccount) continue
+      let g = groups.get(vendorId)
+      if (!g) {
+        g = { vendor: op.vendor, issueCount: 0, worstSeverity: "LOW", hasEscalated: false, hasUnclaimed: false, hasMissingPayoutAccount: false }
+        groups.set(vendorId, g)
+      }
+      g.issueCount++
+      g.hasMissingPayoutAccount = true
+      g.worstSeverity = "CRITICAL"
+    }
+  }
+
+  const sorted = [...groups.values()].sort((a, b) =>
+    SEVERITY_RANK[a.worstSeverity] - SEVERITY_RANK[b.worstSeverity] || b.issueCount - a.issueCount,
+  )
+  const total = sorted.length
+  const skip  = (page - 1) * pageSize
+
+  return {
+    groups: sorted.slice(skip, skip + pageSize),
+    total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    missingCount : queued.filter((c) => c.issueStatus === "MISSING").length,
+    expiredCount : queued.filter((c) => c.issueStatus === "EXPIRED").length,
+    expiringCount: queued.filter((c) => c.issueStatus === "EXPIRING_SOON").length,
+    waivedCount  : queued.filter((c) => c.issueStatus === "WAIVED").length,
+    affectedVendorCount: total,
   }
 }
 
@@ -516,6 +600,135 @@ export async function getVendorComplianceIssues(vendorId: string, scope: AdminSc
 }
 
 /*
+ * Full picture for /vendors/compliance/[vendorId] — vendor header info +
+ * issues + operational, in one call. Re-checks scope through
+ * getVendorComplianceIssues/getVendorOperationalIssues rather than
+ * threading trust between functions — a little redundant (the vendor
+ * gets fetched three times total), same "each function re-verifies its
+ * own scope" convention already used throughout this module.
+ */
+export async function getVendorComplianceDetail(vendorId: string, scope: AdminScopeContext) {
+  const vendor = await prisma.vendorAccount.findUnique({
+    where : { id: vendorId },
+    select: { id: true, legalBusinessName: true, countryId: true, status: true, deletedAt: true },
+  })
+  if (!vendor || vendor.deletedAt) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  if (!scope.isGlobal && !scope.countryIds.includes(vendor.countryId)) {
+    throw new ApiError(403, "This vendor is outside your scope", "SCOPE_FORBIDDEN")
+  }
+
+  const [issues, operational] = await Promise.all([
+    getVendorComplianceIssues(vendorId, scope),
+    getVendorOperationalIssues(vendorId, scope),
+  ])
+
+  return {
+    vendor: { id: vendor.id, legalBusinessName: vendor.legalBusinessName, countryId: vendor.countryId, status: vendor.status },
+    issues, operational,
+  }
+}
+
+//* ─── Operational issues (missing payout account) ──────────────────────────
+//* Deliberately NOT a VendorComplianceCase — that model's documentTypeId is
+//* a required, cascading FK (see CLAUDE.md's compliance-ownership decision
+//* for the full reasoning); a payout account isn't a document and forcing
+//* it through that schema would mean a fake DocumentTypeConfig row. This
+//* is a plain computed check instead: active vendor, zero VERIFIED payout
+//* accounts. No claim/waive workflow — there's nothing to claim, the fix
+//* is entirely the vendor's own action (add + get a payout account
+//* verified); an admin's only lever here is a nudge.
+
+export interface VendorOperationalIssues {
+  hasMissingPayoutAccount: boolean
+}
+
+export async function getVendorOperationalIssues(vendorId: string, scope: AdminScopeContext): Promise<VendorOperationalIssues> {
+  const vendor = await prisma.vendorAccount.findUnique({
+    where : { id: vendorId },
+    select: { id: true, countryId: true, status: true, deletedAt: true },
+  })
+  if (!vendor || vendor.deletedAt) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  if (!scope.isGlobal && !scope.countryIds.includes(vendor.countryId)) {
+    throw new ApiError(403, "This vendor is outside your scope", "SCOPE_FORBIDDEN")
+  }
+  if (vendor.status !== VendorStatus.ACTIVE) return { hasMissingPayoutAccount: false }
+
+  const verified = await prisma.vendorPayoutAccount.findFirst({
+    where : { vendorId, deletedAt: null, verificationStatus: PayoutVerificationStatus.VERIFIED },
+    select: { id: true },
+  })
+  return { hasMissingPayoutAccount: !verified }
+}
+
+/*
+ * Cross-vendor version, folded into getVendorComplianceGroups. Bounded the
+ * same way as the document/missing scan (MAX_COMPLIANCE_VENDOR_SCAN) — a
+ * single findMany with a nested payoutAccounts filter, not N+1.
+ */
+export async function getOperationalIssuesForScope(
+  scope: AdminScopeContext, countryId?: string,
+): Promise<Map<string, { vendor: { id: string; legalBusinessName: string; countryId: string; status: string }; hasMissingPayoutAccount: boolean }>> {
+  const vendors = await prisma.vendorAccount.findMany({
+    where: {
+      deletedAt: null,
+      status: VendorStatus.ACTIVE,
+      ...buildVendorScopeFilter(scope, countryId),
+    },
+    take  : MAX_COMPLIANCE_VENDOR_SCAN,
+    select: {
+      id: true, legalBusinessName: true, countryId: true, status: true,
+      payoutAccounts: { where: { deletedAt: null, verificationStatus: PayoutVerificationStatus.VERIFIED }, select: { id: true }, take: 1 },
+    },
+  })
+
+  const map = new Map<string, { vendor: { id: string; legalBusinessName: string; countryId: string; status: string }; hasMissingPayoutAccount: boolean }>()
+  for (const v of vendors) {
+    if (v.payoutAccounts.length > 0) continue
+    map.set(v.id, { vendor: { id: v.id, legalBusinessName: v.legalBusinessName, countryId: v.countryId, status: v.status }, hasMissingPayoutAccount: true })
+  }
+  return map
+}
+
+export async function notifyVendorAboutMissingPayoutAccount(
+  vendorId  : string,
+  actorId   : string,
+  actorScope: AdminScopeContext,
+): Promise<{ sent: boolean }> {
+  const vendor = await prisma.vendorAccount.findUnique({
+    where : { id: vendorId },
+    select: { id: true, countryId: true, legalBusinessName: true, businessEmail: true, deletedAt: true },
+  })
+  if (!vendor || vendor.deletedAt) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  if (!actorScope.isGlobal && !actorScope.countryIds.includes(vendor.countryId)) {
+    throw new ApiError(403, "This vendor is outside your scope", "SCOPE_FORBIDDEN")
+  }
+
+  const subject = `Action needed: add a payout account for ${vendor.legalBusinessName}`
+  const text = "Your vendor account is active, but you don't have a verified payout account on file yet — you can't receive payouts until you add one. Add a bank, mobile money, or wallet account from your dashboard's payout settings."
+  // No branded template for this yet (unlike buildComplianceNoticeEmail) —
+  // this is a single plain nudge, not worth a template file until a
+  // second operational-issue type needs the same treatment.
+  const html = `<p>${text}</p>`
+
+  const [{ sent }] = await Promise.all([
+    sendEmail({ to: vendor.businessEmail, subject, html, text }),
+    prisma.vendorNotification.create({
+      data: { vendorId, type: "PAYOUT_ACCOUNT_MISSING", title: subject, message: text, metadata: {} },
+    }),
+  ])
+
+  auditService.log({
+    adminUserId: actorId,
+    action     : "vendor_compliance.payout_account_missing_notified",
+    entityType : "VendorAccount",
+    entityId   : vendorId,
+    changes    : { after: { emailSent: sent } },
+  })
+
+  return { sent }
+}
+
+/*
  * A lightweight "does this admin's own country have any open compliance
  * issue" check — powers the sidebar's Compliance nav dot. Deliberately
  * reads VendorComplianceCase (cheap, indexed) rather than re-running full
@@ -526,10 +739,16 @@ export async function getVendorComplianceIssues(vendorId: string, scope: AdminSc
  * patch. Freshness follows the reconciliation job's cadence, not
  * real-time — appropriate for a "subtle glow," not a live counter.
  */
+/*
+ * Deliberately OPEN (unclaimed) or ESCALATED only — not CLAIMED. A claimed
+ * case already has an owner working it, so it isn't a "something needs
+ * your team's attention" nudge the way an unclaimed or escalated one is
+ * (2026-08-27 refinement, user-requested — see CLAUDE.md).
+ */
 export async function hasOpenComplianceIssuesForCountries(countryIds: string[]): Promise<boolean> {
   if (countryIds.length === 0) return false
   const openCase = await prisma.vendorComplianceCase.findFirst({
-    where : { status: { in: ["OPEN", "CLAIMED", "ESCALATED"] }, vendor: { countryId: { in: countryIds } } },
+    where : { status: { in: ["OPEN", "ESCALATED"] }, vendor: { countryId: { in: countryIds } } },
     select: { id: true },
   })
   return !!openCase

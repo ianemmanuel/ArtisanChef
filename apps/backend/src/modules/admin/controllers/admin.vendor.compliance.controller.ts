@@ -6,6 +6,9 @@ import {
   getExpiringDocuments,
   getExpiredDocuments,
   getComplianceOverview,
+  getVendorComplianceGroups,
+  getVendorComplianceDetail,
+  notifyVendorAboutMissingPayoutAccount,
   exportComplianceIssuesCsv,
   createComplianceWaiver,
   revokeComplianceWaiver,
@@ -13,7 +16,7 @@ import {
   type ComplianceIssueStatus,
   type ComplianceIssueKind,
 } from "../services/admin.vendor.compliance.service"
-import { claimComplianceCase, escalateComplianceCase, reassignComplianceCase, listEligibleComplianceTargets } from "../services/admin.vendor.compliance-case.service"
+import { claimComplianceCase, escalateComplianceCase, reassignComplianceCase, listEligibleComplianceTargets, claimAllComplianceIssuesForVendor } from "../services/admin.vendor.compliance-case.service"
 import { AdminPermissions } from "@repo/types/enums"
 
 export const handleGetExpiringDocuments: RequestHandler = async (req, res, next) => {
@@ -62,6 +65,57 @@ export const handleGetComplianceOverview: RequestHandler = async (req, res, next
       pageSize      : pageSize   ? parseInt(pageSize    as string) : undefined,
     })
     return sendSuccess(res, result, "Compliance overview fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleGetVendorComplianceGroups: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { status, countrySlug, documentTypeId, search, queue, page, pageSize } = req.query
+
+    const result = await getVendorComplianceGroups(adminScope, {
+      status        : status as ComplianceIssueStatus | undefined,
+      countrySlug   : countrySlug    as string | undefined,
+      documentTypeId: documentTypeId as string | undefined,
+      search        : search         as string | undefined,
+      queue         : queue          as string | undefined,
+      actorId       : adminUser.id,
+      page          : page       ? parseInt(page     as string) : undefined,
+      pageSize      : pageSize   ? parseInt(pageSize as string) : undefined,
+    })
+    return sendSuccess(res, result, "Compliance groups fetched")
+  } catch (err) { next(err) }
+}
+
+//* One vendor's full compliance picture — vendor header + issues +
+//* operational — powers /vendors/compliance/[vendorId].
+export const handleGetVendorComplianceDetail: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { vendorId } = req.params as { vendorId: string }
+
+    const result = await getVendorComplianceDetail(vendorId, adminScope)
+    return sendSuccess(res, result, "Vendor compliance detail fetched")
+  } catch (err) { next(err) }
+}
+
+export const handleClaimAllComplianceIssuesForVendor: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
+    const { vendorId } = req.params as { vendorId: string }
+
+    const result = await claimAllComplianceIssuesForVendor(vendorId, adminUser.id, adminScope, adminPermissions)
+    return sendSuccess(res, result, "Claim-all complete")
+  } catch (err) { next(err) }
+}
+
+export const handleNotifyVendorAboutMissingPayoutAccount: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { vendorId } = req.params as { vendorId: string }
+
+    const result = await notifyVendorAboutMissingPayoutAccount(vendorId, adminUser.id, adminScope)
+    return sendSuccess(res, result, result.sent ? "Vendor notified" : "Notification recorded (email not sent — SMTP not configured)")
   } catch (err) { next(err) }
 }
 

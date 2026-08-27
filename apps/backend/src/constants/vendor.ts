@@ -29,6 +29,13 @@ export const DEFAULT_EXPIRY_LOOKAHEAD_DAYS = 30
 export const MAX_COMPLIANCE_VENDOR_SCAN = 1500
 export const MAX_COMPLIANCE_DOCUMENT_SCAN = 3000
 
+// listApplications' sort=priority mode ranks by status urgency (needs
+// action first, terminal last) rather than a single column — Postgres
+// can't express that custom bucket order in a plain Prisma orderBy, so it
+// scans a bounded window and ranks in application code, same "admin-tool
+// scale, documented ceiling" convention as the compliance scan caps above.
+export const MAX_APPLICATION_PRIORITY_SCAN = 3000
+
 // Roadmap Phase 2 (CLAUDE.md) — a compliance case sitting OPEN
 // (unclaimed, not yet escalated) this long gets auto-escalated by
 // compliance-case-sync.job.ts, so a stale issue nobody's touched

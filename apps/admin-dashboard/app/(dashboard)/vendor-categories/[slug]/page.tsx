@@ -44,6 +44,10 @@ export default async function VendorCategoryDetailPage({ params }: Props) {
 
   const canWrite = session.scope.isGlobal
     && session.permissions.includes(AdminPermissions.SETTINGS_VENDOR_TYPES_WRITE)
+  // /finance/vendor-categories is gated on FINANCE_REPORTS_READ — see
+  // vendor-categories/page.tsx's identical guard for why this link is
+  // conditional.
+  const canReadFinance = session.permissions.includes(AdminPermissions.FINANCE_REPORTS_READ)
 
   let vendorCategory: VendorTypeDetail
   try {
@@ -157,9 +161,11 @@ export default async function VendorCategoryDetailPage({ params }: Props) {
       </div>
       <p className="-mt-4 flex items-center justify-between text-xs text-muted-foreground">
         <span>Revenue is illustrative ({scopeLabel}) — replace once Orders/Payments ships.</span>
-        <Link href={`/vendor-categories/revenue?type=${vendorCategory.slug}`} className="view-all-link">
-          View revenue trend →
-        </Link>
+        {canReadFinance && (
+          <Link href={`/finance/vendor-categories?type=${vendorCategory.slug}`} className="view-all-link">
+            View revenue trend →
+          </Link>
+        )}
       </p>
 
       <VendorCategoryCountryBreakdown

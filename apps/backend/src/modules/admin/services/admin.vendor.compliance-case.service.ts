@@ -3,7 +3,7 @@ import type { AdminScopeContext } from "@repo/types/backend"
 import { AdminPermissions, type AdminPermissionKey } from "@repo/types/enums"
 import { ApiError } from "@/errors/ApiError"
 import { auditService } from "@/services/audit"
-import type { ComplianceIssueKind } from "./admin.vendor.compliance.service"
+import { getVendorComplianceIssues, type ComplianceIssueKind } from "./admin.vendor.compliance.service"
 
 /*
  * Claim/reassign/escalate workflow for compliance cases — deliberately
@@ -186,6 +186,58 @@ export async function assertVendorDocumentReviewableByActor(vendorId: string, do
   }
 }
 
+/*
+ * Guards against escalating a compliance case into a pool nobody in this
+ * vendor's country can ever pick up — see claimComplianceCase's country-
+ * only claim restriction above. Mirrors assertEscalationReceiverExists in
+ * admin.vendor.service.ts.
+ */
+async function assertEscalationReceiverExists(countryId: string): Promise<void> {
+  const receiver = await prisma.adminUser.findFirst({
+    where: {
+      status            : AdminUserStatus.active,
+      reviewAvailability: AdminReviewAvailability.AVAILABLE,
+      permissions       : { some: { permission: { key: AdminPermissions.VENDORS_COMPLIANCE_RECEIVE_ESCALATION, isActive: true } } },
+      scopes: {
+        some: {
+          OR: [
+            { scopeType: AdminScopeType.COUNTRY, countryId },
+            { scopeType: AdminScopeType.CITY, countryId },
+          ],
+        },
+      },
+    },
+    select: { id: true },
+  })
+  if (!receiver) {
+    throw new ApiError(
+      400,
+      "No admin can currently receive escalations for this country — reassign this case directly to a specific admin instead, or ask a supervisor to grant the receive-escalation permission to someone in this country.",
+      "NO_ESCALATION_RECEIVER",
+    )
+  }
+}
+
+/*
+ * Escalate now requires the actor already be the claimed owner — no more
+ * "unclaimed, non-escalated case → anyone with ESCALATE may act" shortcut
+ * (that used to be assertCaseOwnership's behavior, same as claim). This
+ * forces at least a claim-and-look before a case moves up, matching the
+ * stricter no-fallback rule assertClaimedByActor already applies to
+ * waive/notify/revoke and document review.
+ */
+function assertClaimedForEscalate(
+  complianceCase: { assignedReviewerId: string | null; escalatedByAdminId: string | null },
+  actorId: string,
+): void {
+  if (complianceCase.escalatedByAdminId === actorId) {
+    throw new ApiError(403, "You escalated this case and can no longer act on it", "ESCALATED_BY_YOU")
+  }
+  if (complianceCase.assignedReviewerId !== actorId) {
+    throw new ApiError(403, "Claim this compliance issue before you can escalate it", "NOT_CLAIMED")
+  }
+}
+
 export async function escalateComplianceCase(
   vendorId        : string,
   documentTypeId  : string,
@@ -197,7 +249,7 @@ export async function escalateComplianceCase(
 ) {
   if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
 
-  const { documentType } = await resolveVendorAndDocType(vendorId, documentTypeId, actorScope)
+  const { vendor, documentType } = await resolveVendorAndDocType(vendorId, documentTypeId, actorScope)
   const kase = await getOrCreateActiveCase(vendorId, documentTypeId, issueType, documentType.complianceSeverity)
 
   if (kase.status === "RESOLVED" || kase.status === "WAIVED") {
@@ -213,10 +265,12 @@ export async function escalateComplianceCase(
   if (kase.claimedFromEscalation) {
     throw new ApiError(403, "This case reached you via escalation — it must be resolved directly, not escalated again", "TERMINAL_ESCALATION")
   }
-  // Only the current assignee (or an unclaimed, non-escalated case) may
-  // escalate — same ownership rule as claim, so a random ESCALATE-holder
-  // can't hand off someone else's claimed case out from under them.
-  assertCaseOwnership(kase, actorId, actorPermissions)
+  // Claim-first — see assertClaimedForEscalate's doc comment.
+  assertClaimedForEscalate(kase, actorId)
+  // No explicit-target escalate exists for compliance (unlike
+  // applications) — every escalate drops into the open pool, so always
+  // confirm someone in this country can actually pick it up.
+  await assertEscalationReceiverExists(vendor.countryId)
 
   const escalatedAt = new Date()
   const previousReviewerId = kase.assignedReviewerId
@@ -374,4 +428,46 @@ export async function reassignComplianceCase(
   })
 
   return updated
+}
+
+/*
+ * "Claim all" — the single-point-of-contact convenience the vendor
+ * compliance detail page offers (see CLAUDE.md's compliance-ownership
+ * decision): loops every currently-claimable issue for one vendor through
+ * the exact same claimComplianceCase used for a per-issue claim, so every
+ * rule that applies to an individual claim (country-scope-only for
+ * escalation-pool issues, already-claimed conflicts, etc.) applies here
+ * too — this is a bulk convenience wrapper, not a separate code path.
+ * Already-mine issues are silently skipped (nothing to do); issues
+ * claimed by someone else, or that fail claimComplianceCase for any
+ * reason, are reported back rather than silently dropped.
+ */
+export async function claimAllComplianceIssuesForVendor(
+  vendorId        : string,
+  actorId         : string,
+  actorScope      : AdminScopeContext,
+  actorPermissions: AdminPermissionKey[],
+): Promise<{ claimed: string[]; alreadyMine: string[]; skipped: { documentTypeId: string; documentTypeName: string; reason: string }[] }> {
+  const issues = await getVendorComplianceIssues(vendorId, actorScope) // already scope-checks vendorId
+
+  const claimed: string[] = []
+  const alreadyMine: string[] = []
+  const skipped: { documentTypeId: string; documentTypeName: string; reason: string }[] = []
+
+  for (const issue of issues) {
+    if (issue.issueStatus === "WAIVED") continue // nothing to claim
+    if (issue.case?.assignedReviewerId === actorId) { alreadyMine.push(issue.documentType.id); continue }
+    if (issue.case?.assignedReviewerId) {
+      skipped.push({ documentTypeId: issue.documentType.id, documentTypeName: issue.documentType.name, reason: `Claimed by ${issue.case.assignedReviewerName ?? "another admin"}` })
+      continue
+    }
+    try {
+      await claimComplianceCase(vendorId, issue.documentType.id, issue.caseKind, actorId, actorScope, actorPermissions)
+      claimed.push(issue.documentType.id)
+    } catch (err) {
+      skipped.push({ documentTypeId: issue.documentType.id, documentTypeName: issue.documentType.name, reason: err instanceof ApiError ? err.message : "Failed to claim" })
+    }
+  }
+
+  return { claimed, alreadyMine, skipped }
 }

@@ -208,6 +208,9 @@ export async function updateOutlet(vendorId: string, outletId: string, input: Up
   if (existing.adminStatus === OutletAdminStatus.BANNED) {
     throw new ApiError(403, "This outlet has been banned and cannot be edited", "OUTLET_BANNED")
   }
+  if (existing.adminStatus === OutletAdminStatus.SUSPENDED) {
+    throw new ApiError(403, "This outlet is suspended and cannot be edited", "OUTLET_SUSPENDED")
+  }
 
   const newLat  = input.latitude  ?? existing.latitude
   const newLng  = input.longitude ?? existing.longitude
@@ -220,12 +223,16 @@ export async function updateOutlet(vendorId: string, outletId: string, input: Up
     await assertCoordinatesInCity(existing.cityId, newLat, newLng)
   }
 
-  let flagReasons  = existing.flagReasons as string[]
-  let reviewStatus = existing.reviewStatus
+  let flagReasons     = existing.flagReasons as string[]
+  let reviewStatus    = existing.reviewStatus
+  let rejectionReason = existing.rejectionReason
 
   if (coordinatesChanged || nameChanged) {
     flagReasons  = await runFlagChecks(vendorId, existing.cityId, newName, newLat, newLng, outletId)
     reviewStatus = flagReasons.length > 0 ? OutletReviewStatus.FLAGGED : OutletReviewStatus.AUTO_APPROVED
+    // A fresh edit supersedes a prior admin rejection — same convention
+    // as vendor.profile.service.ts's upsertVendorProfile.
+    rejectionReason = null
     if (flagReasons.length > 0) {
       serviceLog.warn({ outletId, vendorId, flagReasons }, "Outlet update introduced flags")
       logFlagEvent(outletId, flagReasons, "updated")
@@ -250,6 +257,7 @@ export async function updateOutlet(vendorId: string, outletId: string, input: Up
       ...(input.longitude      != null ? { longitude     : input.longitude      } : {}),
       flagReasons,
       reviewStatus,
+      rejectionReason,
       flaggedAt: flagReasons.length > 0 ? new Date() : existing.flaggedAt,
     },
   })

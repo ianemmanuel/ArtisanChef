@@ -35,6 +35,12 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "vendors:accounts:read",
     "vendors:payout_accounts:manage",
     "vendors:accounts:commission_manage",
+    // Read-only visibility into the vendor-category catalog — needed for
+    // /finance/vendor-categories (category names/slugs to pick from), same
+    // low-stakes-read reasoning as vendors:accounts:read above. Does NOT
+    // include settings:vendor_types:write — finance can see categories,
+    // not manage them.
+    "settings:vendor_types:read",
     "finance:transactions:read",
     "finance:payouts:read",
     "finance:payouts:approve",
@@ -57,6 +63,13 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "vendors:accounts:ban",
     "vendors:accounts:export",
     "vendors:accounts:compliance_manage",
+    // Roadmap "Finance domain" (CLAUDE.md) — a ceiling-only addition, not a
+    // default grant (see loadPermissions.ts: the role pool is what CAN be
+    // individually granted, never auto-applied). Lets a super_admin/
+    // identity_admin selectively hand finance-report visibility to a
+    // specific vendor_ops admin ("regulated" access) without promoting
+    // them to the finance role outright.
+    "finance:reports:read",
     "vendors:compliance:read",
     "vendors:compliance:claim",
     "vendors:compliance:escalate",
@@ -67,6 +80,10 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "vendors:accounts:commission_manage",
     "vendors:appeals:read",
     "vendors:appeals:manage",
+    "vendors:profiles:read",
+    "vendors:profiles:moderate",
+    "vendors:outlets:read",
+    "vendors:outlets:moderate",
     "vendors:applications:read",
     "vendors:applications:review",
     "vendors:applications:approve",

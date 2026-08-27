@@ -36,6 +36,11 @@ export default async function VendorCategoriesPage({ searchParams }: PageProps) 
   // (VendorType is a global catalog entity, not owned by any one country).
   const canWrite = session.scope.isGlobal
     && session.permissions.includes(AdminPermissions.SETTINGS_VENDOR_TYPES_WRITE)
+  // /finance/vendor-categories (where this donut's "View more" leads) is
+  // gated on FINANCE_REPORTS_READ — omit the link entirely for a viewer
+  // who holds SETTINGS_VENDOR_TYPES_READ (enough to see this page) but not
+  // FINANCE_REPORTS_READ, rather than linking to a page that would bounce them.
+  const canReadFinance = session.permissions.includes(AdminPermissions.FINANCE_REPORTS_READ)
 
   const params  = await searchParams
   const page    = params.page    ?? "1"
@@ -154,7 +159,7 @@ export default async function VendorCategoriesPage({ searchParams }: PageProps) 
         <RevenueDonutChart
           data={revenueShare}
           scopeLabel={scopeLabel}
-          viewMoreHref={`/vendor-categories/revenue${selectedCountry ? `?country=${selectedCountry.slug}` : ""}`}
+          {...(canReadFinance ? { viewMoreHref: `/finance/vendor-categories${selectedCountry ? `?country=${selectedCountry.slug}` : ""}` } : {})}
         />
       </div>
 

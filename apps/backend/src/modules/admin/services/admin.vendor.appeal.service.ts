@@ -4,6 +4,7 @@ import { ApiError } from "@/errors/ApiError"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
 import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
+import { toCsv } from "@/lib/csv"
 
 const serviceLog = logger.child({ module: "admin-vendor-appeal-service" })
 
@@ -146,26 +147,24 @@ export async function getAppeal(appealId: string, scope: AdminScopeContext) {
   return enriched
 }
 
-export async function listAppeals(
-  scope : AdminScopeContext,
-  params: {
-    status?     : AppealStatus
-    subjectType?: AppealSubjectType
-    countrySlug?: string
-    search?     : string
-    page?       : number
-    pageSize?   : number
-  } = {},
-) {
-  const { status, subjectType, search, page = 1, pageSize = 20 } = params
-  const skip = (page - 1) * pageSize
+interface AppealFilters {
+  status?     : AppealStatus
+  subjectType?: AppealSubjectType
+  countrySlug?: string
+  search?     : string
+}
 
+//* Shared where-builder — used by both listAppeals and exportAppealsCsv
+//* (same "export can never drift from the page" convention used
+//* throughout this pass — see buildApplicationsWhere for the original).
+async function buildAppealsWhere(params: AppealFilters, scope: AdminScopeContext) {
+  const { status, subjectType, search } = params
   const countryId = params.countrySlug ? await getCountryIdFromSlug(params.countrySlug, scope) : undefined
   const countryFilter = scope.isGlobal
     ? (countryId ? { countryId } : {})
     : { countryId: { in: scope.countryIds } }
 
-  const where = {
+  return {
     ...(status ? { status } : {}),
     ...(subjectType ? { subjectType } : {}),
     OR: [{ application: countryFilter }, { vendor: countryFilter }],
@@ -180,6 +179,16 @@ export async function listAppeals(
         }
       : {}),
   }
+}
+
+export async function listAppeals(
+  scope : AdminScopeContext,
+  params: AppealFilters & { page?: number; pageSize?: number } = {},
+) {
+  const { page = 1, pageSize = 20 } = params
+  const skip = (page - 1) * pageSize
+
+  const where = await buildAppealsWhere(params, scope)
 
   const [appeals, total] = await Promise.all([
     prisma.vendorAppeal.findMany({
@@ -208,6 +217,38 @@ export async function listAppeals(
     pageSize,
     totalPages: Math.ceil(total / pageSize),
   }
+}
+
+const MAX_APPEALS_EXPORT_ROWS = 5000
+
+export async function exportAppealsCsv(scope: AdminScopeContext, params: AppealFilters = {}): Promise<string> {
+  const where = await buildAppealsWhere(params, scope)
+  const rows = await prisma.vendorAppeal.findMany({
+    where,
+    take   : MAX_APPEALS_EXPORT_ROWS,
+    orderBy: { createdAt: "desc" },
+    include: {
+      application: { select: { legalBusinessName: true } },
+      vendor     : { select: { legalBusinessName: true } },
+    },
+  })
+  return toCsv(rows.map((a) => ({
+    subject       : a.application?.legalBusinessName ?? a.vendor?.legalBusinessName ?? "",
+    subjectType   : a.subjectType,
+    status        : a.status,
+    reason        : a.reason,
+    resolutionNote: a.resolutionNote ?? "",
+    createdAt     : a.createdAt.toISOString().slice(0, 10),
+    resolvedAt    : a.resolvedAt ? a.resolvedAt.toISOString().slice(0, 10) : "",
+  })), [
+    { key: "subject",        label: "Subject" },
+    { key: "subjectType",    label: "Subject Type" },
+    { key: "status",         label: "Status" },
+    { key: "reason",         label: "Reason" },
+    { key: "resolutionNote", label: "Resolution Note" },
+    { key: "createdAt",      label: "Logged" },
+    { key: "resolvedAt",     label: "Resolved" },
+  ])
 }
 
 export async function assignAppeal(

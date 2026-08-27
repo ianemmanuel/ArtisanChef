@@ -39,6 +39,34 @@ export function formatMockCurrency(value: number): string {
   }).format(value)
 }
 
+/*
+ * Currency-aware formatter for the Finance domain — same enterprise
+ * convention Uber Eats/DoorDash-style marketplace ERPs follow: a report
+ * scoped to one country/market shows figures in that market's own
+ * currency, never silently summed or relabeled into a different one.
+ * `currencyCode` is the country's real ISO 4217 code (already seeded on
+ * every Country row — see CountryLite.currency — this was already real,
+ * seeded data with nowhere in the frontend surfacing it before now).
+ * Falls back to formatMockCurrency's USD formatting when no
+ * code is given — the correct behavior for a global/aggregate view, where
+ * summing several countries' real currencies together isn't meaningful
+ * and the figure is already illustrative-only.
+ */
+export function formatCurrency(value: number, currencyCode?: string | null): string {
+  if (!currencyCode) return formatMockCurrency(value)
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currencyCode,
+      maximumFractionDigits: 0,
+    }).format(value)
+  } catch {
+    // An unrecognized ISO code (shouldn't happen with real geography seed
+    // data, but defensive) — fall back rather than throw during render.
+    return formatMockCurrency(value)
+  }
+}
+
 export interface MockRevenuePoint {
   /** "2026-01" */
   month: string

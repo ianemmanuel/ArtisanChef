@@ -93,6 +93,12 @@ export function ComplianceIssueActions({ issue, canManage, canClaim, canEscalate
   // will actually enforce on submit (see reassignComplianceCase).
   const isOpenEscalationPool = isEscalated && !kase?.assignedReviewerId
   const canShowManageActions = canManage && isMine
+  // "Assign" for a case that's never been claimed (nothing to hand off
+  // from yet — a supervisor is picking the first owner), "Reassign" once
+  // someone already owns it (a genuine hand-off). Same distinction the
+  // user asked for; the backend action (reassignComplianceCase) is
+  // identical either way, this is copy only.
+  const isAssignAction = !kase?.assignedReviewerId
 
   useEffect(() => {
     if (dialog !== "reassign") return
@@ -184,7 +190,7 @@ export function ComplianceIssueActions({ issue, canManage, canClaim, canEscalate
           {canReassign && (
             <Button type="button" variant="outline" size="sm" className="rounded-full gap-1.5" onClick={() => { setReason(""); setDialog("reassign") }}>
               <UserCog className="h-3.5 w-3.5" />
-              Reassign
+              {isAssignAction ? "Assign" : "Reassign"}
             </Button>
           )}
         </>
@@ -211,16 +217,22 @@ export function ComplianceIssueActions({ issue, canManage, canClaim, canEscalate
               Claim escalation
             </Button>
           )}
-          {canEscalate && !kase?.claimedFromEscalation && !isEscalatedByMe && (!kase?.assignedReviewerId || isMine) && (
+          {/* Escalate now requires you already hold the claim — no more
+              escalating an unclaimed case straight out from under whoever
+              might claim it (see assertClaimedForEscalate on the backend). */}
+          {canEscalate && isMine && !kase?.claimedFromEscalation && !isEscalatedByMe && (
             <Button type="button" variant="outline" size="sm" className="rounded-full gap-1.5" onClick={() => { setReason(""); setDialog("escalate") }}>
               <Flag className="h-3.5 w-3.5" />
               Escalate
             </Button>
           )}
+          {canEscalate && !canManage && !isMine && !kase?.assignedReviewerId && !isEscalated && (
+            <span className="text-xs text-muted-foreground">Claim before you can escalate</span>
+          )}
           {canReassign && (
             <Button type="button" variant="outline" size="sm" className="rounded-full gap-1.5" onClick={() => { setReason(""); setDialog("reassign") }}>
               <UserCog className="h-3.5 w-3.5" />
-              Reassign
+              {isAssignAction ? "Assign" : "Reassign"}
             </Button>
           )}
 
@@ -323,7 +335,7 @@ export function ComplianceIssueActions({ issue, canManage, canClaim, canEscalate
             <>
               <AlertDialogHeader>
                 <div className="icon-badge icon-badge-primary h-11 w-11"><UserCog className="h-5 w-5" /></div>
-                <AlertDialogTitle>Reassign compliance case</AlertDialogTitle>
+                <AlertDialogTitle>{isAssignAction ? "Assign compliance case" : "Reassign compliance case"}</AlertDialogTitle>
                 <AlertDialogDescription>
                   {issue.documentType.name} for {issue.vendor.legalBusinessName} will be assigned directly — the new owner is responsible immediately, no separate claim step.
                 </AlertDialogDescription>
@@ -344,14 +356,14 @@ export function ComplianceIssueActions({ issue, canManage, canClaim, canEscalate
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Note (optional)</Label>
-                  <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this is being reassigned…" className="min-h-20 text-sm" />
+                  <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder={isAssignAction ? "Why this is being assigned…" : "Why this is being reassigned…"} className="min-h-20 text-sm" />
                 </div>
               </div>
               <AlertDialogFooter>
                 <Button type="button" variant="outline" className="rounded-full" onClick={() => setDialog(null)} disabled={pending !== null}>Cancel</Button>
                 <Button type="button" className="rounded-full gap-1.5" disabled={pending !== null || !targetAdminId} onClick={doReassign}>
                   {pending === "reassign" && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {pending === "reassign" ? "Saving…" : "Confirm Reassign"}
+                  {pending === "reassign" ? "Saving…" : isAssignAction ? "Confirm Assign" : "Confirm Reassign"}
                 </Button>
               </AlertDialogFooter>
             </>

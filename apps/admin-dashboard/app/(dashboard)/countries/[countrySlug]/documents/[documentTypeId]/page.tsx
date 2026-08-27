@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
-import { redirect, notFound } from "next/navigation"
+import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, FileText, Clock, ShieldCheck } from "lucide-react"
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
-import { AdminPermissions } from "@repo/types/admin-app"
+import { assertDocumentsHomeAccess, assertCountryInDocumentsScope } from "@/lib/countries/documents-access"
 import type { Country } from "@repo/types/admin-app"
 import { DocumentTypeStatusBadge } from "@/components/document-types/DocumentTypeStatusBadge"
 import { DocumentTypeStatusAction } from "@/components/document-types/DocumentTypeStatusAction"
@@ -26,13 +26,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function CountryDocumentDetailPage({ params }: Props) {
   const session = await getAdminSession()
 
-  // Same restriction as every other /countries/[slug]/... page — documents
-  // are country configuration, not a "vendors" concept, so this follows
-  // the countries hierarchy's access policy, not the old SETTINGS_DOCUMENTS_READ-only gate.
-  if (!session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) || !session.scope.isGlobal) {
-    redirect("/overview")
-  }
-  const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_DOCUMENTS_WRITE)
+  // Documents are country configuration, not a "vendors" concept, so this
+  // follows the countries hierarchy's access policy — either global +
+  // SETTINGS_GEOGRAPHY_WRITE, or a country-scoped admin holding
+  // SETTINGS_DOCUMENTS_READ for their own country (CLAUDE.md's
+  // "Countries depth" decision; see assertDocumentsHomeAccess).
+  const { canWrite } = assertDocumentsHomeAccess(session)
 
   const { countrySlug, documentTypeId } = await params
 
@@ -45,6 +44,7 @@ export default async function CountryDocumentDetailPage({ params }: Props) {
     if (err instanceof ApiCallError && err.status === 404) notFound()
     throw err
   }
+  assertCountryInDocumentsScope(session, country.id)
 
   let documentType: DocumentTypeConfig
   try {

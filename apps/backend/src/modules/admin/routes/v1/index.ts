@@ -15,6 +15,7 @@ import actionReasonsRouter from "./admin.actionReason.routes"
 import auditRouter from "./admin.audit.routes"
 import notificationsRouter from "./admin.notification.routes"
 import paymentMethodsRouter from "./admin.paymentMethod.routes"
+import financeRouter from "./admin.finance.routes"
 
 const v1Router: Router = Router()
 
@@ -33,6 +34,7 @@ v1Router.use("/action-reasons", actionReasonsRouter)
 v1Router.use("/audit", auditRouter)
 v1Router.use("/notifications", notificationsRouter)
 v1Router.use("/payment-methods", paymentMethodsRouter)
+v1Router.use("/finance", financeRouter)
 v1Router.use("/kpis", kpiRouter)
 
 export default v1Router

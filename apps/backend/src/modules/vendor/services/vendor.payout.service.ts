@@ -1,10 +1,76 @@
-import { prisma, PayoutVerificationStatus, PaymentDirection } from "@repo/db"
+import { prisma, Prisma, PayoutVerificationStatus, PaymentDirection } from "@repo/db"
 import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
 import { AddPayoutAccountRequest } from "@repo/types/backend"
+import {
+  encryptOptional,
+  decryptOptional,
+  blindIndexOptional,
+  maskTail,
+} from "@/lib/crypto/field-encryption"
+import { getPayoutVerificationProvider, bestNameMatch } from "@/lib/payout-verification"
+import {
+  PAYOUT_ADD_VELOCITY_MAX,
+  PAYOUT_ADD_VELOCITY_WINDOW_DAYS,
+  PAYOUT_NAME_MATCH_MIN,
+} from "@/constants/vendor"
 
 const serviceLog = logger.child({ module: "vendor-payout-service" })
 
+/*
+ * CLAUDE.md #7 — payout hardening, no external API.
+ *
+ *   • The six sensitive banking identifiers (bankCode, accountNumber,
+ *     swiftCode, iban, routingNumber, mobileNumber) are AES-256-GCM
+ *     encrypted at rest. presentPayoutAccount() is the only exit to a client
+ *     and it returns `masked` ("••••1234") only — never the plaintext,
+ *     even to the owning vendor (matches Stripe / every serious platform).
+ *   • accountNumberHash / mobileNumberHash are keyed HMAC blind indexes so
+ *     admin duplicate-detection can match across vendors without decrypting.
+ *   • getPayoutVerificationProvider() runs structural checksums (IBAN mod-97,
+ *     ABA, MSISDN) — a malformed identifier is a 400 before the row exists.
+ *   • A weak account-holder-name match, add-velocity, or a shared identifier
+ *     with another vendor sets riskFlags and routes the account to
+ *     REQUIRES_REVIEW instead of the silent PENDING queue.
+ */
+
+// The banking identifiers stored as ciphertext. paypalEmail / stripeAccountId
+// are contact identifiers, not bank credentials — left in the clear.
+type SensitiveField = "bankCode" | "accountNumber" | "swiftCode" | "iban" | "routingNumber" | "mobileNumber"
+const SENSITIVE_FIELDS: SensitiveField[] = ["bankCode", "accountNumber", "swiftCode", "iban", "routingNumber", "mobileNumber"]
+
+export interface PayoutMaskedDetails {
+  bankCode?     : string
+  accountNumber?: string
+  swiftCode?    : string
+  iban?         : string
+  routingNumber?: string
+  mobileNumber? : string
+}
+
+/** Row shape returned to clients — ciphertext fields dropped, `masked` added.
+ *  Exported so admin.vendor.service.ts's getVendorAccount presents payout
+ *  accounts through the exact same encryption boundary.
+ *
+ *  `includeRiskSignals` is admin-only: riskFlags / nameMatchScore /
+ *  verificationMeta are internal review signals (DUPLICATE_IDENTIFIER in
+ *  particular would confirm another vendor's account number to this one) —
+ *  the vendor-facing endpoints strip them. */
+export function presentPayoutAccount(account: object, opts: { includeRiskSignals?: boolean } = {}): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(account as Record<string, unknown>) }
+  for (const f of SENSITIVE_FIELDS) delete out[f]
+  const rawMask = out.maskedDetails
+  out.masked = rawMask && typeof rawMask === "object" ? (rawMask as PayoutMaskedDetails) : null
+  delete out.maskedDetails
+  delete out.accountNumberHash
+  delete out.mobileNumberHash
+  if (!opts.includeRiskSignals) {
+    delete out.riskFlags
+    delete out.nameMatchScore
+    delete out.verificationMeta
+  }
+  return out
+}
 
 // Validates that the CountryPaymentMethod exists, is ACTIVE, is OUTBOUND,
 // and belongs to the vendor's registered country.
@@ -33,15 +99,15 @@ export async function addPayoutAccount(
 ) {
   const vendor = await prisma.vendorAccount.findUnique({
     where : { id: vendorId },
-    select: { id: true, countryId: true, status: true },
+    select: { id: true, countryId: true, status: true, legalBusinessName: true, ownerFirstName: true, ownerLastName: true },
   })
   if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
   if (vendor.status !== "ACTIVE") throw new ApiError(403, "Your account has been deactivated", "ACCOUNT_INACTIVE")
 
   const method = await assertValidPayoutMethod(input.countryPaymentMethodId, vendor.countryId)
-
-  // Enforce minimum required fields based on method type
   const type = method.paymentMethod.type
+
+  // Minimum required fields per method type
   if (type === "MOBILE_MONEY" && !input.mobileNumber) {
     throw new ApiError(400, "mobileNumber is required for mobile money accounts", "MISSING_FIELDS")
   }
@@ -52,49 +118,123 @@ export async function addPayoutAccount(
     throw new ApiError(400, "A wallet identifier is required", "MISSING_FIELDS")
   }
 
-  // If this is the vendor's first payout account, make it default automatically
-  const existingCount = await prisma.vendorPayoutAccount.count({
+  // Structural verification — malformed identifiers never reach the database.
+  const outcome = await getPayoutVerificationProvider().verify({
+    methodType       : type,
+    accountHolderName: input.accountHolderName,
+    bankName         : input.bankName,
+    bankCode         : input.bankCode,
+    accountNumber    : input.accountNumber,
+    swiftCode        : input.swiftCode,
+    iban             : input.iban,
+    routingNumber    : input.routingNumber,
+    mobileNetwork    : input.mobileNetwork,
+    mobileNumber     : input.mobileNumber,
+    paypalEmail      : input.paypalEmail,
+    stripeAccountId  : input.stripeAccountId,
+  })
+  if (outcome.fieldErrors && outcome.fieldErrors.length > 0) {
+    throw new ApiError(400, outcome.fieldErrors.join("; "), "INVALID_ACCOUNT_DETAILS")
+  }
+
+  // --- Risk signals (advisory; they route to review, they don't block) ---
+  const riskFlags: string[] = []
+
+  const nameMatchScore = bestNameMatch(input.accountHolderName, [
+    vendor.legalBusinessName,
+    `${vendor.ownerFirstName} ${vendor.ownerLastName}`,
+  ])
+  if (nameMatchScore !== null && nameMatchScore < PAYOUT_NAME_MATCH_MIN) {
+    riskFlags.push("NAME_MISMATCH")
+  }
+
+  const velocityWindowStart = new Date(Date.now() - PAYOUT_ADD_VELOCITY_WINDOW_DAYS * 86_400_000)
+  const recentAdds = await prisma.vendorPayoutAccount.count({
+    where: { vendorId, createdAt: { gte: velocityWindowStart } }, // includes since-removed rows on purpose
+  })
+  if (recentAdds >= PAYOUT_ADD_VELOCITY_MAX) riskFlags.push("ADD_VELOCITY")
+
+  const accountNumberHash = blindIndexOptional(input.accountNumber)
+  const mobileNumberHash  = blindIndexOptional(input.mobileNumber)
+  const dupHashes = [accountNumberHash, mobileNumberHash].filter((h): h is string => !!h)
+  if (dupHashes.length > 0) {
+    const dupCount = await prisma.vendorPayoutAccount.count({
+      where: {
+        vendorId : { not: vendorId },
+        deletedAt: null,
+        vendor   : { countryId: vendor.countryId },
+        OR       : dupHashes.flatMap((h) => [{ accountNumberHash: h }, { mobileNumberHash: h }]),
+      },
+    })
+    if (dupCount > 0) riskFlags.push("DUPLICATE_IDENTIFIER")
+  }
+
+  const verificationStatus: PayoutVerificationStatus =
+    riskFlags.length > 0
+      ? PayoutVerificationStatus.REQUIRES_REVIEW
+      : outcome.status === "VERIFIED"
+        ? PayoutVerificationStatus.VERIFIED
+        : outcome.status === "REQUIRES_REVIEW"
+          ? PayoutVerificationStatus.REQUIRES_REVIEW
+          : PayoutVerificationStatus.PENDING
+
+  // --- Encrypt sensitive fields + build the masked display object ---
+  const masked: PayoutMaskedDetails = {}
+  for (const f of SENSITIVE_FIELDS) {
+    const v = input[f]?.trim()
+    if (v) masked[f] = maskTail(v)
+  }
+
+  // First active account becomes default automatically
+  const existingActive = await prisma.vendorPayoutAccount.count({
     where: { vendorId, isActive: true, deletedAt: null },
   })
-  const isDefault = existingCount === 0
 
   const account = await prisma.vendorPayoutAccount.create({
     data: {
       vendorId,
       countryPaymentMethodId: input.countryPaymentMethodId,
-      isDefault,
-      accountHolderName : input.accountHolderName,
-      mobileNetwork     : input.mobileNetwork     ?? null,
-      mobileNumber      : input.mobileNumber      ?? null,
-      bankName          : input.bankName          ?? null,
-      branchName        : input.branchName        ?? null,
-      bankCode          : input.bankCode          ?? null,
-      accountNumber     : input.accountNumber     ?? null,
-      swiftCode         : input.swiftCode         ?? null,
-      iban              : input.iban              ?? null,
-      routingNumber     : input.routingNumber     ?? null,
-      paypalEmail       : input.paypalEmail       ?? null,
-      stripeAccountId   : input.stripeAccountId   ?? null,
-      verificationStatus: PayoutVerificationStatus.PENDING,
+      isDefault             : existingActive === 0,
+      accountHolderName     : input.accountHolderName,
+      mobileNetwork         : input.mobileNetwork ?? null,
+      bankName              : input.bankName      ?? null,
+      branchName            : input.branchName    ?? null,
+      paypalEmail           : input.paypalEmail   ?? null,
+      stripeAccountId       : input.stripeAccountId ?? null,
+      // encrypted at rest
+      bankCode              : encryptOptional(input.bankCode),
+      accountNumber         : encryptOptional(input.accountNumber),
+      swiftCode             : encryptOptional(input.swiftCode),
+      iban                  : encryptOptional(input.iban),
+      routingNumber         : encryptOptional(input.routingNumber),
+      mobileNumber          : encryptOptional(input.mobileNumber),
+      accountNumberHash,
+      mobileNumberHash,
+      maskedDetails         : Object.keys(masked).length > 0
+        ? (JSON.parse(JSON.stringify(masked)) as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+      nameMatchScore,
+      riskFlags,
+      verificationStatus,
+      verificationMethod    : outcome.method,
+      verificationMeta      : JSON.parse(JSON.stringify({ outcome, riskFlags, nameMatchScore })) as Prisma.InputJsonValue,
     },
     include: {
       countryPaymentMethod: {
-        include: { paymentMethod: { select: { name: true, type: true, logoUrl: true } } },
+        include: { paymentMethod: { select: { name: true, type: true, logoUrl: true, code: true } } },
       },
     },
   })
 
-  serviceLog.info({ vendorId, accountId: account.id, methodType: type }, "Payout account added")
+  serviceLog.info(
+    { vendorId, accountId: account.id, methodType: type, verificationStatus, riskFlags },
+    "Payout account added",
+  )
 
-  // Trigger async verification — fire and forget, status tracked on the record
-  triggerVerification(account.id, method.verificationProvider, method.verificationConfig).catch(err => {
-    serviceLog.error({ err, accountId: account.id }, "Verification trigger failed")
-  })
-
-  return account
+  return presentPayoutAccount(account)
 }
 
-//* Remove payout account 
+//* Remove payout account
 
 export async function removePayoutAccount(vendorId: string, accountId: string) {
     const account = await prisma.vendorPayoutAccount.findUnique({
@@ -172,10 +312,10 @@ export async function setDefaultPayoutAccount(vendorId: string, accountId: strin
     return { success: true }
 }
 
-//* List payout accounts 
+//* List payout accounts
 
 export async function listPayoutAccounts(vendorId: string) {
-  return prisma.vendorPayoutAccount.findMany({
+  const accounts = await prisma.vendorPayoutAccount.findMany({
     where  : { vendorId, deletedAt: null },
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     include: {
@@ -184,13 +324,12 @@ export async function listPayoutAccounts(vendorId: string) {
       },
     },
   })
+  return accounts.map((a) => presentPayoutAccount(a))
 }
 
 //* Get single payout account
-// Returns full detail including verification status, method type, and account identifiers.
-// Useful for the "manage account" settings page and troubleshooting failed verifications.
-// Sensitive fields (full account numbers) are intentionally included here since
-// this endpoint is authenticated and scoped to the owning vendor.
+// Full record minus the encrypted identifiers — the vendor sees the masked
+// forms (••••1234) and verification status, never the raw numbers back.
 
 export async function getPayoutAccount(vendorId: string, accountId: string) {
   const account = await prisma.vendorPayoutAccount.findUnique({
@@ -207,7 +346,7 @@ export async function getPayoutAccount(vendorId: string, accountId: string) {
   if (!account || account.deletedAt) throw new ApiError(404, "Payout account not found", "NOT_FOUND")
   if (account.vendorId !== vendorId)  throw new ApiError(403, "Unauthorized", "FORBIDDEN")
 
-  return account
+  return presentPayoutAccount(account)
 }
 
 //* Get available payout methods for vendor's country
@@ -232,32 +371,21 @@ export async function getAvailablePayoutMethods(vendorId: string) {
   })
 }
 
-//* Verification trigger 
-// Kicks off the appropriate verification flow based on the provider config
-// stored on CountryPaymentMethod. Runs asynchronously after account creation.
-// Updates the account record with the result.
-
-async function triggerVerification(
-  accountId           : string,
-  verificationProvider: string | null,
-  verificationConfig  : unknown,
-) {
-  if (!verificationProvider || verificationProvider === "MANUAL") {
-    // Manual verification — stays PENDING until an admin marks it verified
-    serviceLog.info({ accountId }, "Payout account queued for manual verification")
-    return
+/**
+ * Internal-only: decrypt a payout account's sensitive identifiers for use by
+ * a payout provider when money movement is built. NOT reachable from any
+ * route today — exists so the encryption boundary is a single, obvious
+ * choke point when that work starts.
+ */
+export async function decryptPayoutIdentifiers(accountId: string) {
+  const a = await prisma.vendorPayoutAccount.findUnique({ where: { id: accountId } })
+  if (!a || a.deletedAt) throw new ApiError(404, "Payout account not found", "NOT_FOUND")
+  return {
+    bankCode     : decryptOptional(a.bankCode),
+    accountNumber: decryptOptional(a.accountNumber),
+    swiftCode    : decryptOptional(a.swiftCode),
+    iban         : decryptOptional(a.iban),
+    routingNumber: decryptOptional(a.routingNumber),
+    mobileNumber : decryptOptional(a.mobileNumber),
   }
-
-  // Future: dispatch to a queue (BullMQ / SQS) with the provider + config.
-  // The worker then calls the appropriate API (Daraja, Africa's Talking, etc.)
-  // and updates verificationStatus + verificationRef + verificationMeta.
-  //
-  // For now, log that verification was requested so the job can be picked up.
-  serviceLog.info(
-    { accountId, verificationProvider },
-    "Payout account queued for API verification",
-  )
-
-  // TODO: enqueue verification job
-  // await verificationQueue.add("verify-payout-account", { accountId, verificationProvider, verificationConfig })
 }

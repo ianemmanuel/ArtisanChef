@@ -4,13 +4,17 @@ import cron from "node-cron"
 import { env } from "@/env"
 import { logger } from "@/lib/pino/logger"
 import { startDocumentExpiryCron } from "@/jobs/vendor/document-expiry.job"
+import { startOutletComplianceCron } from "@/jobs/vendor/outlet-compliance.job"
 import { startComplianceCaseSyncCron } from "@/jobs/vendor/compliance-case-sync.job"
+import { startVendorOpsNotificationsCron } from "@/jobs/vendor/vendor-ops-notifications.job"
 // TODO: point this at your real audit deletion job function
 // import { runAuditDeletionJob } from "@/services/audit"
 
 let auditCronTask: ReturnType<typeof cron.schedule> | undefined
 let documentExpiryCronTask: ReturnType<typeof cron.schedule> | undefined
+let outletComplianceCronTask: ReturnType<typeof cron.schedule> | undefined
 let complianceCaseSyncCronTask: ReturnType<typeof cron.schedule> | undefined
+let vendorOpsNotificationsCronTask: ReturnType<typeof cron.schedule> | undefined
 
 //* R2 client — construction is synchronous and doesn't touch the
 //* network, so there's nothing to await. Kept as a singleton here so
@@ -49,7 +53,9 @@ export async function initExternalServices() {
   }
 
   documentExpiryCronTask = startDocumentExpiryCron()
+  outletComplianceCronTask = startOutletComplianceCron()
   complianceCaseSyncCronTask = startComplianceCaseSyncCron()
+  vendorOpsNotificationsCronTask = startVendorOpsNotificationsCron()
 }
 
 //* Called from shutdown.ts so a scheduled job doesn't fire mid-shutdown
@@ -57,5 +63,7 @@ export async function initExternalServices() {
 export function stopExternalServices() {
   auditCronTask?.stop()
   documentExpiryCronTask?.stop()
+  outletComplianceCronTask?.stop()
   complianceCaseSyncCronTask?.stop()
+  vendorOpsNotificationsCronTask?.stop()
 }

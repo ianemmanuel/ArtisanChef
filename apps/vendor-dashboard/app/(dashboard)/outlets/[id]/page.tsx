@@ -3,13 +3,16 @@ import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
 import {
   MapPin, Phone, Mail, Clock, Star, Crown,
-  ChevronLeft, Utensils,
+  ChevronLeft, Utensils, FileText,
 } from "lucide-react"
 import { Button } from "@repo/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card"
 import { PageHeader } from "@/components/dashboard/layout/PageHeader"
 import { PageGrid, SectionGrid } from "@/components/dashboard/layout/DashboardShell"
 import { OutletStatusBadges } from "@/components/outlets/OutletStatusBadges"
+import { OutletGoLivePanel } from "@/components/outlets/OutletGoLivePanel"
+import { OutletInspectionCard } from "@/components/outlets/OutletInspectionCard"
+import { OutletDocumentsSection } from "@/components/outlets/OutletDocumentsSection"
 import { UpdateOutletForm } from "@/components/outlets/UpdateOutletForm"
 import { OperatingHoursForm } from "@/components/outlets/OperatingHoursForm"
 import type { Outlet } from "@/types/outlet"
@@ -83,6 +86,10 @@ export default async function OutletDetailsPage({
           }
         />
       </div>
+
+      {outlet.goLiveStatus && <OutletGoLivePanel status={outlet.goLiveStatus} />}
+
+      <OutletInspectionCard outletId={outlet.id} readiness={outlet.mealPlanReadiness} />
 
       {/* ── Hero overview card ── */}
       <Card className="dash-card border-0">
@@ -191,6 +198,19 @@ export default async function OutletDetailsPage({
           </CardContent>
         </Card>
       </SectionGrid>
+
+      {/* ── Documents ── */}
+      <Card className="dash-card border-0">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <FileText className="size-4 text-[var(--primary)]" />
+            Documents
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <OutletDocumentsSection outletId={outlet.id} />
+        </CardContent>
+      </Card>
 
       {/* Flag warning */}
       {outlet.reviewStatus === "FLAGGED" && outlet.flagReasons.length > 0 && (

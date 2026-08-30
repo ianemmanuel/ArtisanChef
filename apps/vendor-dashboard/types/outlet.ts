@@ -1,4 +1,13 @@
-export type OutletAdminStatus  = "ACTIVE" | "SUSPENDED" | "BANNED"
+import type {
+  OutletGoLiveStatus, OutletClearanceStatus, OutletGoLiveBlocker,
+  OutletInspectionStatus, OutletInspectionRow, OutletMealPlanReadiness, OutletMealPlanBlocker,
+} from "@repo/types/vendor-app"
+export type {
+  OutletGoLiveStatus, OutletClearanceStatus, OutletGoLiveBlocker,
+  OutletInspectionStatus, OutletInspectionRow, OutletMealPlanReadiness, OutletMealPlanBlocker,
+}
+
+export type OutletAdminStatus  = "ACTIVE" | "SUSPENDED" | "SUSPENDED_COMPLIANCE" | "BANNED"
 export type OutletReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
 
 export interface OperatingHours {
@@ -34,6 +43,7 @@ export interface Outlet {
   totalReviews          : number
   adminStatus           : OutletAdminStatus
   reviewStatus          : OutletReviewStatus
+  clearanceStatus       : OutletClearanceStatus
   flagReasons           : string[]
   flaggedAt             : string | null
   isTemporarilyClosed   : boolean
@@ -44,6 +54,9 @@ export interface Outlet {
   cuisines              : { cuisine: { id: string; name: string; code: string } }[]
   operatingHours        : OperatingHours[]
   _count?               : { meals: number }
+  /** Present on the single-outlet detail response (getOutlet). */
+  goLiveStatus?         : OutletGoLiveStatus
+  mealPlanReadiness?    : OutletMealPlanReadiness
 }
 
 export interface CreateOutletPayload {

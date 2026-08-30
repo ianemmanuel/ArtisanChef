@@ -19,6 +19,7 @@ import { REQUIRED_APPLICATION_FIELDS } from "@/modules/vendor/schemas/vendor.app
 import { ClerkVendorStateService } from "@/lib/clerk"
 import { getVendorComplianceIssues, getVendorOperationalIssues } from "./admin.vendor.compliance.service"
 import { getDuplicatePayoutFlags } from "./admin.vendor.payout.service"
+import { presentPayoutAccount } from "@/modules/vendor/services/vendor.payout.service"
 import { assertVendorDocumentReviewableByActor } from "./admin.vendor.compliance-case.service"
 import { MAX_APPLICATION_PRIORITY_SCAN } from "@/constants/vendor"
 import { toCsv } from "@/lib/csv"
@@ -1365,8 +1366,11 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
   const duplicateFlags = canManagePayouts
     ? await getDuplicatePayoutFlags(vendorId, account.countryId)
     : new Map<string, number>()
+  // CLAUDE.md #7 — payout account identifiers are encrypted at rest;
+  // presentPayoutAccount() strips the ciphertext and attaches `masked`,
+  // the same boundary the vendor-facing endpoints use.
   const payoutAccounts = account.payoutAccounts.map((p) => ({
-    ...p,
+    ...presentPayoutAccount(p, { includeRiskSignals: canManagePayouts }),
     duplicateElsewhere: duplicateFlags.get(p.id) ?? 0,
   }))
 

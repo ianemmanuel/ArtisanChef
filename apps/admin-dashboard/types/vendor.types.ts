@@ -243,6 +243,21 @@ export interface ClaimAllComplianceResult {
 
 export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
 
+// CLAUDE.md #7 — sensitive banking identifiers are encrypted at rest; the
+// API returns masked "••••1234" forms only.
+export interface PayoutMaskedDetails {
+  bankCode?     : string
+  accountNumber?: string
+  swiftCode?    : string
+  iban?         : string
+  routingNumber?: string
+  mobileNumber? : string
+}
+
+export type PayoutRiskFlag = "NAME_MISMATCH" | "ADD_VELOCITY" | "DUPLICATE_IDENTIFIER"
+
+export type PayoutHoldStatus = "NONE" | "HELD"
+
 export interface VendorPayoutAccount {
   id                : string
   isDefault         : boolean
@@ -250,11 +265,13 @@ export interface VendorPayoutAccount {
   accountHolderName : string | null
   bankName          : string | null
   branchName        : string | null
-  accountNumber     : string | null
   mobileNetwork     : string | null
-  mobileNumber      : string | null
   paypalEmail       : string | null
   stripeAccountId   : string | null
+  masked            : PayoutMaskedDetails | null
+  // present only for a viewer holding VENDORS_PAYOUT_ACCOUNTS_MANAGE
+  riskFlags?        : PayoutRiskFlag[]
+  nameMatchScore?   : number | null
   verificationStatus: PayoutVerificationStatus
   verificationMethod: string | null
   failureReason     : string | null
@@ -280,7 +297,7 @@ export interface CommissionRateHistoryEntry {
 }
 
 export type AppealSubjectType = "APPLICATION_REJECTION" | "ACCOUNT_SUSPENSION" | "ACCOUNT_BAN"
-export type AppealStatus      = "OPEN" | "UNDER_REVIEW" | "UPHELD" | "OVERTURNED"
+export type AppealStatus      = "OPEN" | "UNDER_REVIEW" | "ESCALATED" | "UPHELD" | "OVERTURNED"
 
 export interface VendorAppeal {
   id                  : string
@@ -294,6 +311,13 @@ export interface VendorAppeal {
   assignedReviewerId  : string | null
   assignedReviewerName: string | null
   assignedAt          : string | null
+  // Claim/escalate workflow (2026-08-28 rework) — same shape as
+  // VendorComplianceCase's equivalent fields.
+  escalatedByAdminId   : string | null
+  escalatedByAdminName : string | null
+  escalatedAt          : string | null
+  escalationReason     : string | null
+  claimedFromEscalation: boolean
   resolvedAt          : string | null
   resolvedByAdminId   : string | null
   resolvedByAdminName : string | null
@@ -316,6 +340,12 @@ export interface VendorAppealListResult {
 //* AUTO_APPROVED/FLAGGED/MANUALLY_APPROVED/MANUALLY_REJECTED convention.
 export type ProfileReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
 
+export interface ProfileFlagDetail {
+  field : string
+  reason: "INAPPROPRIATE_CONTENT" | "POSSIBLE_IMPERSONATION" | "DUPLICATE_DISPLAY_NAME"
+  match?: string
+}
+
 export interface VendorProfileAdmin {
   id                : string
   vendorAccountId   : string
@@ -326,6 +356,7 @@ export interface VendorProfileAdmin {
   isPublished       : boolean
   reviewStatus      : ProfileReviewStatus
   flagReasons       : string[]
+  flagDetails       : ProfileFlagDetail[] | null
   flaggedAt         : string | null
   reviewedAt        : string | null
   reviewedByAdminId : string | null
@@ -348,7 +379,15 @@ export interface VendorProfileListResult {
 //* ProfileReviewStatus's convention; adminStatus is the independent
 //* operational lifecycle (suspend/reinstate/ban/unban).
 export type OutletReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
-export type OutletAdminStatus  = "ACTIVE" | "SUSPENDED" | "BANNED"
+export type OutletAdminStatus  = "ACTIVE" | "SUSPENDED" | "SUSPENDED_COMPLIANCE" | "BANNED"
+export type OutletClearanceStatus = "PENDING_DOCUMENTS" | "CLEARED"
+export type {
+  OutletGoLiveStatus, OutletGoLiveBlocker,
+  AdminOutletDocumentRow, OutletDocumentSeverity, VendorDocumentActionStatus,
+  OutletInspectionPolicy, OutletInspectionStatus, OutletInspectionRow,
+  AdminOutletInspectionRow, OutletInspectionListResult, OutletInspectionDetail,
+  OutletMealPlanBlocker, OutletMealPlanReadiness,
+} from "@repo/types/admin-app"
 
 export interface AdminOutlet {
   id                    : string
@@ -360,6 +399,7 @@ export interface AdminOutlet {
   latitude              : number
   longitude             : number
   reviewStatus          : OutletReviewStatus
+  clearanceStatus       : OutletClearanceStatus
   flagReasons           : string[]
   flaggedAt             : string | null
   reviewedAt            : string | null
@@ -376,11 +416,14 @@ export interface AdminOutlet {
   isMainOutlet          : boolean
   createdAt             : string
   vendor: { id: string; legalBusinessName: string; countryId: string }
+  /** Present on the single-outlet detail response (getOutletForAdmin). */
+  goLiveStatus?         : import("@repo/types/admin-app").OutletGoLiveStatus
+  mealPlanReadiness?    : import("@repo/types/admin-app").OutletMealPlanReadiness
 }
 
 export interface AdminOutletListResult {
   outlets: AdminOutlet[]
-  counts: { flagged: number; suspended: number; banned: number }
+  counts: { flagged: number; suspended: number; complianceSuspended: number; banned: number; pendingDocs: number }
   total     : number
   page      : number
   pageSize  : number

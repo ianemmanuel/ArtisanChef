@@ -242,6 +242,12 @@ export interface VendorAccountWithDetails extends VendorAccount {
 //* MANUALLY_APPROVED — see publishVendorProfile.
 export type ProfileReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED"
 
+export interface ProfileFlagDetail {
+  field : string
+  reason: "INAPPROPRIATE_CONTENT" | "POSSIBLE_IMPERSONATION" | "DUPLICATE_DISPLAY_NAME"
+  match?: string
+}
+
 export interface VendorProfile {
   id : string
   vendorAccountId : string
@@ -273,6 +279,9 @@ export interface VendorProfile {
   //* Profanity/impersonation moderation — see admin.vendorProfile.service.ts
   reviewStatus : ProfileReviewStatus
   flagReasons : string[]
+  //* Field-granular breakdown behind flagReasons — which field tripped which
+  //* check and the offending token/brand. Null when nothing is flagged.
+  flagDetails : ProfileFlagDetail[] | null
   flaggedAt : string | null
   reviewedAt : string | null
   reviewedByAdminId : string | null
@@ -322,11 +331,131 @@ export interface VendorGoLiveStatus {
   blockers                 : string[]
 }
 
+/*
+ * Outlet go-live gating — the outlet-level counterpart to VendorGoLiveStatus.
+ * `isClearedToServe` is the outlet's own readiness (clearance, admin status,
+ * review, closure, and its operational zone); `isAcceptingOrders` folds in
+ * whether the vendor's storefront is published. Computed live, never stored.
+ * See getOutletGoLiveStatus in vendor.outlet.service.ts.
+ */
+export type OutletClearanceStatus = "PENDING_DOCUMENTS" | "CLEARED"
+
+export type OutletGoLiveBlocker =
+  | "PENDING_DOCUMENTS"          // a required CRITICAL outlet document isn't approved yet
+  | "REVIEW_REJECTED"            // an admin rejected the outlet in content review
+  | "OUTLET_SUSPENDED"           // admin-suspended
+  | "OUTLET_SUSPENDED_COMPLIANCE"// auto-suspended over an expired CRITICAL document
+  | "OUTLET_BANNED"
+  | "TEMPORARILY_CLOSED"         // vendor closed it temporarily
+  | "VENDOR_NOT_LIVE"            // the vendor hasn't published their storefront
+  | "ZONE_LEVEL_TOO_LOW"         // outlet's operational zone doesn't allow orders yet (registration-only / unzoned)
+  | "ZONE_NOT_OPERATIONAL"       // zone is suspended / maintenance / emergency, or the city is inactive
+
+export interface OutletGoLiveStatus {
+  outletId         : string
+  clearanceStatus  : OutletClearanceStatus
+  isClearedToServe : boolean
+  isAcceptingOrders: boolean
+  vendorPublished  : boolean
+  blockers         : OutletGoLiveBlocker[]
+  /** Required CRITICAL-severity outlet documents and where each one stands. */
+  criticalDocuments: Array<{
+    documentTypeId: string
+    name          : string
+    status        : "MISSING" | "PENDING_REVIEW" | "APPROVED" | "EXPIRED"
+  }>
+  zone: {
+    id               : string | null
+    name             : string | null
+    level            : string | null   // ZoneLevel
+    operationalStatus: string | null   // ZoneOperationalStatus
+    onDemandAllowed  : boolean
+  }
+}
+
 //* Admin-facing profile row — the cross-vendor moderation queue at
 //* /vendors/profiles needs the owning vendor's name/country alongside the
 //* profile itself, same shape convention as VendorAppeal's admin rows.
 export interface VendorProfileWithVendor extends VendorProfile {
   vendor: { id: string; legalBusinessName: string; countryId: string }
+}
+
+/*
+ * Outlet premises inspection — the meal-plan-eligibility gate (see
+ * OutletInspection / getOutletMealPlanReadiness). Deliberately NOT wired to
+ * on-demand serving, matching how Uber Eats / DoorDash treat it.
+ */
+export type OutletInspectionPolicy = "NONE" | "MEAL_PLAN_ONLY" | "ALL"
+
+export type OutletInspectionStatus =
+  | "SCHEDULED" | "IN_PROGRESS" | "PASSED" | "FAILED" | "WAIVED" | "CANCELLED"
+
+//* One inspection record. Shared shape; the admin queue extends it with the
+//* owning outlet/vendor, and the single-inspection detail response swaps
+//* `photoCount` for `photos` (signed view URLs).
+export interface OutletInspectionRow {
+  id              : string
+  outletId        : string
+  status          : OutletInspectionStatus
+  scheduledFor    : string | null
+  inspectorAdminId: string | null
+  startedAt       : string | null
+  completedAt     : string | null
+  validUntil      : string | null
+  findings        : string | null
+  failureReasons  : string[]
+  waiveReason     : string | null
+  notes           : string | null
+  photoCount      : number
+  createdAt       : string
+}
+
+export interface AdminOutletInspectionRow extends OutletInspectionRow {
+  outlet: { id: string; name: string }
+  vendor: { id: string; legalBusinessName: string; countryId: string }
+  city  : { name: string } | null
+}
+
+export interface OutletInspectionListResult {
+  inspections: AdminOutletInspectionRow[]
+  counts     : { scheduled: number; inProgress: number; failed: number }
+  total      : number
+  page       : number
+  pageSize   : number
+  totalPages : number
+}
+
+export interface OutletInspectionDetail extends Omit<OutletInspectionRow, "photoCount"> {
+  photos          : string[]   // signed view URLs
+  checklist       : unknown
+  scheduledByAdminId: string | null
+  outlet: { id: string; name: string; vendorId: string }
+  vendor: { id: string; legalBusinessName: string; countryId: string }
+}
+
+//* Why an outlet can't offer meal plans yet. `getOutletMealPlanReadiness` is
+//* the single chokepoint a future meal-plan-creation flow calls — meal-plan
+//* ordering itself isn't built yet, so this is the resolver, not an enforced
+//* gate anywhere today beyond what it surfaces on the dashboards.
+export type OutletMealPlanBlocker =
+  | "NOT_CLEARED_TO_SERVE"     // the outlet isn't even cleared for on-demand yet
+  | "ZONE_LEVEL_TOO_LOW"       // its operational zone isn't FULL_OPERATIONS
+  | "ZONE_NOT_OPERATIONAL"     // zone suspended / maintenance / emergency, or city inactive
+  | "INSPECTION_REQUIRED"      // no inspection on record and the country requires one
+  | "INSPECTION_SCHEDULED"     // a visit is booked but hasn't happened
+  | "INSPECTION_IN_PROGRESS"   // a visit is underway, no outcome yet
+  | "INSPECTION_FAILED"        // the most recent inspection failed
+  | "INSPECTION_EXPIRED"       // passed once, but past its re-inspection date
+
+export interface OutletMealPlanReadiness {
+  outletId            : string
+  eligible            : boolean
+  policy              : OutletInspectionPolicy
+  zoneAllowsMealPlans : boolean
+  inspectionRequired  : boolean
+  inspectionStatus    : OutletInspectionStatus | null
+  inspectionValidUntil: string | null
+  blockers            : OutletMealPlanBlocker[]
 }
 
 
@@ -635,6 +764,84 @@ export interface UpsertAccountDocumentResponse {
   version       : number
 }
 
+/*
+ * Outlet documents — the OUTLET-scoped counterpart to the vendor account
+ * documents above. Resolved from DocumentTypeConfig rows with scope=OUTLET
+ * for the outlet's country + vendor type (+ the outlet's own city, if the
+ * type is city-restricted). Carries `severity` because a CRITICAL required
+ * outlet document gates the outlet going live at all (see OutletGoLiveStatus
+ * / getOutletDocumentRequirements). CITY-scoped documents are a separate,
+ * later concern (OutletDocumentInheritance).
+ */
+export type OutletDocumentSeverity = "LOW" | "MEDIUM" | "CRITICAL"
+
+export interface OutletDocumentStatusRow {
+  documentTypeId  : string
+  documentTypeName: string
+  isRequired      : boolean
+  requiresExpiry  : boolean
+  severity        : OutletDocumentSeverity
+  instructions    : string | null
+  sampleUrl       : string | null
+  actionStatus    : VendorDocumentActionStatus
+  currentDocument : {
+    id             : string
+    documentTypeId : string
+    status         : DocumentStatus
+    documentName   : string | null
+    mimeType       : string | null
+    issueDate      : string | null
+    expiryDate     : string | null
+    rejectionReason: string | null
+    revisionNotes  : string | null
+    uploadedAt     : string
+    version        : number
+  } | null
+}
+
+export interface UpsertOutletDocumentRequest {
+  documentTypeId : string
+  storageKey     : string
+  documentName?  : string
+  fileSize?      : number
+  mimeType?      : string
+  documentNumber?: string
+  issueDate?     : string
+  expiryDate?    : string
+}
+
+export interface UpsertOutletDocumentResponse {
+  id            : string
+  documentTypeId: string
+  status        : DocumentStatus
+  version       : number
+}
+
+//* Admin-facing outlet document row — the moderation view on the outlet
+//* detail page. Same as the vendor's row plus review timestamps.
+export interface AdminOutletDocumentRow {
+  documentTypeId  : string
+  documentTypeName: string
+  isRequired      : boolean
+  requiresExpiry  : boolean
+  severity        : OutletDocumentSeverity
+  actionStatus    : VendorDocumentActionStatus
+  currentDocument : {
+    id             : string
+    documentTypeId : string
+    status         : DocumentStatus
+    documentName   : string | null
+    mimeType       : string | null
+    issueDate      : string | null
+    expiryDate     : string | null
+    rejectionReason: string | null
+    revisionNotes  : string | null
+    version        : number
+    submittedAt    : string
+    reviewedAt     : string | null
+  } | null
+}
+
 
 export interface CreateOutletRequest {
   name         : string
@@ -711,6 +918,20 @@ export interface AvailablePayoutMethod {
 
 export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
 
+// CLAUDE.md #7 — the sensitive banking identifiers are AES-256-GCM encrypted
+// at rest and are never returned in the clear. Clients get masked forms only.
+export interface PayoutMaskedDetails {
+  bankCode?     : string
+  accountNumber?: string
+  swiftCode?    : string
+  iban?         : string
+  routingNumber?: string
+  mobileNumber? : string
+}
+
+// Advisory risk signals set at creation / review.
+export type PayoutRiskFlag = "NAME_MISMATCH" | "ADD_VELOCITY" | "DUPLICATE_IDENTIFIER"
+
 export interface VendorPayoutAccount {
   id                    : string
   vendorId              : string
@@ -720,15 +941,14 @@ export interface VendorPayoutAccount {
   accountHolderName     : string | null
   bankName              : string | null
   branchName            : string | null
-  bankCode              : string | null
-  accountNumber         : string | null
-  swiftCode             : string | null
-  iban                  : string | null
-  routingNumber         : string | null
   mobileNetwork         : string | null
-  mobileNumber          : string | null
   paypalEmail           : string | null
   stripeAccountId       : string | null
+  // masked "••••1234" forms of the encrypted identifiers — display only
+  masked                : PayoutMaskedDetails | null
+  // admin-only review signals — omitted from vendor-facing responses
+  riskFlags?            : PayoutRiskFlag[]
+  nameMatchScore?       : number | null
   verificationStatus    : PayoutVerificationStatus
   verificationMethod    : string | null
   failureReason         : string | null

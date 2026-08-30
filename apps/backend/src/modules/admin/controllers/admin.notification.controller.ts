@@ -1,5 +1,6 @@
 import { RequestHandler } from "express"
 import type { AdminRequest } from "@repo/types/backend"
+import type { AdminNotificationType } from "@repo/db"
 import { sendSuccess } from "@/helpers/api-response/response"
 import {
   listAdminNotifications,
@@ -11,10 +12,11 @@ import {
 export const handleListAdminNotifications: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser } = req as unknown as AdminRequest
-    const { unreadOnly, page, pageSize } = req.query as { unreadOnly?: string; page?: string; pageSize?: string }
+    const { unreadOnly, type, page, pageSize } = req.query as { unreadOnly?: string; type?: string; page?: string; pageSize?: string }
 
     const result = await listAdminNotifications(adminUser.id, {
       unreadOnly: unreadOnly === "true",
+      types     : type ? (type.split(",") as AdminNotificationType[]) : undefined,
       page      : page     ? parseInt(page)     : undefined,
       pageSize  : pageSize ? parseInt(pageSize) : undefined,
     })

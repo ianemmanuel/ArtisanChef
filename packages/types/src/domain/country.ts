@@ -18,6 +18,9 @@ export interface Country {
   vendorOnboardingReadyAt    : string | null
   readyForCustomerOperations : boolean
   customerOperationsReadyAt  : string | null
+  //* Whether outlets here need a physical premises inspection — see
+  //* OutletInspectionPolicy. Default MEAL_PLAN_ONLY.
+  outletInspectionPolicy?    : "NONE" | "MEAL_PLAN_ONLY" | "ALL"
   checklist? : {
     vendorTypeCount: number; documentTypeCount: number
     outboundPaymentMethodCount: number; inboundPaymentMethodCount: number

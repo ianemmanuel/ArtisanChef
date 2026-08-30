@@ -17,12 +17,17 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "admin_users:accounts:manage_availability",
     "audit_logs:all:read",
     "settings:geography:read",
+    "settings:zones:read",
     "vendors:reviewers:manage_availability",
   ],
 
   operations_admin: [
     "settings:geography:read",
     "settings:geography:write",
+    "settings:zones:read",
+    "settings:zones:write",
+    "settings:zones:set_level",
+    "settings:zones:receive_alert",
     "settings:vendor_types:read",
     "settings:vendor_types:write",
     "settings:documents:read",
@@ -80,10 +85,16 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "vendors:accounts:commission_manage",
     "vendors:appeals:read",
     "vendors:appeals:manage",
+    "vendors:appeals:claim",
+    "vendors:appeals:escalate",
+    "vendors:appeals:reassign",
+    "vendors:appeals:receive_escalation",
+    "vendors:appeals:receive_stale_alert",
     "vendors:profiles:read",
     "vendors:profiles:moderate",
     "vendors:outlets:read",
     "vendors:outlets:moderate",
+    "vendors:outlets:inspect",
     "vendors:applications:read",
     "vendors:applications:review",
     "vendors:applications:approve",
@@ -95,6 +106,15 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "finance:discounts:read",
     "orders:all:read",
     "settings:geography:read",
+    // Operational-zone management for a city launch team. read/write are
+    // routine for a CITY-scoped vendor_ops admin; set_level (turning meal
+    // plans on in a zone) is a ceiling entry — grant it individually to a
+    // trusted city lead, same "in the pool, not auto-granted" pattern as
+    // finance:reports:read above.
+    "settings:zones:read",
+    "settings:zones:write",
+    "settings:zones:set_level",
+    "settings:zones:receive_alert",
     "settings:documents:read",
     "settings:vendor_types:read",
   ],
@@ -116,5 +136,11 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "couriers:accounts:suspend",
     "couriers:accounts:reinstate",
     "orders:all:read",
+    // Courier ops plans logistics around zones — needs to see them, and to
+    // be alerted when one is suspended/retired or its level changes (which
+    // changes what deliveries happen there). Both are ceiling entries for
+    // this role pending the wider permissions review.
+    "settings:zones:read",
+    "settings:zones:receive_alert",
   ],
 }

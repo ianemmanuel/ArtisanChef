@@ -51,7 +51,23 @@ const STATUS_LABEL: Record<ProfileReviewStatus, string> = {
 
 const FLAG_REASON_LABEL: Record<string, string> = {
   INAPPROPRIATE_CONTENT : "Inappropriate content",
+  POSSIBLE_IMPERSONATION: "Possible impersonation",
   DUPLICATE_DISPLAY_NAME: "Duplicate name",
+}
+
+function flagSummary(profile: { flagDetails: { field: string; reason: string; match?: string }[] | null; flagReasons: string[] }): string {
+  if (profile.flagDetails && profile.flagDetails.length > 0) {
+    return profile.flagDetails
+      .map((d) => {
+        const base = FLAG_REASON_LABEL[d.reason] ?? d.reason
+        const where = d.field !== "displayName" ? ` · ${d.field}` : ""
+        return d.match ? `${base} ("${d.match}")${where}` : `${base}${where}`
+      })
+      .join(", ")
+  }
+  return profile.flagReasons.length > 0
+    ? profile.flagReasons.map((r) => FLAG_REASON_LABEL[r] ?? r).join(", ")
+    : "—"
 }
 
 export default async function VendorProfilesPage({ searchParams }: PageProps) {
@@ -193,9 +209,7 @@ export default async function VendorProfilesPage({ searchParams }: PageProps) {
                       <span className={STATUS_BADGE[profile.reviewStatus]}>{STATUS_LABEL[profile.reviewStatus]}</span>
                     </TableCell>
                     <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                      {profile.flagReasons.length > 0
-                        ? profile.flagReasons.map((r) => FLAG_REASON_LABEL[r] ?? r).join(", ")
-                        : "—"}
+                      {flagSummary(profile)}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <span className={profile.isPublished ? "badge-success" : "badge-neutral"}>

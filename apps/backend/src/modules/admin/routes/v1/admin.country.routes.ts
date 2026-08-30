@@ -17,6 +17,7 @@ import {
     handleSetNotReadyForVendors,
     handleSetReadyForCustomers,
     handleSetNotReadyForCustomers,
+    handleSetOutletInspectionPolicy,
 } from "../../controllers/admin.country.controller"
 import { handleCreateCity } from "../../controllers/admin.city.controller"
 import {
@@ -48,6 +49,7 @@ countryRouter.patch("/:countryRef/ready-for-vendors", GLOBAL, handleSetReadyForV
 countryRouter.patch("/:countryRef/not-ready-for-vendors", GLOBAL, handleSetNotReadyForVendors)
 countryRouter.patch("/:countryRef/ready-for-customers", GLOBAL, handleSetReadyForCustomers)
 countryRouter.patch("/:countryRef/not-ready-for-customers", GLOBAL, handleSetNotReadyForCustomers)
+countryRouter.patch("/:countryRef/inspection-policy", GLOBAL, handleSetOutletInspectionPolicy)
 countryRouter.get ("/:countryRef/cities", READ, handleListCities)
 countryRouter.get ("/:countryRef/cities/leaderboard", READ, handleGetCityOutletLeaderboard)
 countryRouter.post ("/:countryRef/cities", WRITE, handleCreateCity)

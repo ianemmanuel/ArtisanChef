@@ -53,6 +53,68 @@ export type OutletServiceMode =
   | "SELF_DELIVERY"
   | "WAITLIST"  // includes unzoned-within-boundary
 
+// ─── Operational zones ────────────────────────────────────────────────────────
+// The Zone model replaces ServiceArea/ServiceAreaMode as the capability
+// container. Mirrors of the Prisma ZoneLevel / ZoneOperationalStatus enums —
+// imported from here so the pure resolver takes no dependency on @repo/db.
+
+// Ordered least → most capable. Monotonic: each level allows everything the
+// levels before it allow. The level → flags mapping is ZONE_CAPABILITIES.
+export type ZoneLevel =
+  | "REGISTRATION_ONLY"
+  | "MARKETPLACE"
+  | "PLATFORM_DELIVERY"
+  | "FULL_OPERATIONS"
+
+// Orthogonal to ZoneLevel — whether the zone is running right now.
+export type ZoneOperationalStatus =
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "MAINTENANCE"
+  | "EMERGENCY"
+
+// Structural capability booleans derived purely from a ZoneLevel.
+export interface ZoneCapabilityFlags {
+  canRegisterOutlet          : boolean
+  canListOnDemand            : boolean
+  canSelfDeliverOnDemand     : boolean
+  canPlatformDeliverOnDemand : boolean
+  canOfferMealPlans          : boolean
+}
+
+// The minimal zone projection the resolver needs — a subset of the Prisma
+// Zone row. `status` is the GeoStatus string ("ACTIVE" | "INACTIVE").
+export interface ZoneResolutionInput {
+  id               : string
+  name             : string
+  boundaries       : ServiceAreaBoundary
+  level            : ZoneLevel
+  operationalStatus: ZoneOperationalStatus
+  status           : string
+}
+
+// Full resolution of a location (or an outlet's assigned zone) against the
+// operational geography. Kept structurally identical to
+// `ResolvedCapabilities` in @repo/types/domain/geography.
+export interface ResolvedZoneCapabilities extends ZoneCapabilityFlags {
+  //* Whether the city has an operational boundary polygon at all. When false,
+  //* `withinCityBoundary` is also false but for a different reason — callers
+  //* that want to stay lenient pre-boundary (e.g. legacy outlet creation)
+  //* check this to tell "no boundary yet" from "outside the boundary".
+  boundaryConfigured : boolean
+  withinCityBoundary : boolean
+  cityActive         : boolean
+  zoneId             : string | null
+  zoneName           : string | null
+  level              : ZoneLevel | null
+  effectiveLevel     : ZoneLevel | null
+  operationalStatus  : ZoneOperationalStatus | null
+  isOperational      : boolean
+  canAcceptOnDemandOrders : boolean
+  canAcceptMealPlanOrders : boolean
+  reason : string
+}
+
 // Everything needed to resolve a point's service mode
 export interface CityGeoConfig {
   id          : string

@@ -88,6 +88,34 @@ model AdminNotification {
 
 enum AdminNotificationType {
   COMPLIANCE_CASE_STALE
+  //* Vendor-appeal workflow rework (2026-08-28) — same three-event shape
+  //* as the compliance-case notifications, plus a resolution notice (an
+  //* appeal is a formal dispute someone is waiting on the outcome of, so
+  //* the admin who logged it is notified when it's decided).
+  APPEAL_STALE_UNCLAIMED
+  APPEAL_ESCALATED
+  APPEAL_RESOLVED
+  //* A vendor public profile was just flagged by the automated content
+  //* checks (profanity / impersonation / duplicate name) — fired at flag
+  //* time on both create and edit, to VENDORS_PROFILES_MODERATE holders
+  //* scoped to the vendor's country. PROFILE_STALE_FLAGGED below is the
+  //* separate 24h "still unreviewed" nudge.
+  PROFILE_FLAGGED
+  //* Vendor public-profile flag sitting unactioned too long — same
+  //* stale-alert shape as COMPLIANCE_CASE_STALE, gated on
+  //* VENDORS_PROFILES_MODERATE instead of a dedicated receive-alert
+  //* permission (see PROFILE_STALE_NOTIFY_HOURS's doc comment for why).
+  PROFILE_STALE_FLAGGED
+  //* An operational zone was suspended/paused/retired/reactivated, or its
+  //* capability level changed. Sent to SETTINGS_ZONES_RECEIVE_ALERT holders
+  //* scoped to the zone's city or country (never global). title/message
+  //* carry the specifics; the split is only for category grouping.
+  ZONE_STATUS_CHANGED
+  ZONE_CAPABILITY_CHANGED
+  //* An outlet was automatically taken offline because a CRITICAL document
+  //* expired past its grace window. Sent to VENDORS_OUTLETS_MODERATE holders
+  //* scoped to the outlet's country/city (never global).
+  OUTLET_AUTO_SUSPENDED
 }
 
 model AdminRole {
@@ -295,6 +323,11 @@ model Country {
   customerOperationsReadyAt   DateTime?
   customerOperationsReadyById String?
 
+  //* Whether outlets in this country need a physical premises inspection,
+  //* and when. See OutletInspectionPolicy. Admin-configurable; the default
+  //* gates meal-plan eligibility only.
+  outletInspectionPolicy      OutletInspectionPolicy @default(MEAL_PLAN_ONLY)
+
   cities             City[]
   documentTypes      DocumentTypeConfig[]
   vendors            VendorAccount[]
@@ -338,6 +371,8 @@ model City {
  
   country          Country              @relation(fields: [countryId], references: [id])
   documentTypes    DocumentTypeConfig[]
+  zones            Zone[]
+  marketSignals    MarketSignal[]
   serviceAreas     ServiceArea[]
   deliveryZones    DeliveryZone[]
   adminScopes      AdminUserScope[]
@@ -349,6 +384,124 @@ model City {
 }
 
 
+//* =========OPERATIONAL ZONES=============
+//
+// Zone is the operational-policy container inside a City — the middle of the
+// Vendor → Outlet → Zone → City hierarchy. Every outlet resolves to at most
+// one zone (Outlet.zoneId). A location inside the city boundary that falls in
+// no zone is treated as the REGISTRATION_ONLY floor by the resolver — no Zone
+// row is required for that. Zones never exist outside the city boundary;
+// everything outside is destination space only (see the geographic-operations
+// review doc).
+//
+// Two orthogonal state axes, deliberately separate:
+//   • `level`             — capability ladder (what is structurally possible
+//                           here). Monotonic: each level includes every lower
+//                           level's allowances. Changes ONLY by an explicit,
+//                           audited admin decision. See ZONE_CAPABILITIES in
+//                           @repo/geo for the level → flags mapping.
+//   • `operationalStatus` — is the zone running right now. Suspending pauses
+//                           orders/deliveries WITHOUT touching `level`;
+//                           capability is preserved and restored by setting it
+//                           back to ACTIVE.
+// `status` (GeoStatus) is a third, structural axis matching ServiceArea/
+// DeliveryZone/City: INACTIVE = the zone row has been retired/superseded and
+// is excluded from point resolution entirely.
+//
+// Relationship to the legacy ServiceArea/ServiceAreaMode model below: Zone is
+// its intended replacement. ServiceArea's resolver (resolveServiceMode) is
+// unused dead code today; the migration off it happens in a later stage.
+// DeliveryZone stays as-is for now — it is a distinct courier-capacity layer,
+// not a capability container (a future rename to CourierZone is noted in the
+// review doc, not done here).
+
+model Zone {
+  id                String                @id @default(uuid())
+  cityId            String
+  name              String
+  boundaries        Json                  // GeoJSON Polygon | MultiPolygon — must sit within the city boundary (enforced at the service layer, a later stage)
+
+  //* Capability ladder — see ZoneLevel. Monotonic. Promotion/demotion is an
+  //* explicit admin decision informed by supply/demand data, never automatic.
+  level                    ZoneLevel      @default(REGISTRATION_ONLY)
+  levelChangedAt           DateTime?
+  levelChangedByAdminId    String?
+  levelChangeReason        String?
+
+  //* Operational status — orthogonal to `level`. See ZoneOperationalStatus.
+  //* `pausedUntil` is a planned-maintenance auto-resume hint; the job that
+  //* acts on it is a later stage.
+  operationalStatus            ZoneOperationalStatus @default(ACTIVE)
+  operationalStatusReason      String?
+  operationalStatusChangedAt   DateTime?
+  operationalStatusChangedById String?
+  pausedUntil                  DateTime?
+
+  //* Record lifecycle (mirrors ServiceArea/DeliveryZone/City).
+  status            GeoStatus             @default(ACTIVE)
+
+  createdByAdminId  String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  city              City                  @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  outlets           Outlet[]
+  marketSignals     MarketSignal[]
+
+  @@unique([cityId, name])
+  @@index([cityId])
+  @@index([status])
+  @@index([level])
+  @@index([operationalStatus])
+}
+
+
+//* =========MARKET SIGNALS=============
+//
+// Supply and demand collected AHEAD of operating somewhere — the two
+// independent launch inputs that inform (never auto-trigger) an admin's
+// decision to create a zone or promote one's level. A signal is captured at
+// a point; if that point is inside a zone it's tagged with it, otherwise it
+// counts toward the unzoned-inside-boundary or outside-boundary bucket.
+// See the geographic-operations review doc's "Registration philosophy".
+//
+// CUSTOMER_INTEREST is captured with contact fields only for now —
+// consumerAccountId waits for the customer app / a ConsumerAccount to point
+// at. VENDOR_INTEREST may carry vendorAccountId when an existing vendor asks
+// to expand.
+
+model MarketSignal {
+  id                 String             @id @default(uuid())
+  type               MarketSignalType
+  cityId             String
+  zoneId             String?
+  latitude           Float
+  longitude          Float
+  withinCityBoundary Boolean            @default(false)
+
+  vendorAccountId    String?
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  note               String?
+  source             String?            // "vendor_dashboard" | "admin" | "landing_page" | "customer_app"
+
+  status             MarketSignalStatus @default(OPEN)
+  reviewedByAdminId  String?
+  reviewedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  city          City           @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  zone          Zone?          @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  vendorAccount VendorAccount? @relation(fields: [vendorAccountId], references: [id], onDelete: SetNull)
+
+  @@index([cityId, type, status])
+  @@index([zoneId])
+  @@index([status])
+}
+
+
 // Added: mode ServiceAreaMode — what level of service applies in this polygon.
 //
 // All four modes are stored as distinct ServiceArea records.
@@ -357,7 +510,7 @@ model City {
 //
 // Any outlet location inside the city boundary but not covered by any
 // ServiceArea polygon is treated as WAITLIST by the resolver (not UNZONED).
- 
+
 model ServiceArea {
   id               String          @id @default(uuid())
   cityId           String
@@ -816,6 +969,12 @@ model VendorAccount {
   suspensionUntil       DateTime?
   deactivatedAt         DateTime?
   deletedAt             DateTime?
+
+  //* Payout hold — designed, not enforced (no payout run to gate yet). See PayoutHoldStatus.
+  payoutHoldStatus      PayoutHoldStatus @default(NONE)
+  payoutHoldReason      String?
+  payoutHoldPlacedAt    DateTime?
+  payoutHoldPlacedBy    String?          // adminUserId
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 
@@ -832,6 +991,7 @@ model VendorAccount {
   notifications         VendorNotification[]
   commissionRateHistory VendorCommissionRateHistory[]
   appeals               VendorAppeal[]
+  marketSignals         MarketSignal[]
 
   @@unique([companyRegNumber, countryId])
   @@unique([taxRegistrationNumber, countryId])
@@ -881,12 +1041,24 @@ model VendorProfile {
   //* publishVendorProfile in vendor.profile.service.ts.
   reviewStatus      ProfileReviewStatus @default(AUTO_APPROVED)
   flagReasons       String[]
+  //* Field-granular breakdown behind flagReasons — an array of
+  //* { field, reason, match? } so a moderator sees which field tripped
+  //* which check and the offending token/brand, not just a bare reason
+  //* list. Recomputed alongside flagReasons whenever profile copy changes.
+  flagDetails       Json?
   flaggedAt         DateTime?
   reviewedAt        DateTime?
   reviewedByAdminId String?
   //* Set on MANUALLY_REJECTED — shown to the vendor so they know what to
   //* fix. Cleared on the next edit (recomputed flags supersede it).
   rejectionReason   String?
+
+  //* Set once the stale-flagged alert has fired for this profile (see
+  //* PROFILE_STALE_NOTIFY_HOURS, vendor-ops-notifications.job.ts) —
+  //* prevents re-notifying every cron run. Cleared on the next edit that
+  //* recomputes flags, same convention as rejectionReason above — a fresh
+  //* edit deserves a fresh notification clock, not a suppressed one.
+  staleNotifiedAt DateTime?
 
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -1022,6 +1194,30 @@ model VendorAppeal {
   assignedReviewerId String?
   assignedAt         DateTime?
 
+  //* Claim/escalate workflow (2026-08-28 rework) — modeled directly on
+  //* VendorComplianceCase's own fields (see that model's comments for the
+  //* full reasoning): escalatedByAdminId is a permanent, non-clearing
+  //* marker (locks the escalator out of claiming this appeal again);
+  //* claimedFromEscalation is true only while the CURRENT assignment was
+  //* obtained by self-service claiming out of the open escalation pool
+  //* (that admin is the terminal resolver — a reassignment resets this).
+  //* Superseded the original "just READ/MANAGE, no claim/escalate" design
+  //* — appeal volume was judged not to justify this machinery at the time
+  //* VM-P1-04 shipped, but the user directed this be brought to parity
+  //* with applications/compliance, matching how enterprise dispute queues
+  //* (e.g. Uber Eats/DoorDash merchant-appeal review) route contested
+  //* decisions through a claim → (optional escalate) → resolve pipeline
+  //* rather than a bare assign/resolve.
+  escalatedByAdminId    String?
+  escalatedAt           DateTime?
+  escalationReason      String?
+  claimedFromEscalation Boolean   @default(false)
+
+  //* Set once the stale-unclaimed alert has fired for this appeal (see
+  //* APPEAL_STALE_NOTIFY_HOURS, vendor-ops-notifications.job.ts) —
+  //* prevents re-notifying every cron run.
+  staleNotifiedAt DateTime?
+
   resolvedAt         DateTime?
   resolvedByAdminId  String?
   resolutionNote     String?
@@ -1040,6 +1236,7 @@ model VendorAppeal {
   @@index([vendorId])
   @@index([status])
   @@index([assignedReviewerId, status])
+  @@index([escalatedByAdminId, status])
 }
 
 enum AppealSubjectType {
@@ -1051,6 +1248,7 @@ enum AppealSubjectType {
 enum AppealStatus {
   OPEN
   UNDER_REVIEW
+  ESCALATED
   UPHELD
   OVERTURNED
 }
@@ -1099,30 +1297,46 @@ model VendorPayoutAccount {
   countryPaymentMethodId String        // points to CountryPaymentMethod (OUTBOUND direction)
   isDefault              Boolean        @default(false)
   isActive               Boolean        @default(true)
-  
-  // Account details — kept flat for query performance
+
+  // Account details — kept flat for query performance.
+  // The sensitive banking identifiers (bankCode, accountNumber, swiftCode,
+  // iban, routingNumber, mobileNumber) are stored as AES-256-GCM ciphertext
+  // at rest — see apps/backend/src/lib/crypto/field-encryption.ts. The
+  // service layer decrypts on read for internal use and never returns the
+  // plaintext to any client (maskedDetails is what clients get).
   accountHolderName      String?
   bankName               String?
   branchName             String?
-  bankCode               String?
-  accountNumber          String?
-  swiftCode              String?
-  iban                   String?
-  routingNumber          String?
+  bankCode               String?    // encrypted
+  accountNumber          String?    // encrypted
+  swiftCode              String?    // encrypted
+  iban                   String?    // encrypted
+  routingNumber          String?    // encrypted
   mobileNetwork          String?
-  mobileNumber           String?
+  mobileNumber           String?    // encrypted
   paypalEmail            String?
   stripeAccountId        String?
-  
+
+  // Blind indexes (HMAC-SHA256, keyed) for cross-vendor duplicate detection
+  // without decrypting — a deterministic hash of the normalised value.
+  accountNumberHash      String?
+  mobileNumberHash       String?
+  // Masked forms safe to return to any authorized viewer: { accountNumber: "••••1234", ... }
+  maskedDetails          Json?
+  // 0..1 similarity of accountHolderName vs the vendor's legal / owner name; null = not computed.
+  nameMatchScore         Float?
+  // Advisory risk signals set at creation / review — e.g. ["NAME_MISMATCH","ADD_VELOCITY","DUPLICATE_IDENTIFIER"].
+  riskFlags              String[]
+
   // Verification
   verificationStatus     PayoutVerificationStatus  @default(PENDING)
-  verificationMethod     String?                   // "API" | "MANUAL"
+  verificationMethod     String?                   // "API" | "MANUAL" | "FORMAT_CHECKS"
   verificationRef        String?                   // external reference from verification API
   verificationMeta       Json?                     // full API response, for audit
   verifiedAt             DateTime?
   verifiedBy             String?                   // adminUserId if MANUAL
   failureReason          String?
-  
+
   deletedAt              DateTime?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
@@ -1134,6 +1348,8 @@ model VendorPayoutAccount {
   @@index([countryPaymentMethodId])
   @@index([isActive])
   @@index([verificationStatus])
+  @@index([accountNumberHash])
+  @@index([mobileNumberHash])
 }
 
 
@@ -1143,6 +1359,11 @@ model Outlet {
   id                String     @id @default(uuid())
   vendorId          String
   cityId            String
+  //* Operational zone this outlet resolves to (point-in-polygon of lat/lng
+  //* against the city's zones, recomputed when zone geometry changes).
+  //* Nullable: inside the city boundary but in no zone = REGISTRATION_ONLY
+  //* floor; the populate/recompute wiring is a later stage.
+  zoneId            String?
   name              String
   slug              String?     @unique
   avatar            String?
@@ -1164,6 +1385,12 @@ model Outlet {
   phone             String?
   email             String?
   reviewStatus      OutletReviewStatus  @default(AUTO_APPROVED)
+  //* Go-live gate — see OutletClearanceStatus. Computed at creation from the
+  //* outlet's required CRITICAL documents (a later stage wires that); until
+  //* then every outlet is CLEARED, preserving today's "live immediately"
+  //* behaviour for existing rows.
+  clearanceStatus   OutletClearanceStatus @default(CLEARED)
+  clearanceUpdatedAt DateTime?
   isMainOutlet      Boolean             @default(false)
   ratings           Float               @default(0)
   totalReviews      Int                 @default(0)
@@ -1192,10 +1419,12 @@ model Outlet {
   createdAt         DateTime          @default(now())
 
   vendor            VendorAccount      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  zone              Zone?              @relation(fields: [zoneId], references: [id], onDelete: SetNull)
   meals             Meal[]
   mealPlans         MealPlan[]
   cuisines          OutletCuisine[]
   documents         OutletDocument[]
+  inspections       OutletInspection[]
   operatingHours    OutletOperatingHours[]
   serviceAreas      OutletServiceArea[]
   inheritedVendorDocuments OutletDocumentInheritance[]
@@ -1203,8 +1432,10 @@ model Outlet {
   @@unique([vendorId, name])
   @@index([vendorId])
   @@index([cityId])
+  @@index([zoneId])
   @@index([slug])
   @@index([adminStatus])
+  @@index([clearanceStatus])
   @@index([latitude, longitude])
 }
 
@@ -1248,6 +1479,10 @@ model OutletDocument {
   supersededBy    String?
   supersededAt    DateTime?
   version         Int                @default(1)
+  //* Escalating expiry-reminder dedup — the day-threshold (60/30/14/7/3/1/0)
+  //* of the most recent reminder sent to the vendor for THIS document row.
+  //* Null = no reminder yet. Reset naturally: a replacement is a new row.
+  lastExpiryReminderDaysOut Int?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -1259,6 +1494,40 @@ model OutletDocument {
   @@index([documentTypeId])
   @@index([status])
   @@index([expiryDate])
+}
+
+//* A physical premises inspection of an outlet. Required (per
+//* Country.outletInspectionPolicy) before an outlet can offer meal plans —
+//* the meal-plan-eligibility gate, deliberately NOT an on-demand gate (see
+//* getOutletMealPlanReadiness). Deliberately simpler than the compliance-case
+//* machinery: no claim/escalate/reassign — an admin schedules a visit,
+//* conducts it, records PASS/FAIL with a checklist + photos, or waives the
+//* requirement. A PASSED inspection may carry validUntil for a re-inspection
+//* cadence, same idea as a document's expiryDate.
+model OutletInspection {
+  id                 String                 @id @default(uuid())
+  outletId           String
+  status             OutletInspectionStatus @default(SCHEDULED)
+  scheduledFor       DateTime?
+  scheduledByAdminId String?
+  inspectorAdminId   String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  validUntil         DateTime?
+  checklist          Json?                  // structured form responses — shape owned by the frontend, stored opaquely
+  findings           String?
+  failureReasons     String[]               // populated on FAILED, surfaced to the vendor
+  waiveReason        String?                // populated on WAIVED
+  photos             String[]               // R2 storage keys captured during the visit
+  notes              String?                // scheduling / cancellation context
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId])
+  @@index([status])
+  @@index([scheduledFor])
 }
 
 model OutletDocumentInheritance {
@@ -1506,14 +1775,49 @@ enum VendorApplicationStatus {
 
 enum OutletAdminStatus {
   ACTIVE
-  SUSPENDED
+  SUSPENDED              // admin action — a policy/quality violation
+  SUSPENDED_COMPLIANCE   // automatic — a CRITICAL outlet document expired past its grace window (see admin.outlet compliance). Lifts automatically when the document is renewed and re-approved.
   BANNED
+}
+
+//* Whether an outlet has passed the gates required to accept on-demand orders
+//* at all. Separate from adminStatus (operational health) and reviewStatus
+//* (content moderation). Same "capability vs health vs lifecycle" split as
+//* Zone.level / operationalStatus / status.
+//*   CLEARED           — no outstanding gate; may go live
+//*   PENDING_DOCUMENTS — a required CRITICAL-severity outlet document type
+//*                       applies here and has not been uploaded + approved yet
+enum OutletClearanceStatus {
+  PENDING_DOCUMENTS
+  CLEARED
 }
 
 enum DocumentComplianceSeverity {
   LOW
   MEDIUM
   CRITICAL
+}
+
+//* Whether a country requires a physical premises inspection of an outlet,
+//* and when. Default MEAL_PLAN_ONLY mirrors how Uber Eats / DoorDash gate:
+//* on-demand marketplace listings never require a physical visit, meal-plan
+//* (subscription kitchen) eligibility does. See getOutletMealPlanReadiness.
+enum OutletInspectionPolicy {
+  NONE            // never require an inspection in this country
+  MEAL_PLAN_ONLY  // required before an outlet can offer meal plans (default)
+  ALL             // required before the outlet can operate at all
+}
+
+//* Lifecycle of one OutletInspection record. PASSED/FAILED are terminal
+//* outcomes of a conducted visit; WAIVED is an admin override of the
+//* requirement; CANCELLED is a scheduled visit called off before it happened.
+enum OutletInspectionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  PASSED
+  FAILED
+  WAIVED
+  CANCELLED
 }
 
 //* What triggered a VendorComplianceCase — mirrors the detection-time
@@ -1544,6 +1848,31 @@ enum VendorNotificationType {
   // admin.vendor.compliance.service.ts). Notify is a one-off nudge, no
   // case/claim/waive workflow behind it.
   PAYOUT_ACCOUNT_MISSING
+  //* The operational zone one of the vendor's outlets sits in changed —
+  //* ZONE_STATUS_CHANGED covers suspend/maintenance/emergency/resume/
+  //* retire/reactivate; ZONE_CAPABILITY_CHANGED covers a level promotion
+  //* or demotion. Sent to every vendor with a live outlet in that zone.
+  ZONE_STATUS_CHANGED
+  ZONE_CAPABILITY_CHANGED
+  //* An admin sent an outlet document back for revision. The vendor sees
+  //* the revision notes in their dashboard; this is the nudge to go look.
+  OUTLET_DOCUMENT_REJECTED
+  OUTLET_DOCUMENT_APPROVED
+  //* Escalating pre-expiry reminder for an outlet document (60/30/14/7/3/1
+  //* days out, then day-of, then during the grace window).
+  OUTLET_DOCUMENT_EXPIRING
+  //* A CRITICAL outlet document expired past its grace window and the
+  //* outlet was automatically taken offline.
+  OUTLET_SUSPENDED_COMPLIANCE
+  //* The renewed document was approved and the outlet is live again.
+  OUTLET_COMPLIANCE_RESOLVED
+  //* Physical premises inspection lifecycle (see OutletInspection). SCHEDULED
+  //* tells the vendor a date is booked; PASSED / FAILED are the outcome;
+  //* CANCELLED means a booked visit was called off.
+  OUTLET_INSPECTION_SCHEDULED
+  OUTLET_INSPECTION_PASSED
+  OUTLET_INSPECTION_FAILED
+  OUTLET_INSPECTION_CANCELLED
 }
 
 enum DocumentScope {
@@ -1576,6 +1905,39 @@ enum GeoStatus {
   INACTIVE
 }
 
+//* Zone capability ladder. Monotonic — each level allows everything the level
+//* above it in this list allows, plus its own additions. The level → boolean
+//* capability flags mapping lives in ONE place: ZONE_CAPABILITIES (@repo/geo).
+enum ZoneLevel {
+  REGISTRATION_ONLY   // L0 — vendor/outlet registration, documents, verification, inspections, interest capture. No orders, deliveries, or meal plans.
+  MARKETPLACE         // L1 — + on-demand meals with vendor self-delivery. No platform delivery, no meal plans.
+  PLATFORM_DELIVERY   // L2 — + optional platform delivery for on-demand meals. Still no meal plans.
+  FULL_OPERATIONS     // L3 — + meal plans (always platform-delivered; vendors never self-deliver meal plans).
+}
+
+enum MarketSignalType {
+  VENDOR_INTEREST    // a business wants to operate here
+  CUSTOMER_INTEREST  // a customer wants service here
+}
+
+enum MarketSignalStatus {
+  OPEN       // still counted toward demand/supply
+  ACTIONED   // an admin acted on it (e.g. promoted the zone, created one)
+  DISMISSED  // not relevant / duplicate / spam
+}
+
+//* Zone operational status — orthogonal to ZoneLevel. Never changes the level.
+//* SUSPENDED/MAINTENANCE/EMERGENCY all pause new orders and meal-plan
+//* deliveries; they differ in intent/messaging (and, later, in scheduling —
+//* MAINTENANCE is the time-boxed one, see Zone.pausedUntil). The precise
+//* per-status effect matrix is defined in the geographic-operations review doc.
+enum ZoneOperationalStatus {
+  ACTIVE
+  SUSPENDED
+  MAINTENANCE
+  EMERGENCY
+}
+
 enum CuisineStatus {
   ACTIVE
   SUSPENDED
@@ -1605,6 +1967,15 @@ enum PayoutVerificationStatus {
   VERIFIED
   FAILED
   REQUIRES_REVIEW
+}
+
+// Vendor-level payout hold. Designed, not enforced — there is no payout run
+// in the system yet to gate on. An admin can place/release a hold and it is
+// surfaced on the vendor detail page; the actual "skip this vendor in the
+// payout batch" check belongs to the money-movement work (see CLAUDE.md).
+enum PayoutHoldStatus {
+  NONE
+  HELD
 }
 
 enum PayoutTypeStatus {

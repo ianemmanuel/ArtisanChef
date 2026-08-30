@@ -1,3 +1,6 @@
 export * from "./point-in-bbox"
 export * from "./point-in-polygon"
+export * from "./polygon"
 export * from "./osm-boundary"
+export * from "./capabilities"
+export * from "./distance"

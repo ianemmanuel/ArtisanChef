@@ -4,15 +4,18 @@ import { AdminPermissions } from "@repo/types/enums"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { buildAdminSession } from "../services/admin.session.service"
 import { hasOpenComplianceIssuesForCountries } from "../services/admin.vendor.compliance.service"
+import { hasOpenAppealIssuesForCountries } from "../services/admin.vendor.appeal.service"
+import { hasFlaggedProfilesForCountries } from "../services/admin.vendorProfile.service"
 
 /**
  * GET /api/admin/v1/auth/session
  *
  * Returns the current admin's identity, role, permissions, and scope.
- * buildAdminSession itself stays a pure, zero-DB-call transform — the one
- * extra query here (cheap, indexed) is the sidebar's Compliance nav dot,
- * only ever run for a country-scoped admin who'd actually see that item.
- * This endpoint is revalidated every 5 minutes on the frontend, so the
+ * buildAdminSession itself stays a pure, zero-DB-call transform — the
+ * extra queries here (cheap, indexed) power the sidebar's Compliance/
+ * Appeals/Profiles nav dots, each only ever run for a country-scoped
+ * admin who'd actually see that item and hold the relevant permission.
+ * This endpoint is revalidated every 5 minutes on the frontend, so every
  * dot's freshness is already "subtle glow," not a live counter.
  */
 export const getAdminSession: RequestHandler = async (req, res, next) => {
@@ -20,8 +23,21 @@ export const getAdminSession: RequestHandler = async (req, res, next) => {
     const { adminUser, adminPermissions, adminScope } = req as unknown as AdminRequest
     const session = buildAdminSession(adminUser, adminPermissions, adminScope)
 
-    if (!adminScope.isGlobal && adminScope.countryIds.length > 0 && adminPermissions.includes(AdminPermissions.VENDORS_COMPLIANCE_READ)) {
-      session.hasOpenComplianceIssues = await hasOpenComplianceIssuesForCountries(adminScope.countryIds)
+    if (!adminScope.isGlobal && adminScope.countryIds.length > 0) {
+      const [hasCompliance, hasAppeals, hasProfiles] = await Promise.all([
+        adminPermissions.includes(AdminPermissions.VENDORS_COMPLIANCE_READ)
+          ? hasOpenComplianceIssuesForCountries(adminScope.countryIds)
+          : Promise.resolve(undefined),
+        adminPermissions.includes(AdminPermissions.VENDORS_APPEALS_READ)
+          ? hasOpenAppealIssuesForCountries(adminScope.countryIds)
+          : Promise.resolve(undefined),
+        adminPermissions.includes(AdminPermissions.VENDORS_PROFILES_MODERATE)
+          ? hasFlaggedProfilesForCountries(adminScope.countryIds)
+          : Promise.resolve(undefined),
+      ])
+      if (hasCompliance !== undefined) session.hasOpenComplianceIssues = hasCompliance
+      if (hasAppeals    !== undefined) session.hasOpenAppealIssues     = hasAppeals
+      if (hasProfiles   !== undefined) session.hasFlaggedProfiles      = hasProfiles
     }
 
     return sendSuccess(res, session)

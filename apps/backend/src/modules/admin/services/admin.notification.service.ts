@@ -34,11 +34,15 @@ export async function createAdminNotification(input: CreateAdminNotificationInpu
 
 export async function listAdminNotifications(
   adminUserId: string,
-  params: { unreadOnly?: boolean; page?: number; pageSize?: number } = {},
+  params: { unreadOnly?: boolean; types?: AdminNotificationType[]; page?: number; pageSize?: number } = {},
 ) {
-  const { unreadOnly, page = 1, pageSize = 20 } = params
+  const { unreadOnly, types, page = 1, pageSize = 20 } = params
   const skip = (page - 1) * pageSize
-  const where = { adminUserId, ...(unreadOnly ? { isRead: false } : {}) }
+  const where = {
+    adminUserId,
+    ...(unreadOnly ? { isRead: false } : {}),
+    ...(types && types.length > 0 ? { type: { in: types } } : {}),
+  }
 
   const [notifications, total, unreadCount] = await Promise.all([
     prisma.adminNotification.findMany({ where, skip, take: pageSize, orderBy: { createdAt: "desc" } }),

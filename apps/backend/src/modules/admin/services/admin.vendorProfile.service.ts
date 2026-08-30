@@ -238,3 +238,15 @@ export async function rejectVendorProfile(
 
   return updated
 }
+
+//* Powers the sidebar's Profiles nav dot — gated on VENDORS_PROFILES_MODERATE
+//* specifically (not the broader READ), per explicit direction: only
+//* admins who can actually act on a flagged profile get nudged about one.
+export async function hasFlaggedProfilesForCountries(countryIds: string[]): Promise<boolean> {
+  if (countryIds.length === 0) return false
+  const flagged = await prisma.vendorProfile.findFirst({
+    where : { reviewStatus: ProfileReviewStatus.FLAGGED, vendorAccount: { countryId: { in: countryIds }, deletedAt: null } },
+    select: { id: true },
+  })
+  return !!flagged
+}

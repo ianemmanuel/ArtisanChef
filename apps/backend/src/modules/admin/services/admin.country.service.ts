@@ -705,3 +705,43 @@ export async function setCustomerOperationsReadiness(
   return { success: true }
 }
 
+//* Outlet premises-inspection policy for a country — governs whether outlets
+//* here need a physical inspection, and when (see OutletInspectionPolicy /
+//* getOutletMealPlanReadiness). Global-only, like the rest of country config.
+const INSPECTION_POLICIES = ["NONE", "MEAL_PLAN_ONLY", "ALL"] as const
+type InspectionPolicy = (typeof INSPECTION_POLICIES)[number]
+
+export async function setOutletInspectionPolicy(
+  idOrSlug: string,
+  policy  : string,
+  actorId : string,
+  scope   : AdminScopeContext,
+) {
+  if (!scope.isGlobal) {
+    throw new ApiError(403, "Operation beyond your current scope", "SCOPE_FORBIDDEN")
+  }
+  if (!INSPECTION_POLICIES.includes(policy as InspectionPolicy)) {
+    throw new ApiError(400, "Invalid inspection policy", "INVALID_POLICY")
+  }
+
+  const countryId = await resolveCountryId(idOrSlug)
+  const country = await prisma.country.findUnique({ where: { id: countryId } })
+  if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
+
+  await prisma.country.update({
+    where: { id: countryId },
+    data : { outletInspectionPolicy: policy as InspectionPolicy },
+  })
+
+  serviceLog.info({ countryId, actorId, policy }, "Country outlet-inspection policy changed")
+  auditService.log({
+    adminUserId: actorId,
+    action     : "country.inspection_policy_changed",
+    entityType : "Country",
+    entityId   : countryId,
+    changes    : { before: { outletInspectionPolicy: country.outletInspectionPolicy }, after: { outletInspectionPolicy: policy } },
+  })
+
+  return { success: true }
+}
+

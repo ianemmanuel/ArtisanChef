@@ -1,11 +1,21 @@
 // Admin-facing in-app notification center — the AdminUser counterpart to
 // vendor-facing VendorNotification. Roadmap "compliance case workflow
-// refinement" (CLAUDE.md). Starts with one type; more can be added to the
-// backend's AdminNotificationType enum without a frontend type change,
-// since `type` is only ever displayed via its title/message, never
-// switched on here.
-
-export type AdminNotificationType = "COMPLIANCE_CASE_STALE"
+// refinement" (CLAUDE.md), extended in the 2026-08-28 appeal-workflow/
+// notification-center rework. `title`/`message` are always the source of
+// truth for what a notification says; `type` is used client-side only for
+// grouping into categories and picking an icon (see
+// components/notifications/notification-meta.ts) — never switched on for
+// anything that changes the actual content.
+export type AdminNotificationType =
+  | "COMPLIANCE_CASE_STALE"
+  | "APPEAL_STALE_UNCLAIMED"
+  | "APPEAL_ESCALATED"
+  | "APPEAL_RESOLVED"
+  | "PROFILE_FLAGGED"
+  | "PROFILE_STALE_FLAGGED"
+  | "ZONE_STATUS_CHANGED"
+  | "ZONE_CAPABILITY_CHANGED"
+  | "OUTLET_AUTO_SUSPENDED"
 
 export interface AdminNotification {
   id         : string

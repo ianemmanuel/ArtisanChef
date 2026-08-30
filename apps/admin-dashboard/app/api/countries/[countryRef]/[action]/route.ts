@@ -24,16 +24,21 @@ export async function POST(
       "activate", "deactivate",
       "ready-for-vendors", "not-ready-for-vendors",
       "ready-for-customers", "not-ready-for-customers",
+      "inspection-policy",
     ]
     if (!allowedActions.includes(action)) {
       return NextResponse.json({ message: "Invalid action" }, { status: 400 })
     }
 
+    const body = await req.text()
     const res = await fetch(
       `${BACKEND}/admin/v1/countries/${countryRef}/${action}`,
       {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: body
+          ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+          : { Authorization: `Bearer ${token}` },
+        body: body || undefined,
       },
     )
 

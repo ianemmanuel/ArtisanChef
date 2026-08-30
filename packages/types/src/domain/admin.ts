@@ -225,6 +225,13 @@ export interface AdminSessionData {
   // way it does for a country team watching their own patch). Omitted
   // entirely rather than false for anyone the check doesn't apply to.
   hasOpenComplianceIssues?: boolean
+  // Same shape as hasOpenComplianceIssues, for the Appeals nav dot — set
+  // only for a country-scoped admin holding VENDORS_APPEALS_READ.
+  hasOpenAppealIssues?: boolean
+  // Same shape again, for the Profiles nav dot — deliberately gated on
+  // VENDORS_PROFILES_MODERATE (not the broader READ), since only an
+  // admin who can actually act on a flagged profile should be nudged.
+  hasFlaggedProfiles?: boolean
 }
 
 //* VENDOR MANAGEMENT

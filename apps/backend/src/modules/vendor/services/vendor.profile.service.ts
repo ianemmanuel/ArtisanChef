@@ -3,31 +3,29 @@ import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
 import { SYSTEM_USER_ID } from "@/constants/system"
-import { Filter } from "bad-words"
+import { getModerationProvider, checkImpersonation, type ModerationFlag } from "@/lib/moderation"
+import { notifyAdminsProfileFlagged } from "@/lib/moderation/profile-flag-notify"
 import type { UpsertVendorProfileRequest, VendorGoLiveStatus } from "@repo/types/backend"
 
 const serviceLog = logger.child({ module: "vendor-profile-service" })
-const profanityFilter = new Filter()
 
 async function loadActiveVendor(vendorId: string) {
   const vendor = await prisma.vendorAccount.findUnique({
     where : { id: vendorId },
-    select: { id: true, status: true, countryId: true },
+    select: { id: true, status: true, countryId: true, legalBusinessName: true },
   })
   if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
   if (vendor.status !== "ACTIVE") throw new ApiError(403, "Your account is not active", "ACCOUNT_INACTIVE")
   return vendor
 }
 
-//* Flag checks — mirrors runFlagChecks in vendor.outlet.service.ts exactly
-//* (same profanity library, same "collect reasons, don't short-circuit"
-//* shape), applied to a vendor's public-facing profile copy instead of an
-//* outlet's name.
-
-function runProfanityCheck(fields: { displayName: string; tagline?: string | null; description?: string | null; story?: string | null }): boolean {
-  const blobs = [fields.displayName, fields.tagline, fields.description, fields.story].filter((v): v is string => !!v)
-  return blobs.some((text) => profanityFilter.isProfane(text))
-}
+//* Flag checks — profanity now goes through the ContentModerationProvider
+//* interface (see @/lib/moderation) so a real classifier can replace
+//* bad-words without touching this service; impersonation and duplicate
+//* display name are separate structured checks. All three produce
+//* ModerationFlag { field, reason, match? }, collected into flagReasons
+//* (distinct reasons, for simple filters) + flagDetails (the full breakdown
+//* a moderator sees).
 
 //* Same-country duplicate display name — a public brand identity should be
 //* unique within one market (impersonation risk); deliberately not a
@@ -46,14 +44,14 @@ async function hasDuplicateDisplayName(displayName: string, vendorAccountId: str
   return !!dup
 }
 
-function logFlagEvent(profileId: string, flagReasons: string[], context: "created" | "updated") {
+function logFlagEvent(profileId: string, flagReasons: string[], flagDetails: ModerationFlag[], context: "created" | "updated") {
   auditService.log({
     adminUserId: SYSTEM_USER_ID,
     action     : "vendor_profile.flagged",
     entityType : "VendorProfile",
     entityId   : profileId,
     changes    : { after: { flagReasons } },
-    metadata   : { context },
+    metadata   : { context, flagDetails },
   })
 }
 
@@ -91,20 +89,40 @@ export async function upsertVendorProfile(vendorId: string, input: UpsertVendorP
 
   let reviewStatus: ProfileReviewStatus = existing?.reviewStatus ?? ProfileReviewStatus.AUTO_APPROVED
   let flagReasons  = existing?.flagReasons ?? []
+  let flagDetails: ModerationFlag[] = (existing?.flagDetails as ModerationFlag[] | null) ?? []
   let flaggedAt    = existing?.flaggedAt ?? null
   let rejectionReason = existing?.rejectionReason ?? null
+  let staleNotifiedAt = existing?.staleNotifiedAt ?? null
+  let notifyAdmins = false
 
   if (contentChanged) {
-    const reasons: string[] = []
-    if (runProfanityCheck({ displayName, tagline, description, story })) reasons.push("INAPPROPRIATE_CONTENT")
-    if (await hasDuplicateDisplayName(displayName, vendorId, vendor.countryId)) reasons.push("DUPLICATE_DISPLAY_NAME")
+    const flags: ModerationFlag[] = [
+      ...(await getModerationProvider().screenText({ displayName, tagline, description, story })),
+    ]
+    const impersonation = checkImpersonation(displayName)
+    if (impersonation) flags.push(impersonation)
+    if (await hasDuplicateDisplayName(displayName, vendorId, vendor.countryId)) {
+      flags.push({ field: "displayName", reason: "DUPLICATE_DISPLAY_NAME" })
+    }
 
-    flagReasons  = reasons
-    reviewStatus = reasons.length > 0 ? ProfileReviewStatus.FLAGGED : ProfileReviewStatus.AUTO_APPROVED
-    flaggedAt    = reasons.length > 0 ? new Date() : null
+    const prevKey = ((existing?.flagDetails as ModerationFlag[] | null) ?? [])
+      .map((f) => `${f.field}:${f.reason}:${f.match ?? ""}`).sort().join("|")
+    const nextKey = flags.map((f) => `${f.field}:${f.reason}:${f.match ?? ""}`).sort().join("|")
+
+    flagDetails  = flags
+    flagReasons  = [...new Set(flags.map((f) => f.reason))]
+    reviewStatus = flags.length > 0 ? ProfileReviewStatus.FLAGGED : ProfileReviewStatus.AUTO_APPROVED
+    flaggedAt    = flags.length > 0 ? new Date() : null
+    // Notify moderators whenever this edit introduces a flag or changes what
+    // the flags are — but not when an unrelated edit leaves identical flags
+    // in place (that would just be noise on a profile already in the queue).
+    notifyAdmins = flags.length > 0 && nextKey !== prevKey
     // A fresh edit supersedes a prior admin rejection — it gets a clean
     // re-check rather than staying permanently marked rejected.
     rejectionReason = null
+    // A fresh flag (or a fresh clean re-check) deserves a fresh
+    // stale-notification clock too — same reasoning as rejectionReason.
+    staleNotifiedAt = null
   }
 
   const data = {
@@ -125,8 +143,12 @@ export async function upsertVendorProfile(vendorId: string, input: UpsertVendorP
     foundedYear     : input.foundedYear ?? null,
     reviewStatus,
     flagReasons,
+    flagDetails: flagDetails.length > 0
+      ? (JSON.parse(JSON.stringify(flagDetails)) as Prisma.InputJsonValue)
+      : Prisma.JsonNull,
     flaggedAt,
     rejectionReason,
+    staleNotifiedAt,
   }
 
   const profile = existing
@@ -135,7 +157,17 @@ export async function upsertVendorProfile(vendorId: string, input: UpsertVendorP
 
   if (contentChanged && reviewStatus === ProfileReviewStatus.FLAGGED) {
     serviceLog.warn({ vendorId, profileId: profile.id, flagReasons }, "Vendor profile flagged — pending admin review")
-    logFlagEvent(profile.id, flagReasons, existing ? "updated" : "created")
+    logFlagEvent(profile.id, flagReasons, flagDetails, existing ? "updated" : "created")
+    if (notifyAdmins) {
+      void notifyAdminsProfileFlagged({
+        vendorId,
+        vendorName : vendor.legalBusinessName,
+        countryId  : vendor.countryId,
+        displayName,
+        flags      : flagDetails,
+        context    : existing ? "updated" : "created",
+      })
+    }
   } else {
     serviceLog.info({ vendorId, profileId: profile.id }, existing ? "Vendor profile updated" : "Vendor profile created")
   }
@@ -153,7 +185,13 @@ export async function getVendorGoLiveStatus(vendorId: string): Promise<VendorGoL
       where: { vendorId, isActive: true, deletedAt: null, verificationStatus: PayoutVerificationStatus.VERIFIED },
     }),
     prisma.outlet.count({
-      where: { vendorId, deletedAt: null, adminStatus: OutletAdminStatus.ACTIVE },
+      where: {
+        vendorId, deletedAt: null,
+        adminStatus       : OutletAdminStatus.ACTIVE,
+        clearanceStatus   : "CLEARED",
+        reviewStatus      : { not: "MANUALLY_REJECTED" },
+        isTemporarilyClosed: false,
+      },
     }),
     prisma.vendorProfile.findUnique({
       where : { vendorAccountId: vendorId },

@@ -91,13 +91,23 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                     !pathname.startsWith("/finance/needs-attention"))
                 : pathname.startsWith(href)
 
-  // Subtle "you have open compliance issues in your own country" nudge —
-  // never shown to global admins (session.hasOpenComplianceIssues is only
-  // ever set server-side for a country-scoped admin, see
-  // admin.session.controller.ts). Deliberately a glow, not a badge count —
-  // this is a "something needs your attention" signal, not a number to
-  // chase to zero.
-  const showComplianceDot = (href: string) => href === "/vendors/compliance" && !!session.hasOpenComplianceIssues
+  // Subtle "something in here needs your attention" nudge — never shown
+  // to global admins (each of these session flags is only ever set
+  // server-side for a country-scoped admin holding the relevant
+  // permission, see admin.session.controller.ts). Deliberately a glow,
+  // not a badge count — a "look at this" signal, not a number to chase
+  // to zero. Generic by href so any nav item can carry one; a section
+  // whose visible children (already permission-filtered above, so this
+  // naturally only ever reflects items the viewer can actually open)
+  // include a dot-carrying item aggregates it onto the section itself —
+  // see sectionHasNotification below, for when Vendors (or any section)
+  // is collapsed and its children aren't visible to glance at directly.
+  const dotFlags: Record<string, boolean | undefined> = {
+    "/vendors/compliance": session.hasOpenComplianceIssues,
+    "/vendors/appeals"   : session.hasOpenAppealIssues,
+    "/vendors/profiles"  : session.hasFlaggedProfiles,
+  }
+  const showDot = (href: string) => !!dotFlags[href]
 
   const isCollapsed = collapsed && !isMobile
 
@@ -108,6 +118,11 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
           const sectionOpen    = openSections[section.title] ?? true
           const sectionHasActive = section.items.some((item) => isItemActive(item.href))
           const GroupIcon      = section.items[0]?.icon
+          // Only ever aggregates dots from items actually present in
+          // section.items — which is already filtered to what this admin
+          // has permission to see (visibleSections above) — so a section
+          // never glows because of a page the viewer can't open anyway.
+          const sectionHasNotification = section.items.some((item) => showDot(item.href))
 
           return (
             <div key={section.title}>
@@ -122,13 +137,19 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                           <button
                             aria-label={`Open ${section.title}`}
                             className={cn(
-                              "mb-1 flex w-full items-center justify-center rounded-lg py-2.5 transition-colors duration-150",
+                              "relative mb-1 flex w-full items-center justify-center rounded-lg py-2.5 transition-colors duration-150",
                               sectionHasActive
                                 ? "bg-sidebar-active-bg text-[var(--sidebar-active-icon)]"
                                 : "text-[var(--sidebar-icon)] hover:bg-sidebar-hover-bg hover:text-foreground"
                             )}
                           >
                             <GroupIcon className="h-4 w-4 shrink-0" />
+                            {sectionHasNotification && (
+                              <span className="absolute right-2.5 top-1.5 flex h-1.5 w-1.5" aria-label="Needs attention">
+                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-destructive" />
+                              </span>
+                            )}
                           </button>
                         </PopoverTrigger>
                       </TooltipTrigger>
@@ -166,8 +187,8 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                                   isActive ? "text-[var(--sidebar-active-icon)]" : "text-muted-foreground"
                                 )} />
                                 <span className="flex-1 truncate">{item.label}</span>
-                                {showComplianceDot(item.href) && (
-                                  <span className="relative flex h-2 w-2 shrink-0" aria-label="Open compliance issues">
+                                {showDot(item.href) && (
+                                  <span className="relative flex h-2 w-2 shrink-0" aria-label="Needs attention">
                                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
                                     <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
                                   </span>
@@ -194,8 +215,17 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                     aria-expanded={sectionOpen}
                     className="mb-1.5 flex w-full items-center justify-between rounded-md px-2 py-1 transition-colors duration-150 hover:bg-sidebar-hover-bg"
                   >
-                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       {section.title}
+                      {/* Only while the section is collapsed — once it's
+                          open, the item(s) carrying the dot are already
+                          visible below, so this would just be redundant. */}
+                      {!sectionOpen && sectionHasNotification && (
+                        <span className="relative flex h-1.5 w-1.5" aria-label="Needs attention">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-destructive" />
+                        </span>
+                      )}
                     </span>
                     <ChevronDown
                       className={cn(
@@ -239,7 +269,7 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                                 )}
                               />
                               <span className="flex-1 truncate">{item.label}</span>
-                              {showComplianceDot(item.href) && (
+                              {showDot(item.href) && (
                                 <span className="relative flex h-2 w-2 shrink-0" aria-label="Open compliance issues">
                                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
                                   <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />

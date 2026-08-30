@@ -5,10 +5,10 @@ import { NextRequest, NextResponse } from "next/server"
 const BACKEND = process.env.BACKEND_API_URL
 
 /**
- * PATCH /api/vendors/appeals/[id]/assign
- * Body: { reviewerId: string | null }
+ * POST /api/vendors/appeals/[id]/escalate
+ * Body: { reason: string }
  */
-export async function PATCH(
+export async function POST(
   req    : NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -20,8 +20,8 @@ export async function PATCH(
 
     const body = await req.json()
 
-    const res = await fetch(`${BACKEND}/admin/v1/vendors/appeals/${id}/assign`, {
-      method : "PATCH",
+    const res = await fetch(`${BACKEND}/admin/v1/vendors/appeals/${id}/escalate`, {
+      method : "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body   : JSON.stringify(body),
     })
@@ -30,7 +30,7 @@ export async function PATCH(
     if (res.ok) revalidateTag("vendor-appeals", {})
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
-    console.error("[vendor-appeal-assign]", err)
+    console.error("[vendor-appeal-escalate]", err)
     return NextResponse.json({ message: "Internal error" }, { status: 500 })
   }
 }

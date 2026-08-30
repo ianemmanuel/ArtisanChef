@@ -64,11 +64,29 @@ export const AdminPermissions = {
   // Formal appeal/dispute log against a rejected application, a
   // suspension, or a ban (Roadmap VM-P1-04, CLAUDE.md) — admin-side only,
   // logged on behalf of a vendor who raised it through another channel.
-  // Deliberately just READ/MANAGE, no claim/escalate split like
-  // compliance/applications — appeal volume doesn't justify that
-  // machinery (see VendorAppeal in schema.prisma).
+  // Brought to claim/escalate/reassign parity with compliance/applications
+  // in a 2026-08-28 rework (see VendorAppeal in schema.prisma) — READ/
+  // MANAGE alone is no longer the whole picture; MANAGE now specifically
+  // gates logging a new appeal and resolving one you already hold the
+  // claim on (resolveAppeal enforces ownership, same as compliance's
+  // assertClaimedByActor).
   VENDORS_APPEALS_READ  : "vendors:appeals:read",
   VENDORS_APPEALS_MANAGE: "vendors:appeals:manage",
+  VENDORS_APPEALS_CLAIM : "vendors:appeals:claim",
+  VENDORS_APPEALS_ESCALATE: "vendors:appeals:escalate",
+  // Supervisory hand-off — reassigns an appeal directly (no claim step for
+  // the target), same convention as VENDORS_COMPLIANCE_REASSIGN. Does NOT
+  // require being the current owner.
+  VENDORS_APPEALS_REASSIGN: "vendors:appeals:reassign",
+  // Distinct from ESCALATE — granted individually to whoever appeal
+  // escalations should route to. Claiming from the escalation pool
+  // additionally requires the claimant be country-scoped to the appeal's
+  // own country, same rule as VENDORS_COMPLIANCE_RECEIVE_ESCALATION.
+  VENDORS_APPEALS_RECEIVE_ESCALATION: "vendors:appeals:receive_escalation",
+  // Individually granted, same pattern as compliance's RECEIVE_STALE_ALERT
+  // — who gets an in-app AdminNotification when an appeal sits OPEN
+  // (unclaimed) past APPEAL_STALE_NOTIFY_HOURS.
+  VENDORS_APPEALS_RECEIVE_STALE_ALERT: "vendors:appeals:receive_stale_alert",
 
   // ── Vendors — applications ───────────────────────────────────────────────
   VENDORS_APPLICATIONS_READ     : "vendors:applications:read",
@@ -109,6 +127,11 @@ export const AdminPermissions = {
   // VENDORS_APPEALS_MANAGE/VENDORS_PROFILES_MODERATE.
   VENDORS_OUTLETS_READ    : "vendors:outlets:read",
   VENDORS_OUTLETS_MODERATE: "vendors:outlets:moderate",
+  // Schedule and conduct physical premises inspections of an outlet (the
+  // meal-plan-eligibility gate — see OutletInspection). Separate from
+  // MODERATE: an inspection is a field/ops-team task, not a moderation call,
+  // and a country may want a dedicated inspector role that can't suspend.
+  VENDORS_OUTLETS_INSPECT : "vendors:outlets:inspect",
 
   // ── Finance ──────────────────────────────────────────────────────────────
   FINANCE_TRANSACTIONS_READ    : "finance:transactions:read",
@@ -166,6 +189,23 @@ export const AdminPermissions = {
   SETTINGS_VENDOR_TYPES_READ : "settings:vendor_types:read",
   SETTINGS_VENDOR_TYPES_WRITE: "settings:vendor_types:write",
   SETTINGS_ACTION_REASONS_WRITE: "settings:action_reasons:write",
+
+  // ── Settings — operational zones ─────────────────────────────────────────
+  // Zones are the capability containers inside a city (see Zone in
+  // schema.prisma). Kept separate from settings:geography:* on purpose: the
+  // city boundary is a global concern, but drawing/adjusting zones and
+  // pausing one in an incident is on-the-ground work a CITY-scoped admin
+  // does for their own city (enforced via assertCityInScope, not a global
+  // gate). Level promotion/demotion — the strategic "turn meal plans on
+  // here" decision — is split out into its own permission.
+  SETTINGS_ZONES_READ      : "settings:zones:read",
+  SETTINGS_ZONES_WRITE     : "settings:zones:write",
+  SETTINGS_ZONES_SET_LEVEL : "settings:zones:set_level",
+  // Receive an in-app notification (and, for non-global admins, an email)
+  // when a zone in your scope is suspended/retired/reactivated or has its
+  // capability level changed. Dedicated receive-alert permission, same
+  // pattern as VENDORS_COMPLIANCE_RECEIVE_STALE_ALERT.
+  SETTINGS_ZONES_RECEIVE_ALERT : "settings:zones:receive_alert",
 } as const
 
 export type AdminPermissionKey = typeof AdminPermissions[keyof typeof AdminPermissions]

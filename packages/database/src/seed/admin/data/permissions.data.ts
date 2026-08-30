@@ -95,7 +95,32 @@ export const PERMISSIONS = [
   {
     key        : "vendors:appeals:manage",
     module     : "vendors",
-    description: "Log, assign, and resolve a formal appeal against a rejected application, suspension, or ban",
+    description: "Log a formal appeal, and resolve one you currently hold the claim on",
+  },
+  {
+    key        : "vendors:appeals:claim",
+    module     : "vendors",
+    description: "Claim an unclaimed appeal to work on it",
+  },
+  {
+    key        : "vendors:appeals:escalate",
+    module     : "vendors",
+    description: "Escalate an appeal to the senior-review pool",
+  },
+  {
+    key        : "vendors:appeals:reassign",
+    module     : "vendors",
+    description: "Reassign an appeal directly to another admin",
+  },
+  {
+    key        : "vendors:appeals:receive_escalation",
+    module     : "vendors",
+    description: "Claim appeals from the escalation pool (country-scoped admins only, for their own country)",
+  },
+  {
+    key        : "vendors:appeals:receive_stale_alert",
+    module     : "vendors",
+    description: "Receive an in-app notification when an appeal sits unclaimed too long (country-scoped admins only, for their own country)",
   },
   {
     key        : "vendors:applications:read",
@@ -166,6 +191,11 @@ export const PERMISSIONS = [
     key        : "vendors:outlets:moderate",
     module     : "vendors",
     description: "Approve/reject a flagged outlet, and suspend, reinstate, ban, or unban an outlet independently of its vendor account",
+  },
+  {
+    key        : "vendors:outlets:inspect",
+    module     : "vendors",
+    description: "Schedule and conduct physical premises inspections of an outlet (the meal-plan-eligibility gate)",
   },
 
   // ── Finance ───────────────────────────────────────────────────────────────
@@ -373,6 +403,26 @@ export const PERMISSIONS = [
     key        : "settings:action_reasons:write",
     module     : "settings",
     description: "Create and update standardized reason codes used for application review and account actions",
+  },
+  {
+    key        : "settings:zones:read",
+    module     : "settings",
+    description: "View operational zones within a city (boundaries, capability level, operational status)",
+  },
+  {
+    key        : "settings:zones:write",
+    module     : "settings",
+    description: "Draw, adjust, retire, and pause/resume operational zones within cities in your scope",
+  },
+  {
+    key        : "settings:zones:set_level",
+    module     : "settings",
+    description: "Promote or demote a zone's capability level (e.g. enable meal plans in a zone) — the strategic launch decision, separate from routine zone editing",
+  },
+  {
+    key        : "settings:zones:receive_alert",
+    module     : "settings",
+    description: "Receive an in-app notification (and email, for country/city-scoped admins) when a zone in your scope is suspended, retired, reactivated, or has its capability level changed",
   },
 ] as const
 

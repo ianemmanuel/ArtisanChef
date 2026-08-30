@@ -7,8 +7,12 @@ import { getAdminSession } from "@/lib/auth/session"
 import { getInitials } from "@/lib/initials"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { OutletModerationActions } from "@/components/vendors/OutletModerationActions"
+import { OutletGoLiveStatus } from "@/components/vendors/OutletGoLiveStatus"
+import { OutletDocumentsPanel } from "@/components/vendors/OutletDocumentsPanel"
+import { OutletMealPlanReadiness } from "@/components/vendors/OutletMealPlanReadiness"
+import { OutletInspectionsPanel } from "@/components/vendors/OutletInspectionsPanel"
 import { AdminPermissions } from "@repo/types/admin-app"
-import type { AdminOutlet, OutletReviewStatus } from "@/types"
+import type { AdminOutlet, OutletReviewStatus, AdminOutletDocumentRow, OutletInspectionRow } from "@/types"
 
 export const metadata: Metadata = { title: "Outlet" }
 
@@ -24,7 +28,10 @@ const REVIEW_LABEL: Record<OutletReviewStatus, string> = {
   AUTO_APPROVED: "Auto-approved", FLAGGED: "Flagged", MANUALLY_APPROVED: "Approved", MANUALLY_REJECTED: "Rejected",
 }
 const ADMIN_STATUS_BADGE: Record<string, string> = {
-  ACTIVE: "badge-success", SUSPENDED: "badge-warning", BANNED: "badge-danger",
+  ACTIVE: "badge-success", SUSPENDED: "badge-warning", SUSPENDED_COMPLIANCE: "badge-warning", BANNED: "badge-danger",
+}
+const ADMIN_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: "Active", SUSPENDED: "Suspended", SUSPENDED_COMPLIANCE: "Suspended · document expired", BANNED: "Banned",
 }
 const FLAG_REASON_LABEL: Record<string, string> = {
   INAPPROPRIATE_NAME    : "Inappropriate name",
@@ -38,6 +45,7 @@ export default async function OutletDetailPage({ params }: Props) {
 
   if (!session.permissions.includes(AdminPermissions.VENDORS_OUTLETS_READ)) redirect("/vendors")
   const canModerate = session.permissions.includes(AdminPermissions.VENDORS_OUTLETS_MODERATE)
+  const canInspect  = session.permissions.includes(AdminPermissions.VENDORS_OUTLETS_INSPECT)
 
   let outlet: AdminOutlet
   try {
@@ -48,6 +56,17 @@ export default async function OutletDetailPage({ params }: Props) {
     if (err instanceof ApiCallError && err.status === 404) notFound()
     throw err
   }
+
+  const [outletDocuments, outletInspections] = await Promise.all([
+    adminFetch<AdminOutletDocumentRow[]>(
+      `/admin/v1/vendors/outlets/${outletId}/documents`,
+      { next: { revalidate: 60, tags: [`outlet-${outletId}`] } },
+    ).catch(() => [] as AdminOutletDocumentRow[]),
+    adminFetch<OutletInspectionRow[]>(
+      `/admin/v1/vendors/outlets/${outletId}/inspections`,
+      { next: { revalidate: 60, tags: [`outlet-${outletId}`] } },
+    ).catch(() => [] as OutletInspectionRow[]),
+  ])
 
   const fields: [string, string][] = [
     ["Address", outlet.addressLine1],
@@ -79,7 +98,8 @@ export default async function OutletDetailPage({ params }: Props) {
             </Link>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className={REVIEW_BADGE[outlet.reviewStatus]}>{REVIEW_LABEL[outlet.reviewStatus]}</span>
-              <span className={ADMIN_STATUS_BADGE[outlet.adminStatus]}>{outlet.adminStatus}</span>
+              <span className={ADMIN_STATUS_BADGE[outlet.adminStatus]}>{ADMIN_STATUS_LABEL[outlet.adminStatus] ?? outlet.adminStatus}</span>
+              {outlet.clearanceStatus === "PENDING_DOCUMENTS" && <span className="badge-warning">Pending document</span>}
               {outlet.isMainOutlet && <span className="badge-neutral">Main outlet</span>}
               {outlet.isTemporarilyClosed && <span className="badge-warning">Temporarily closed</span>}
             </div>
@@ -123,6 +143,20 @@ export default async function OutletDetailPage({ params }: Props) {
         </div>
       )}
 
+      {outlet.adminStatus === "SUSPENDED_COMPLIANCE" && (
+        <div className="rounded-2xl border border-warning/30 bg-warning-bg px-5 py-4">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
+            <p className="text-sm font-semibold text-warning">Suspended — document expired</p>
+          </div>
+          <p className="mt-0.5 text-sm text-foreground">
+            A CRITICAL required document for this outlet expired past its grace window. The outlet
+            returns to active automatically once the vendor uploads a current version and it is
+            approved below.
+          </p>
+        </div>
+      )}
+
       {outlet.adminStatus === "BANNED" && (
         <div className="rounded-2xl border border-destructive/30 bg-destructive-bg px-5 py-4">
           <div className="flex items-center gap-2">
@@ -133,6 +167,19 @@ export default async function OutletDetailPage({ params }: Props) {
           {outlet.adminBannedAt && <p className="mt-1 text-xs text-muted-foreground">Since {new Date(outlet.adminBannedAt).toLocaleDateString()}</p>}
         </div>
       )}
+
+      {outlet.goLiveStatus && <OutletGoLiveStatus status={outlet.goLiveStatus} />}
+
+      {outlet.mealPlanReadiness && <OutletMealPlanReadiness readiness={outlet.mealPlanReadiness} />}
+
+      <OutletInspectionsPanel
+        outletId={outletId}
+        inspections={outletInspections}
+        canInspect={canInspect}
+        inspectionRequired={outlet.mealPlanReadiness?.inspectionRequired ?? true}
+      />
+
+      <OutletDocumentsPanel outletId={outletId} documents={outletDocuments} canModerate={canModerate} />
 
       <div className="admin-card space-y-4">
         <h2 className="text-sm font-semibold text-foreground">Location</h2>

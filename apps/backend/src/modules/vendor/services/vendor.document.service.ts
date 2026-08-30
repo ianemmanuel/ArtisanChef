@@ -66,6 +66,44 @@ export async function getAllowedDocumentTypes(application: {
   })
 }
 
+/*
+ * OUTLET-scoped requirement resolution — the per-physical-location
+ * counterpart to getAllowedDocumentTypes (which is VENDOR scope only). Same
+ * vendor-type allowlist rule ("no DocumentTypeVendorType links = applies to
+ * every vendor type"). An OUTLET-scoped type may optionally be pinned to one
+ * city (cityId) — a type with cityId set only applies to outlets in that
+ * city. CITY-scoped types are a different mechanism (once-per-vendor-per-city
+ * via OutletDocumentInheritance) and are deliberately NOT included here.
+ */
+export async function getOutletDocumentRequirements(outlet: {
+  countryId   : string
+  vendorTypeId: string
+  cityId      : string
+}) {
+  return prisma.documentTypeConfig.findMany({
+    where: {
+      countryId: outlet.countryId,
+      scope    : "OUTLET",
+      status   : DocumentTypeStatus.ACTIVE,
+      AND: [
+        { OR: [{ cityId: null }, { cityId: outlet.cityId }] },
+        {
+          OR: [
+            { vendorTypeConfigs: { none: {} } },
+            { vendorTypeConfigs: { some: { vendorTypeId: outlet.vendorTypeId } } },
+          ],
+        },
+      ],
+    },
+    include: {
+      vendorTypeConfigs: {
+        where : { vendorTypeId: outlet.vendorTypeId },
+        select: { isRequired: true },
+      },
+    },
+  })
+}
+
 export async function assertDocumentTypeAllowed(
   application: { id: string; countryId: string; vendorTypeId: string },
   documentTypeId: string,

@@ -5,71 +5,65 @@ import { auditService } from "@/services/audit"
 import { SYSTEM_USER_ID } from "@/constants/system"
 import { Filter } from "bad-words"
 import { OUTLET_PROXIMITY_DEGREES, MAX_TEMP_CLOSURE_DAYS } from "@/constants/vendor"
-import type { CreateOutletRequest, UpdateOutletRequest, OperatingHoursEntry, BoundingBox } from "@repo/types/backend"
+import { resolveCapabilitiesForPoint, resolveCapabilitiesForOutlet } from "./vendor.geography.service"
+import { getOutletDocumentRequirements } from "./vendor.document.service"
+import type {
+  CreateOutletRequest, UpdateOutletRequest, OperatingHoursEntry,
+  OutletGoLiveStatus, OutletGoLiveBlocker,
+  OutletMealPlanReadiness, OutletMealPlanBlocker,
+} from "@repo/types/backend"
+
+/*
+ * Doc-gated go-live (build order #3): a brand-new outlet whose city + vendor
+ * type has a CRITICAL-severity required OUTLET document starts life at
+ * clearanceStatus PENDING_DOCUMENTS and cannot take orders until that
+ * document is uploaded and approved. A requirement with a future enforcedFrom
+ * (a transition window an admin set) doesn't gate anyone yet — it applies
+ * uniformly once the date passes (a later cron re-evaluates existing outlets).
+ */
+async function resolveInitialClearance(
+  vendor: { countryId: string; vendorTypeId: string },
+  cityId: string,
+): Promise<"PENDING_DOCUMENTS" | "CLEARED"> {
+  const reqs = await getOutletDocumentRequirements({ countryId: vendor.countryId, vendorTypeId: vendor.vendorTypeId, cityId })
+  const now = new Date()
+  const hasUnmetCritical = reqs.some(
+    (r) =>
+      r.complianceSeverity === "CRITICAL" &&
+      (r.vendorTypeConfigs[0]?.isRequired ?? r.isRequired) &&
+      !(r.enforcedFrom && r.enforcedFrom > now),
+  )
+  return hasUnmetCritical ? "PENDING_DOCUMENTS" : "CLEARED"
+}
 
 const serviceLog = logger.child({ module: "vendor-outlet-service" })
 const profanityFilter = new Filter()
 
-//* Bounding box helper
-// Simple axis-aligned bounding box check. No library needed — four comparisons.
+//* City-boundary enforcement + operational-zone resolution
+// The outlet's coordinates must fall inside the city's operational boundary
+// polygon — once one is configured. Pre-boundary cities stay lenient (matching
+// the old bounding-box behaviour). The resolved operational zone is stored on
+// Outlet.zoneId; a location inside the boundary but covered by no zone is left
+// unzoned (the REGISTRATION_ONLY floor, resolved live). Recomputation when a
+// zone's geometry later changes is handled admin-side
+// (recomputeOutletZonesForCity).
 
-function isInsideBoundingBox(
+async function resolveOutletZone(
+  cityId   : string,
   latitude : number,
   longitude: number,
-  north    : number,
-  south    : number,
-  east     : number,
-  west     : number,
-): boolean {
-  return latitude <= north && latitude >= south && longitude <= east && longitude >= west
-}
+): Promise<string | null> {
+  const placement = await resolveCapabilitiesForPoint(cityId, { latitude, longitude })
+  if (!placement) return null // city was validated by the caller; treat a race as unzoned
 
-//* Bounding box validation (hard block)
-// Called before outlet creation and on coordinate updates.
-// If the city bounding box hasn't been configured yet by ops, we skip silently.
-// Once set, coordinates outside the box are rejected — not just flagged.
-// This matches how Uber Eats and Glovo work: each city has a defined service area
-// and outlets outside it simply cannot be registered.
-
-
-function isValidBoundingBox(box: unknown): box is BoundingBox {
-  if (box == null || typeof box !== "object") return false
-  const b = box as Record<string, unknown>
-  return (
-    typeof b.north === "number" &&
-    typeof b.south === "number" &&
-    typeof b.east  === "number" &&
-    typeof b.west  === "number"
-  )
-}
-
-async function assertCoordinatesInCity(cityId: string, latitude: number, longitude: number) {
-  const city = await prisma.city.findUnique({
-    where : { id: cityId },
-    select: { boundingBox: true },
-  })
-
-  if (!isValidBoundingBox(city?.boundingBox)) {
-    return // Bounding box not yet configured (or malformed) — skip
-  }
-
-  const box = city.boundingBox
-
-  const inBox = isInsideBoundingBox(
-    latitude, longitude,
-    box.north,
-    box.south,
-    box.east,
-    box.west,
-  )
-
-  if (!inBox) {
+  if (placement.boundaryConfigured && !placement.withinCityBoundary) {
     throw new ApiError(
       400,
-      "The outlet's location falls outside the service area for this city. Please verify your coordinates.",
-      "COORDINATES_OUTSIDE_CITY",
+      "The outlet's location falls outside the city operational boundary. Outlets can only be registered inside the area where the platform operates.",
+      "OUTSIDE_CITY_BOUNDARY",
     )
   }
+  return placement.zoneId
 }
 
 //* Flag checks
@@ -146,7 +140,7 @@ export async function createOutlet(vendorId: string, input: CreateOutletRequest)
 
   const vendor = await prisma.vendorAccount.findUnique({
     where : { id: vendorId },
-    select: { id: true, status: true, countryId: true },
+    select: { id: true, status: true, countryId: true, vendorTypeId: true },
   })
   if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
   if (vendor.status !== "ACTIVE") throw new ApiError(403, "Your account is not active", "ACCOUNT_INACTIVE")
@@ -159,7 +153,8 @@ export async function createOutlet(vendorId: string, input: CreateOutletRequest)
   if (city.countryId !== vendor.countryId) throw new ApiError(400, "City does not belong to your registered country", "CITY_COUNTRY_MISMATCH")
   if (city.status !== "ACTIVE") throw new ApiError(400, "This city is not currently active", "CITY_INACTIVE")
 
-  await assertCoordinatesInCity(cityId, latitude, longitude)
+  const zoneId = await resolveOutletZone(cityId, latitude, longitude)
+  const clearanceStatus = await resolveInitialClearance(vendor, cityId)
 
   const flagReasons   = await runFlagChecks(vendorId, cityId, name, latitude, longitude)
   const isFlagged     = flagReasons.length > 0
@@ -169,6 +164,9 @@ export async function createOutlet(vendorId: string, input: CreateOutletRequest)
     data: {
       vendorId,
       cityId,
+      zoneId,
+      clearanceStatus,
+      clearanceUpdatedAt: clearanceStatus === "PENDING_DOCUMENTS" ? new Date() : null,
       name,
       addressLine1,
       addressLine2  : addressLine2   ?? null,
@@ -194,7 +192,7 @@ export async function createOutlet(vendorId: string, input: CreateOutletRequest)
     serviceLog.warn({ outletId: outlet.id, vendorId, flagReasons }, "Outlet flagged on creation — pending admin review")
     logFlagEvent(outlet.id, flagReasons, "created")
   } else {
-    serviceLog.info({ outletId: outlet.id, vendorId }, "Outlet created and auto-approved")
+    serviceLog.info({ outletId: outlet.id, vendorId, clearanceStatus }, "Outlet created")
   }
 
   return outlet
@@ -211,6 +209,13 @@ export async function updateOutlet(vendorId: string, outletId: string, input: Up
   if (existing.adminStatus === OutletAdminStatus.SUSPENDED) {
     throw new ApiError(403, "This outlet is suspended and cannot be edited", "OUTLET_SUSPENDED")
   }
+  if (existing.adminStatus === "SUSPENDED_COMPLIANCE") {
+    throw new ApiError(
+      403,
+      "This outlet is suspended because a required document expired. Upload a current version under Documents to restore it.",
+      "OUTLET_SUSPENDED_COMPLIANCE",
+    )
+  }
 
   const newLat  = input.latitude  ?? existing.latitude
   const newLng  = input.longitude ?? existing.longitude
@@ -219,8 +224,9 @@ export async function updateOutlet(vendorId: string, outletId: string, input: Up
   const coordinatesChanged = input.latitude != null || input.longitude != null
   const nameChanged        = input.name != null && input.name !== existing.name
 
+  let zoneId: string | null | undefined = undefined
   if (coordinatesChanged) {
-    await assertCoordinatesInCity(existing.cityId, newLat, newLng)
+    zoneId = await resolveOutletZone(existing.cityId, newLat, newLng)
   }
 
   let flagReasons     = existing.flagReasons as string[]
@@ -255,6 +261,7 @@ export async function updateOutlet(vendorId: string, outletId: string, input: Up
       ...(input.deliveryFee    != null ? { deliveryFee   : input.deliveryFee    } : {}),
       ...(input.latitude       != null ? { latitude      : input.latitude       } : {}),
       ...(input.longitude      != null ? { longitude     : input.longitude      } : {}),
+      ...(zoneId !== undefined ? { zoneId } : {}),
       flagReasons,
       reviewStatus,
       rejectionReason,
@@ -274,18 +281,180 @@ export async function getOutlet(vendorId: string, outletId: string) {
     include: {
       cuisines      : { include: { cuisine: { select: { id: true, name: true, code: true } } } },
       operatingHours: { orderBy: { dayOfWeek: "asc" } },
+      zone          : { select: { id: true, name: true, level: true, operationalStatus: true, status: true } },
     },
   })
 
   if (!outlet || outlet.deletedAt) throw new ApiError(404, "Outlet not found", "NOT_FOUND")
   if (outlet.vendorId !== vendorId) throw new ApiError(403, "Unauthorized", "FORBIDDEN")
 
-  const city = await prisma.city.findUnique({
-    where : { id: outlet.cityId },
-    select: { id: true, name: true, timezone: true },
-  })
+  const [city, goLiveStatus, mealPlanReadiness] = await Promise.all([
+    prisma.city.findUnique({
+      where : { id: outlet.cityId },
+      select: { id: true, name: true, timezone: true },
+    }),
+    getOutletGoLiveStatus(outletId),
+    getOutletMealPlanReadiness(outletId),
+  ])
 
-  return { ...outlet, city }
+  return { ...outlet, city, goLiveStatus, mealPlanReadiness }
+}
+
+//* Meal-plan eligibility — the single chokepoint a future meal-plan-creation
+//* flow calls. An outlet may offer meal plans only when it's cleared for
+//* on-demand serving, sits in a FULL_OPERATIONS operational zone, AND (per
+//* Country.outletInspectionPolicy) has a current passing — or explicitly
+//* waived — physical premises inspection. Deliberately NOT a gate on
+//* on-demand serving itself, matching Uber Eats / DoorDash. Computed live,
+//* never stored (OutletMealPlanReadiness).
+
+export async function getOutletMealPlanReadiness(outletId: string): Promise<OutletMealPlanReadiness> {
+  const outlet = await prisma.outlet.findUnique({
+    where : { id: outletId },
+    select: {
+      id: true, deletedAt: true,
+      clearanceStatus: true, adminStatus: true, reviewStatus: true, isTemporarilyClosed: true,
+      vendor: { select: { country: { select: { outletInspectionPolicy: true } } } },
+    },
+  })
+  if (!outlet || outlet.deletedAt) throw new ApiError(404, "Outlet not found", "NOT_FOUND")
+
+  const [caps, latestInspection] = await Promise.all([
+    resolveCapabilitiesForOutlet(outletId),
+    prisma.outletInspection.findFirst({
+      where  : { outletId, status: { not: "CANCELLED" } },
+      orderBy: { createdAt: "desc" },
+      select : { status: true, validUntil: true },
+    }),
+  ])
+
+  const policy = outlet.vendor.country.outletInspectionPolicy
+  const inspectionRequired = policy !== "NONE"
+  const zoneAllowsMealPlans = !!caps?.canOfferMealPlans
+  const now = new Date()
+  const blockers: OutletMealPlanBlocker[] = []
+
+  // The outlet must first be cleared for on-demand serving at all.
+  const clearedToServe =
+    outlet.clearanceStatus === "CLEARED" &&
+    outlet.adminStatus === OutletAdminStatus.ACTIVE &&
+    outlet.reviewStatus !== OutletReviewStatus.MANUALLY_REJECTED &&
+    !outlet.isTemporarilyClosed
+  if (!clearedToServe) blockers.push("NOT_CLEARED_TO_SERVE")
+
+  if (!zoneAllowsMealPlans) blockers.push("ZONE_LEVEL_TOO_LOW")
+  else if (!caps?.isOperational) blockers.push("ZONE_NOT_OPERATIONAL")
+
+  if (inspectionRequired) {
+    const s = latestInspection?.status ?? null
+    if (s === null) blockers.push("INSPECTION_REQUIRED")
+    else if (s === "SCHEDULED") blockers.push("INSPECTION_SCHEDULED")
+    else if (s === "IN_PROGRESS") blockers.push("INSPECTION_IN_PROGRESS")
+    else if (s === "FAILED") blockers.push("INSPECTION_FAILED")
+    else if (s === "PASSED" && latestInspection?.validUntil && latestInspection.validUntil < now) {
+      blockers.push("INSPECTION_EXPIRED")
+    }
+    // PASSED (unexpired) or WAIVED → no blocker.
+  }
+
+  return {
+    outletId,
+    eligible            : blockers.length === 0,
+    policy,
+    zoneAllowsMealPlans,
+    inspectionRequired,
+    inspectionStatus    : latestInspection?.status ?? null,
+    inspectionValidUntil: latestInspection?.validUntil?.toISOString() ?? null,
+    blockers,
+  }
+}
+
+//* Go-live status — the outlet-level counterpart to getVendorGoLiveStatus.
+//* Combines the outlet's own gates (clearance, admin status, content review,
+//* temporary closure) with its operational zone (level + status) and, for
+//* the customer-facing answer, whether the vendor's storefront is published.
+//* Computed live, never stored (OutletGoLiveStatus). Backend is the source of
+//* truth — the dashboards render off this, they never re-derive it.
+
+export async function getOutletGoLiveStatus(outletId: string): Promise<OutletGoLiveStatus> {
+  const outlet = await prisma.outlet.findUnique({
+    where : { id: outletId },
+    select: {
+      id: true, vendorId: true, deletedAt: true,
+      clearanceStatus: true, adminStatus: true, reviewStatus: true, isTemporarilyClosed: true,
+    },
+  })
+  if (!outlet || outlet.deletedAt) throw new ApiError(404, "Outlet not found", "NOT_FOUND")
+
+  const [profile, caps] = await Promise.all([
+    prisma.vendorProfile.findUnique({
+      where : { vendorAccountId: outlet.vendorId },
+      select: { isPublished: true },
+    }),
+    resolveCapabilitiesForOutlet(outletId),
+  ])
+
+  const vendorPublished = profile?.isPublished ?? false
+  const blockers: OutletGoLiveBlocker[] = []
+
+  if (outlet.clearanceStatus === "PENDING_DOCUMENTS")                blockers.push("PENDING_DOCUMENTS")
+  if (outlet.reviewStatus === OutletReviewStatus.MANUALLY_REJECTED)  blockers.push("REVIEW_REJECTED")
+  if (outlet.adminStatus === OutletAdminStatus.SUSPENDED)            blockers.push("OUTLET_SUSPENDED")
+  if (outlet.adminStatus === "SUSPENDED_COMPLIANCE")                 blockers.push("OUTLET_SUSPENDED_COMPLIANCE")
+  if (outlet.adminStatus === OutletAdminStatus.BANNED)               blockers.push("OUTLET_BANNED")
+  if (outlet.isTemporarilyClosed)                                    blockers.push("TEMPORARILY_CLOSED")
+
+  if (!caps || !caps.canListOnDemand)  blockers.push("ZONE_LEVEL_TOO_LOW")
+  else if (!caps.isOperational)        blockers.push("ZONE_NOT_OPERATIONAL")
+
+  const isClearedToServe = blockers.length === 0
+  if (!vendorPublished) blockers.push("VENDOR_NOT_LIVE")
+
+  return {
+    outletId         : outlet.id,
+    clearanceStatus  : outlet.clearanceStatus,
+    isClearedToServe,
+    isAcceptingOrders: isClearedToServe && vendorPublished,
+    vendorPublished,
+    blockers,
+    // Populated once OUTLET-scoped document requirements exist (build order #2/#3).
+    criticalDocuments: [],
+    zone: {
+      id               : caps?.zoneId ?? null,
+      name             : caps?.zoneName ?? null,
+      level            : caps?.effectiveLevel ?? null,
+      operationalStatus: caps?.operationalStatus ?? null,
+      onDemandAllowed  : !!caps?.canAcceptOnDemandOrders,
+    },
+  }
+}
+
+//* Inspection history for one of the vendor's own outlets — read-only. The
+//* vendor never schedules or acts on an inspection, they just see where it
+//* stands (mirrors how a vendor sees, but can't act on, a compliance case).
+
+export async function listOutletInspectionsForVendor(vendorId: string, outletId: string) {
+  await assertVendorOwnsOutlet(outletId, vendorId)
+  const rows = await prisma.outletInspection.findMany({
+    where  : { outletId },
+    orderBy: { createdAt: "desc" },
+  })
+  return rows.map((r) => ({
+    id              : r.id,
+    outletId        : r.outletId,
+    status          : r.status,
+    scheduledFor    : r.scheduledFor?.toISOString() ?? null,
+    inspectorAdminId: r.inspectorAdminId,
+    startedAt       : r.startedAt?.toISOString() ?? null,
+    completedAt     : r.completedAt?.toISOString() ?? null,
+    validUntil      : r.validUntil?.toISOString() ?? null,
+    findings        : r.findings,
+    failureReasons  : r.failureReasons,
+    waiveReason     : r.waiveReason,
+    notes           : r.notes,
+    photoCount      : r.photos.length,
+    createdAt       : r.createdAt.toISOString(),
+  }))
 }
 
 //* List outlets

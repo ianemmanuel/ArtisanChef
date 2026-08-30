@@ -1,9 +1,13 @@
 import { RequestHandler } from "express"
 import type { AdminRequest } from "@repo/types/backend"
 import type { AppealSubjectType, AppealStatus } from "@repo/db"
+import { AdminPermissions } from "@repo/types/enums"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/errors/ApiError"
-import { logAppeal, listAppeals, exportAppealsCsv, getAppeal, assignAppeal, resolveAppeal } from "../services/admin.vendor.appeal.service"
+import {
+  logAppeal, listAppeals, exportAppealsCsv, getAppeal,
+  claimAppeal, escalateAppeal, reassignAppeal, listEligibleAppealTargets, resolveAppeal,
+} from "../services/admin.vendor.appeal.service"
 
 export const handleLogAppeal: RequestHandler = async (req, res, next) => {
   try {
@@ -21,17 +25,18 @@ export const handleLogAppeal: RequestHandler = async (req, res, next) => {
 
 export const handleListAppeals: RequestHandler = async (req, res, next) => {
   try {
-    const { adminScope } = req as unknown as AdminRequest
-    const { status, subjectType, countrySlug, search, page, pageSize } = req.query
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { status, subjectType, countrySlug, search, queue, page, pageSize } = req.query
 
     const result = await listAppeals(adminScope, {
       status     : status      as AppealStatus | undefined,
       subjectType: subjectType as AppealSubjectType | undefined,
       countrySlug: countrySlug as string | undefined,
       search     : search      as string | undefined,
+      queue      : queue       as "mine" | "unclaimed" | "escalated" | "escalated_unclaimed" | undefined,
       page       : page     ? parseInt(page     as string) : undefined,
       pageSize   : pageSize ? parseInt(pageSize as string) : undefined,
-    })
+    }, adminUser.id)
     return sendSuccess(res, result, "Appeals fetched")
   } catch (err) { next(err) }
 }
@@ -63,14 +68,45 @@ export const handleGetAppeal: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-export const handleAssignAppeal: RequestHandler = async (req, res, next) => {
+export const handleClaimAppeal: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const appeal = await claimAppeal(id, adminUser.id, adminScope, adminPermissions)
+    return sendSuccess(res, appeal, "Appeal claimed")
+  } catch (err) { next(err) }
+}
+
+export const handleEscalateAppeal: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { reason } = req.body as { reason?: string }
+    if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
+    const appeal = await escalateAppeal(id, reason, adminUser.id, adminScope, adminPermissions)
+    return sendSuccess(res, appeal, "Appeal escalated")
+  } catch (err) { next(err) }
+}
+
+export const handleReassignAppeal: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
     const { id } = req.params as { id: string }
-    const { reviewerId } = req.body as { reviewerId?: string | null }
+    const { targetAdminId, reason } = req.body as { targetAdminId?: string; reason?: string }
+    if (!targetAdminId) throw new ApiError(400, "targetAdminId is required", "MISSING_FIELDS")
+    const appeal = await reassignAppeal(id, targetAdminId, reason, adminUser.id, adminScope)
+    return sendSuccess(res, appeal, "Appeal reassigned")
+  } catch (err) { next(err) }
+}
 
-    const appeal = await assignAppeal(id, reviewerId ?? null, adminUser.id, adminScope)
-    return sendSuccess(res, appeal, reviewerId ? "Appeal assigned" : "Appeal unassigned")
+export const handleListEligibleAppealTargets: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminScope } = req as unknown as AdminRequest
+    const { appealId, for: forAction } = req.query as { appealId?: string; for?: string }
+    if (!appealId) throw new ApiError(400, "appealId is required", "MISSING_FIELDS")
+    const capability = forAction === "escalate" ? AdminPermissions.VENDORS_APPEALS_RECEIVE_ESCALATION : AdminPermissions.VENDORS_APPEALS_CLAIM
+    const targets = await listEligibleAppealTargets(appealId, adminScope, capability)
+    return sendSuccess(res, targets, "Eligible targets fetched")
   } catch (err) { next(err) }
 }
 

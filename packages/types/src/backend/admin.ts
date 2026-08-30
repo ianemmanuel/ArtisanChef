@@ -107,6 +107,22 @@ export type {
   UpdateDeliveryZoneRequest,
   DeliveryZone,
   CreateDeliveryZoneRequest,
+  ZoneBoundary,
+  Zone,
+  ZoneListItem,
+  ZoneCapabilityFlags,
+  ResolvedCapabilities,
+  CreateZoneRequest,
+  UpdateZoneRequest,
+  SetZoneLevelRequest,
+  SetZoneOperationalStatusRequest,
+  MarketSignal,
+  MarketSignalBucket,
+  MarketSignalZoneRow,
+  CityMarketSignalSummary,
+  MarketSignalListResult,
+  CreateMarketSignalRequest,
+  UpdateMarketSignalStatusRequest,
 } from "../domain/geography"
 
 export type {
@@ -131,7 +147,7 @@ export type {
 
 export type { AuditLogInput } from "../domain/audit"
 
-export type { ServiceAreaMode } from "../enums/geography"
+export type { ServiceAreaMode, ZoneLevel, ZoneOperationalStatus, MarketSignalType, MarketSignalStatus } from "../enums/geography"
 
 
 export interface AuthenticatedAdminRequest extends Request {

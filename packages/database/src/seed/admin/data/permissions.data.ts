@@ -215,6 +215,16 @@ export const PERMISSIONS = [
     description: "Create/edit the global payment-method catalog and configure/activate/deactivate per-country payment gateways (customer collection and vendor payout)",
   },
   {
+    key        : "finance:configuration:read",
+    module     : "finance",
+    description: "View the currency reference table and the payment-provider catalog (Flutterwave, Stripe, …) with their declared capabilities and status",
+  },
+  {
+    key        : "finance:configuration:manage",
+    module     : "finance",
+    description: "Create/edit currencies and the payment-provider catalog, and activate/deactivate them (global scope only)",
+  },
+  {
     key        : "finance:reports:read",
     module     : "finance",
     description: "View financial reports, revenue dashboards, and summary statistics",

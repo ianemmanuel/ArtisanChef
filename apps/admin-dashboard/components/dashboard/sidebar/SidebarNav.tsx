@@ -88,7 +88,9 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                     !pathname.startsWith("/finance/vendors") &&
                     !pathname.startsWith("/finance/outlets") &&
                     !pathname.startsWith("/finance/vendor-categories") &&
-                    !pathname.startsWith("/finance/needs-attention"))
+                    !pathname.startsWith("/finance/needs-attention") &&
+                    !pathname.startsWith("/finance/providers") &&
+                    !pathname.startsWith("/finance/countries"))
                 : pathname.startsWith(href)
 
   // Subtle "you have open compliance issues in your own country" nudge —

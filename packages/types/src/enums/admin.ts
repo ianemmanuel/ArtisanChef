@@ -128,6 +128,16 @@ export const AdminPermissions = {
   // as VendorType (see admin.paymentMethod.service.ts's assertGlobalScope).
   FINANCE_PAYMENT_METHODS_READ  : "finance:payment_methods:read",
   FINANCE_PAYMENT_METHODS_MANAGE: "finance:payment_methods:manage",
+  // Finance Phase 1A — platform financial configuration foundation:
+  // the Currency reference table + the PaymentProvider catalog (provider
+  // implementations the platform knows how to talk to + their declared
+  // capabilities). READ is scope-filtered; MANAGE additionally requires
+  // GLOBAL scope (assertGlobalFinanceScope) — this is platform-wide
+  // financial infrastructure, same governance tier as
+  // FINANCE_PAYMENT_METHODS_* and VendorType. Later phases
+  // (CountryFinancialConfig, CountryProviderAccount) reuse this same pair.
+  FINANCE_CONFIGURATION_READ  : "finance:configuration:read",
+  FINANCE_CONFIGURATION_MANAGE: "finance:configuration:manage",
 
   // ── Customers ─────────────────────────────────────────────────────────────
   CUSTOMERS_PROFILES_READ     : "customers:profiles:read",

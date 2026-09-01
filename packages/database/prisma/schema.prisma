@@ -29,12 +29,6 @@ model AdminUser {
   deactivationReason  String?
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
-
-  //* Review-workload availability — distinct from isActive/status above.
-  //* isActive/status = "can this admin use the system at all."
-  //* reviewAvailability = "should this admin receive new review work."
-  //* An ACTIVE admin can be UNAVAILABLE (e.g. temporarily heads-down on
-  //* something else) without being deactivated.
   reviewAvailability  AdminReviewAvailability @default(AVAILABLE)
   unavailableFrom     DateTime?
   unavailableUntil    DateTime?
@@ -272,8 +266,16 @@ model Country {
   name               String    @unique
   code               String    @unique
   slug               String    @unique
+  //* Legacy plain-string ISO code — retained for compatibility during the
+  //* finance migration. New code should read `currencyCode` / `currencyRef`.
   currency           String
   currencySymbol     String?
+  //* Finance Phase 1A — FK into the Currency reference table. Nullable
+  //* while backfilling; the seed sets it for every country whose `currency`
+  //* matches a seeded Currency row. Becomes the source of truth (and
+  //* `currency` is dropped) in a later phase.
+  currencyCode       String?
+  currencyRef        Currency? @relation(fields: [currencyCode], references: [code])
   phoneCode          String
   timezones          String[]
   regionId           String?
@@ -302,10 +304,15 @@ model Country {
   vendorTypes        VendorTypeCountry[]
   adminScopes        AdminUserScope[]
 
+  //* Finance Phase 1B — a country's financial operating configuration
+  //* (1:1) and its provider-account wiring (1:N, only one ACTIVE).
+  financialConfig    CountryFinancialConfig?
+  providerAccounts   CountryProviderAccount[]
 
   @@index([status])
   @@index([slug])
-  @@index([regionId])   
+  @@index([regionId])
+  @@index([currencyCode])
 }
 
 model City {
@@ -445,6 +452,166 @@ model OutletServiceArea {
  
   @@id([outletId, serviceAreaId])
   @@index([serviceAreaId])
+}
+
+//* =========FINANCE FOUNDATION (Phase 1A + 1B)==========
+//* Platform-level financial reference data + per-country financial
+//* configuration. DailyBread owns the financial source of truth; payment
+//* providers (Flutterwave/Stripe/…) are rails. See
+//* apps/backend/src/modules/finance. Phase 1A: Currency + PaymentProvider
+//* catalog. Phase 1B: CountryFinancialConfig + CountryProviderAccount.
+//* Still deliberately NOT here: ledger / payments / payouts / settlement /
+//* reconciliation — later phases.
+
+//* ISO-4217 currency reference. Exists so the financial domain never
+//* treats currency as an arbitrary string — an amount is always
+//* (integer minor units + a currency that resolves here). `code` is the
+//* natural key (e.g. "KES", "USD"). Country.currency (a plain string) is
+//* kept during migration; Country.currencyCode is the new FK.
+model Currency {
+  code            String                 @id            // ISO-4217, uppercase
+  name            String                                // "Kenyan Shilling"
+  symbol          String?                               // "KSh"
+  //* Number of decimal places the currency's minor unit uses — 2 for most
+  //* (KES/USD/EUR), 0 for JPY/UGX-style, 3 for BHD/KWD. Drives how an
+  //* amountMinor integer maps to a human-facing value; never assumed to be 2.
+  minorUnitDigits Int                    @default(2)
+  status          FinanceReferenceStatus @default(ACTIVE)
+  createdByAdminId String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  countries        Country[]
+  financialConfigs CountryFinancialConfig[]
+
+  @@index([status])
+}
+
+//* Platform catalog of payment-provider IMPLEMENTATIONS the system knows
+//* how to talk to (Flutterwave, Stripe, …). This is NOT provider
+//* credentials and NOT a per-country wiring — it only declares what a
+//* provider IS and what it CAN do. Credentials stay outside the DB
+//* (see ProviderSecretsResolver); per-country wiring
+//* (CountryProviderAccount) is a later phase. `capabilities` is the
+//* declared capability set the future adapter is expected to implement —
+//* a country can only enable a financial operation whose provider
+//* declares the matching capability here.
+model PaymentProvider {
+  id                  String                      @id @default(uuid())
+  code                String                      @unique   // "FLUTTERWAVE", "STRIPE"
+  name                String
+  status              FinanceReferenceStatus      @default(ACTIVE)
+  capabilities        PaymentProviderCapability[]            // declared; empty = nothing enabled
+  //* Which PaymentMethod.type values this provider can handle at all —
+  //* kept coherent with `capabilities` at the service layer
+  //* (validateProviderCapabilityCoherence).
+  methodTypes         PaymentMethodType[]
+  //* ISO-4217 codes the provider supports; empty = unrestricted / not yet declared.
+  supportedCurrencies String[]
+  description         String?
+  createdByAdminId    String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  countryAccounts     CountryProviderAccount[]
+
+  @@index([status])
+}
+
+//* A configured provider account belonging to one country. This is the
+//* "Kenya uses THIS Flutterwave account, in THIS environment" layer —
+//* distinct from PaymentProvider ("Flutterwave exists") and from
+//* CountryFinancialConfig ("Kenya's financial settings").
+//*
+//* Append-only by policy: never hard-deleted (historical financial
+//* records will attribute to a specific account id) — retired via
+//* status = DISABLED only. A country may have many; at most ONE may be
+//* ACTIVE at a time (enforced in the service layer inside a transaction —
+//* Prisma has no partial-unique-index support).
+//*
+//* Secrets (API keys, webhook signing secrets) are NEVER stored here.
+//* `secretAlias` is a non-secret pointer resolved by ProviderSecretsResolver.
+model CountryProviderAccount {
+  id                  String                       @id @default(uuid())
+  countryId           String
+  paymentProviderId   String
+  environment         PaymentEnvironment
+  //* Non-secret reference, e.g. "flutterwave_ke_primary". The actual
+  //* credentials live outside the DB (env / secret manager).
+  secretAlias         String
+  //* Which of the provider's declared capabilities this account turns on
+  //* for this country. MUST be a subset of PaymentProvider.capabilities
+  //* (validateProviderCapabilityCoherence + assertEnabledSubsetOfProvider).
+  enabledCapabilities PaymentProviderCapability[]
+  accountLabel        String?
+  //* The provider's own merchant/account identifier — a non-secret id used
+  //* for reconciliation, safe to store.
+  externalAccountId   String?
+  status              CountryProviderAccountStatus @default(DRAFT)
+
+  activatedAt         DateTime?
+  activatedByAdminId  String?
+  suspendedAt         DateTime?
+  suspendedByAdminId  String?
+  suspensionReason    String?
+  disabledAt          DateTime?
+  disabledByAdminId   String?
+
+  createdByAdminId    String?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  country             Country                      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  paymentProvider     PaymentProvider              @relation(fields: [paymentProviderId], references: [id])
+  activeForConfig     CountryFinancialConfig?      @relation("ActiveProviderAccount")
+
+  @@index([countryId, status])
+  @@index([paymentProviderId])
+  @@index([status])
+}
+
+//* A country's financial operating configuration (1:1 with Country).
+//* One mutable row — NOT versioned; historical attribution is preserved
+//* by transactions snapshotting the CountryProviderAccount id + currency
+//* they occurred under, and by provider accounts never being deleted.
+//*
+//* "Config row exists" != "country is financially operational". Operational
+//* requires status = ACTIVE, an ACTIVE activeProviderAccount, an ACTIVE
+//* currency, the relevant enabled switch, and a matching CountryPaymentMethod
+//* — see the readiness predicates in finance.readiness.service.ts.
+//*
+//* V1: a single activeProviderAccountId serves BOTH collection and payout
+//* (approved decision). Split into separate fields later if needed.
+model CountryFinancialConfig {
+  id                      String                        @id @default(uuid())
+  countryId               String                        @unique
+  currencyCode            String?
+  activeProviderAccountId  String?                       @unique
+  //* Operational switches — the admin's deliberate "we are collecting /
+  //* paying out here" decision, distinct from "the provider can technically
+  //* do it". Mutable while ACTIVE (validated + audited).
+  collectionsEnabled      Boolean                       @default(false)
+  payoutsEnabled          Boolean                       @default(false)
+  status                  CountryFinancialConfigStatus  @default(DRAFT)
+
+  activatedAt             DateTime?
+  activatedByAdminId      String?
+  suspendedAt             DateTime?
+  suspendedByAdminId      String?
+  suspensionReason        String?
+  disabledAt             DateTime?
+  disabledByAdminId       String?
+
+  createdByAdminId        String?
+  createdAt               DateTime                      @default(now())
+  updatedAt               DateTime                      @updatedAt
+
+  country                 Country                       @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  currency                Currency?                     @relation(fields: [currencyCode], references: [code])
+  activeProviderAccount   CountryProviderAccount?       @relation("ActiveProviderAccount", fields: [activeProviderAccountId], references: [id])
+
+  @@index([status])
+  @@index([currencyCode])
 }
 
 //* =========PAYMENT CONFIGURATION==========
@@ -1598,6 +1765,61 @@ enum CountryPaymentMethodStatus {
   ACTIVE
   INACTIVE
   DEPRECATED
+}
+
+//* Finance Phase 1A — lifecycle for financial reference data (Currency,
+//* PaymentProvider). Deliberately just ACTIVE/INACTIVE: reference rows are
+//* never hard-deleted (historical financial records will point at them),
+//* they're only retired from being selectable for NEW configuration.
+enum FinanceReferenceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+//* Finance Phase 1A — the discrete financial operations a PaymentProvider
+//* implementation can support. A country may only enable an operation
+//* whose configured provider declares the matching capability. Segregated
+//* by operation (not one "supportsPayments" blob) because providers
+//* genuinely differ — one may do card collection + bank payout only,
+//* another mobile-money end to end.
+enum PaymentProviderCapability {
+  COLLECTION_CARD
+  COLLECTION_MOBILE_MONEY
+  COLLECTION_BANK_TRANSFER
+  REFUND
+  BANK_ACCOUNT_RESOLUTION
+  PAYOUT_BANK
+  PAYOUT_MOBILE_MONEY
+  WEBHOOKS
+}
+
+//* Finance Phase 1B — which set of provider credentials an account uses.
+//* NOT a deployment environment. The application's NODE_ENV decides which
+//* is activatable: production => LIVE only, non-production => TEST only
+//* (assertEnvironmentActivatable).
+enum PaymentEnvironment {
+  TEST
+  LIVE
+}
+
+//* Finance Phase 1B — lifecycle of a country's financial configuration and
+//* of each provider account. DRAFT = being set up, not operational.
+//* ACTIVE = validated + explicitly activated. SUSPENDED = temporary halt,
+//* reversible, blocks NEW operations only. DISABLED = retired, terminal,
+//* existing records preserved. Raw status writes are never exposed — only
+//* explicit activate/suspend/disable actions.
+enum CountryFinancialConfigStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum CountryProviderAccountStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  DISABLED
 }
 
 enum PayoutVerificationStatus {

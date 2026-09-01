@@ -28,6 +28,7 @@ import {
   CreditCard,
   UserCheck,
   MapPin,
+  Plug,
 } from "lucide-react"
 import { AdminPermissions, type AdminPermissionKey } from "@repo/types/admin-app"
 
@@ -153,6 +154,11 @@ export const navSections: NavSection[] = [
     title: "Finance",
     items: [
       { label: "Home",             href: "/finance",                    icon: TrendingUp,  requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      // Finance Phase 1B — per-country financial configuration (currency,
+      // provider, provider accounts, collection/payout setup) that a
+      // country needs before it can be activated. Its own permission
+      // (finance:configuration:read); city-scoped admins never hold it.
+      { label: "Countries",        href: "/finance/countries",           icon: Landmark,    requiredPermission: AdminPermissions.FINANCE_CONFIGURATION_READ },
       { label: "Vendors",          href: "/finance/vendors",             icon: Store,       requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
       { label: "Outlets",          href: "/finance/outlets",             icon: MapPin,      requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
       { label: "Vendor Categories", href: "/finance/vendor-categories",  icon: Tag,         requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
@@ -169,6 +175,12 @@ export const navSections: NavSection[] = [
       // that page configures a specific country, it isn't itself a global
       // financial-infrastructure catalog.
       { label: "Payment Gateways", href: "/payment-gateways",            icon: CreditCard,  requiredPermission: AdminPermissions.FINANCE_PAYMENT_METHODS_READ },
+      // Finance Phase 1A — the payment-provider catalog (Flutterwave,
+      // Stripe, …): provider implementations the platform can be wired
+      // to + their declared capabilities. Its own permission
+      // (finance:configuration:read); mutations are global-scope-only,
+      // enforced backend-side.
+      { label: "Providers",        href: "/finance/providers",           icon: Plug,        requiredPermission: AdminPermissions.FINANCE_CONFIGURATION_READ },
     ],
   },
   {

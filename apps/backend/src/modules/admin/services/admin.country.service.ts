@@ -9,6 +9,10 @@ import { UUID_RE } from "@/constants/system"
 import { auditService } from "@/services/audit"
 import { logger } from "@/lib/pino/logger"
 import { buildCountrySlug } from "@/utils/geo-slug.utils"
+// Import the readiness service directly (not the finance module barrel) so
+// the country service's module graph doesn't pull in the finance admin router.
+import { getFinancialReadiness } from "@/modules/finance/services/finance.readiness.service"
+import { describeFinancialReadinessReasons } from "@/modules/finance/services/finance.readiness.compute"
 
 
 const serviceLog = logger.child({ module: "admin-country-service" })
@@ -46,7 +50,7 @@ function assertCountryInScope(countryId: string, scope: AdminScopeContext): void
  * see setVendorOnboardingReadiness/setCustomerOperationsReadiness.
  */
 async function getCountryChecklistCounts(countryId: string) {
-  const [vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount, cityCount] = await Promise.all([
+  const [vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount, cityCount, financialReadiness] = await Promise.all([
     prisma.vendorTypeCountry.count({ where: { countryId, status: GeoStatus.ACTIVE } }),
     prisma.documentTypeConfig.count({ where: { countryId, status: DocumentTypeStatus.ACTIVE } }),
     prisma.countryPaymentMethod.count({ where: { countryId, direction: PaymentDirection.OUTBOUND, status: CountryPaymentMethodStatus.ACTIVE } }),
@@ -59,10 +63,19 @@ async function getCountryChecklistCounts(countryId: string) {
     // gate, same way Uber Eats/Bolt Food add cities to a live market
     // incrementally rather than mapping every service area before launch.
     prisma.city.count({ where: { countryId, status: GeoStatus.ACTIVE } }),
+    // Finance Phase 1B — DailyBread will not activate a country it cannot
+    // operate financially in (collect from customers AND pay vendors). The
+    // ONE readiness system lives in the finance module; this folds it into
+    // the existing launch checklist rather than being a parallel gate.
+    getFinancialReadiness(countryId),
   ])
+  const financiallyReady = financialReadiness.financiallyReady
   return {
     vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, inboundPaymentMethodCount, cityCount,
-    readyToActivate: vendorTypeCount > 0 && documentTypeCount > 0 && outboundPaymentMethodCount > 0 && cityCount > 0,
+    financiallyReady,
+    financialReadinessReasons: financialReadiness.reasons,
+    readyToActivate:
+      vendorTypeCount > 0 && documentTypeCount > 0 && outboundPaymentMethodCount > 0 && cityCount > 0 && financiallyReady,
   }
 }
 
@@ -171,15 +184,21 @@ export async function activateCountry(
         throw new ApiError(400, "Country is already active", "ALREADY_ACTIVE")
     }
 
-    const { vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, cityCount, readyToActivate } = await getCountryChecklistCounts(countryId)
+    const { vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, cityCount, financiallyReady, financialReadinessReasons, readyToActivate } = await getCountryChecklistCounts(countryId)
     if (!readyToActivate) {
         const missing = [
             vendorTypeCount === 0 ? "a vendor category" : null,
             documentTypeCount === 0 ? "a document" : null,
             outboundPaymentMethodCount === 0 ? "a vendor payout method" : null,
             cityCount === 0 ? "a city" : null,
-        ].filter(Boolean).join(", ")
-        throw new ApiError(400, `Add at least ${missing} before activating this country`, "COUNTRY_NOT_READY")
+        ].filter(Boolean)
+        // Finance Phase 1B — a country cannot be activated unless it's
+        // financially ready. Reasons are deterministic and human-readable
+        // for Admin ERP display.
+        if (!financiallyReady) {
+            missing.push(`financial readiness (${describeFinancialReadinessReasons(financialReadinessReasons).join("; ")})`)
+        }
+        throw new ApiError(400, `Resolve before activating this country: ${missing.join(", ")}`, "COUNTRY_NOT_READY")
     }
 
     // Readiness must be confirmed before activation, not after — activating
@@ -637,6 +656,16 @@ export async function setVendorOnboardingReadiness(
     if (!readyToActivate) {
       throw new ApiError(400, "Add at least one vendor category, one document type, and one vendor payout method before marking this country ready for vendor onboarding", "COUNTRY_NOT_READY")
     }
+    // Finance Phase 1B — vendor onboarding leads to vendor earnings, which
+    // DailyBread must be able to pay out. Gate on payout readiness.
+    const readiness = await getFinancialReadiness(countryId)
+    if (!readiness.payout.ready) {
+      throw new ApiError(
+        400,
+        `Resolve payout readiness first: ${describeFinancialReadinessReasons(readiness.payout.reasons).join("; ")}`,
+        "PAYOUT_NOT_READY",
+      )
+    }
   }
 
   await prisma.country.update({
@@ -681,6 +710,16 @@ export async function setCustomerOperationsReadiness(
     const { inboundPaymentMethodCount } = await getCountryChecklistCounts(countryId)
     if (inboundPaymentMethodCount === 0) {
       throw new ApiError(400, "Add at least one customer payment method before opening this country up to customers", "COUNTRY_NOT_READY")
+    }
+    // Finance Phase 1B — opening to customers means collecting payments.
+    // Gate on collection readiness.
+    const readiness = await getFinancialReadiness(countryId)
+    if (!readiness.collection.ready) {
+      throw new ApiError(
+        400,
+        `Resolve collection readiness first: ${describeFinancialReadinessReasons(readiness.collection.reasons).join("; ")}`,
+        "COLLECTION_NOT_READY",
+      )
     }
   }
 

@@ -1,5 +1,6 @@
 
 import { GeoStatus } from "../enums/geography"
+import type { FinancialReadinessReason } from "../enums/finance"
 import { City } from "./city"
 
 export interface Country {
@@ -22,6 +23,10 @@ export interface Country {
     vendorTypeCount: number; documentTypeCount: number
     outboundPaymentMethodCount: number; inboundPaymentMethodCount: number
     cityCount: number
+    //* Finance Phase 1B — a country cannot be activated unless it is
+    //* financially ready (collection + payout). Folded into readyToActivate.
+    financiallyReady: boolean
+    financialReadinessReasons: FinancialReadinessReason[]
     readyToActivate: boolean
   }
   _count? : { cities: number; vendors: number }

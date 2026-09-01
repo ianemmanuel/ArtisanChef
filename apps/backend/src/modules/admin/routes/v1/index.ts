@@ -16,6 +16,7 @@ import auditRouter from "./admin.audit.routes"
 import notificationsRouter from "./admin.notification.routes"
 import paymentMethodsRouter from "./admin.paymentMethod.routes"
 import financeRouter from "./admin.finance.routes"
+import { financeAdminRouter } from "@/modules/finance"
 
 const v1Router: Router = Router()
 
@@ -34,7 +35,14 @@ v1Router.use("/action-reasons", actionReasonsRouter)
 v1Router.use("/audit", auditRouter)
 v1Router.use("/notifications", notificationsRouter)
 v1Router.use("/payment-methods", paymentMethodsRouter)
+// Two routers share the /finance mount, deliberately: `financeRouter`
+// (admin.finance.*) holds the pre-existing revenue-reporting lookups
+// (/finance/outlets, /finance/cities); `financeAdminRouter` (the new
+// Finance module) owns platform financial configuration
+// (/finance/providers, /finance/currencies). Non-overlapping paths. They
+// converge into the Finance module in a later phase.
 v1Router.use("/finance", financeRouter)
+v1Router.use("/finance", financeAdminRouter)
 v1Router.use("/kpis", kpiRouter)
 
 export default v1Router

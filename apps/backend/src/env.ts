@@ -58,6 +58,16 @@ const envSchema = z.object({
   //* Database
   DATABASE_URL: z.string().url(),
 
+  //* Field-level encryption for sensitive payout identifiers (bank account
+  //* numbers, IBANs, mobile-money numbers). AES-256-GCM at rest + a keyed
+  //* HMAC blind index for duplicate detection. Both are base64-encoded
+  //* 32-byte keys. Deliberately optional in dev — field-encryption.ts falls
+  //* back to a fixed, clearly-insecure dev key with a logged warning, same
+  //* "works without the real thing configured" convention as SMTP. Required
+  //* in production (checked below).
+  PAYOUT_ENCRYPTION_KEY: z.string().optional(),
+  PAYOUT_BLIND_INDEX_KEY: z.string().optional(),
+
   //* Transactional email (compliance notices, etc.) — deliberately optional.
   //* If SMTP_HOST is unset, sendEmail (lib/email/mailer.ts) logs the
   //* rendered email and no-ops instead of throwing, so local dev/CI never
@@ -73,6 +83,9 @@ const envSchema = z.object({
   // any live redirect logic. Optional since vendor-dashboard isn't part
   // of this pass; falls back to a plain-text mention if unset.
   VENDOR_DASHBOARD_URL: z.string().url().optional(),
+  // Same idea for admin-facing emails (zone-change alerts link to the
+  // city geography page). Optional — the email omits the CTA if unset.
+  ADMIN_DASHBOARD_URL: z.string().url().optional(),
 })
 
 function loadEnv() {
@@ -101,6 +114,11 @@ function loadEnv() {
 
   if (parsed.data.NODE_ENV === "production" && !parsed.data.CLERK_ADMIN_INVITE_REDIRECT_URL) {
     console.error("✗ CLERK_ADMIN_INVITE_REDIRECT_URL is required when NODE_ENV=production")
+    process.exit(1)
+  }
+
+  if (parsed.data.NODE_ENV === "production" && (!parsed.data.PAYOUT_ENCRYPTION_KEY || !parsed.data.PAYOUT_BLIND_INDEX_KEY)) {
+    console.error("✗ PAYOUT_ENCRYPTION_KEY and PAYOUT_BLIND_INDEX_KEY are required when NODE_ENV=production")
     process.exit(1)
   }
 

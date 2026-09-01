@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Bell, CheckCheck } from "lucide-react"
 import { Button } from "@repo/ui/components/button"
 import { EmptyState } from "@/components/shared/EmptyState"
+import { NOTIFICATION_ICON, NOTIFICATION_ACCENT, deepLinkFor } from "./notification-meta"
 import type { AdminNotification } from "@/types"
 
 interface Props {
@@ -21,12 +22,6 @@ function timeAgo(iso: string): string {
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
-}
-
-/** A notification's metadata may carry a vendorId to deep-link into — see AdminNotificationType's doc comment. */
-function deepLinkFor(n: AdminNotification): string | null {
-  const vendorId = n.metadata?.vendorId
-  return typeof vendorId === "string" ? `/vendors/accounts/${vendorId}` : null
 }
 
 export function NotificationsList({ notifications, unreadCount }: Props) {
@@ -51,7 +46,7 @@ export function NotificationsList({ notifications, unreadCount }: Props) {
       <EmptyState
         icon={Bell}
         title="No notifications"
-        description="You're all caught up — nothing needs your attention right now."
+        description="Nothing matches these filters — you're all caught up."
       />
     )
   }
@@ -69,11 +64,18 @@ export function NotificationsList({ notifications, unreadCount }: Props) {
       <div className="admin-card divide-y divide-border/60 p-0">
         {notifications.map((n) => {
           const href = deepLinkFor(n)
+          const Icon = NOTIFICATION_ICON[n.type]
+          const accent = NOTIFICATION_ACCENT[n.type]
           const content = (
             <div className={`flex items-start gap-3 px-5 py-4 ${!n.isRead ? "bg-primary/5" : ""}`}>
-              {!n.isRead && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />}
-              <div className={n.isRead ? "min-w-0 pl-[18px]" : "min-w-0"}>
-                <p className="text-sm font-medium text-foreground">{n.title}</p>
+              <div className={`icon-badge h-9 w-9 shrink-0 ${accent}`}>
+                {Icon ? <Icon className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start gap-2">
+                  {!n.isRead && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />}
+                  <p className="text-sm font-medium text-foreground">{n.title}</p>
+                </div>
                 <p className="mt-0.5 text-sm text-muted-foreground">{n.message}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{timeAgo(n.createdAt)}</p>
               </div>

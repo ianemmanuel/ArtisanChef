@@ -4,6 +4,8 @@ import usersRouter from "./admin.user.routes"
 import vendorsRouter from "./admin.vendor.routes"
 import deliveryzoneRouter from "./admin.deliveryzone.routes"
 import serviceAreaRouter from "./admin.servicearea.routes"
+import zoneRouter from "./admin.zone.routes"
+import marketSignalRouter from "./admin.marketSignal.routes"
 import citiesRouter from "./admin.city.routes"
 import countriesRouter from "./admin.country.routes"
 import kpiRouter from "./admin.kpi.routes"
@@ -25,6 +27,8 @@ v1Router.use("/users", usersRouter)
 v1Router.use("/vendors", vendorsRouter)
 v1Router.use("/delivery-zones", deliveryzoneRouter)
 v1Router.use("/service-areas", serviceAreaRouter)
+v1Router.use("/zones", zoneRouter)
+v1Router.use("/market-signals", marketSignalRouter)
 v1Router.use("/cities", citiesRouter)
 v1Router.use("/countries", countriesRouter)
 v1Router.use("/regions", regionsRouter)

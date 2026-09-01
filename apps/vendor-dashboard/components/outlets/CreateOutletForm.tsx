@@ -140,7 +140,11 @@ export function CreateOutletForm({ cities }: Props) {
         return
       }
 
-      toast.success("Outlet created!", { description: "Your new location is now live." })
+      toast.success("Outlet created!", {
+        description: data.data?.clearanceStatus === "PENDING_DOCUMENTS"
+          ? "Upload the required document under Documents to bring it live."
+          : "Your new location is live once you publish your storefront.",
+      })
 
       /*
         router.push navigates to a new SSR page that fetches fresh data.

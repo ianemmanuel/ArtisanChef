@@ -4,6 +4,7 @@ import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
 import { getCountryIdFromSlug } from "../helpers/get-country-id.helper"
+import { getOutletGoLiveStatus, getOutletMealPlanReadiness } from "@/modules/vendor/services/vendor.outlet.service"
 import { toCsv } from "@/lib/csv"
 
 const serviceLog = logger.child({ module: "admin-outlet-service" })
@@ -76,7 +77,7 @@ export async function listOutlets(
 
   const where = await buildOutletsWhere(params, scope)
 
-  const [outlets, total, flaggedCount, suspendedCount, bannedCount] = await Promise.all([
+  const [outlets, total, flaggedCount, suspendedCount, complianceSuspendedCount, bannedCount, pendingDocsCount] = await Promise.all([
     prisma.outlet.findMany({
       where,
       skip,
@@ -87,7 +88,9 @@ export async function listOutlets(
     prisma.outlet.count({ where }),
     prisma.outlet.count({ where: { deletedAt: null, reviewStatus: OutletReviewStatus.FLAGGED, vendor: { ...vendorCountryFilter, deletedAt: null } } }),
     prisma.outlet.count({ where: { deletedAt: null, adminStatus: OutletAdminStatus.SUSPENDED, vendor: { ...vendorCountryFilter, deletedAt: null } } }),
+    prisma.outlet.count({ where: { deletedAt: null, adminStatus: "SUSPENDED_COMPLIANCE", vendor: { ...vendorCountryFilter, deletedAt: null } } }),
     prisma.outlet.count({ where: { deletedAt: null, adminStatus: OutletAdminStatus.BANNED, vendor: { ...vendorCountryFilter, deletedAt: null } } }),
+    prisma.outlet.count({ where: { deletedAt: null, clearanceStatus: "PENDING_DOCUMENTS", vendor: { ...vendorCountryFilter, deletedAt: null } } }),
   ])
 
   const cityIds = [...new Set(outlets.map((o) => o.cityId))]
@@ -98,7 +101,13 @@ export async function listOutlets(
 
   return {
     outlets: outlets.map((o) => ({ ...o, vendor: o.vendor, city: cityById.get(o.cityId) ?? null })),
-    counts : { flagged: flaggedCount, suspended: suspendedCount, banned: bannedCount },
+    counts : {
+      flagged            : flaggedCount,
+      suspended          : suspendedCount,
+      complianceSuspended: complianceSuspendedCount,
+      banned             : bannedCount,
+      pendingDocs        : pendingDocsCount,
+    },
     total,
     page,
     pageSize,
@@ -151,8 +160,12 @@ async function getOutletWithScope(outletId: string, scope: AdminScopeContext) {
 
 export async function getOutletForAdmin(outletId: string, scope: AdminScopeContext) {
   const outlet = await getOutletWithScope(outletId, scope)
-  const city = await prisma.city.findUnique({ where: { id: outlet.cityId }, select: { id: true, name: true } })
-  return { ...outlet, city }
+  const [city, goLiveStatus, mealPlanReadiness] = await Promise.all([
+    prisma.city.findUnique({ where: { id: outlet.cityId }, select: { id: true, name: true } }),
+    getOutletGoLiveStatus(outletId),
+    getOutletMealPlanReadiness(outletId),
+  ])
+  return { ...outlet, city, goLiveStatus, mealPlanReadiness }
 }
 
 //* Review — resolves a vendor-side flag. Approve doesn't undo the flag

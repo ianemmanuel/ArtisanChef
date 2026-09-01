@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Store, Flag, ShieldAlert, Ban, FileDown } from "lucide-react"
+import { Store, Flag, ShieldAlert, Ban, FileDown, FileClock } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -42,9 +42,10 @@ const STATUS_TABS: { value: string; label: string }[] = [
 ]
 
 const ADMIN_STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "ACTIVE",    label: "Active" },
-  { value: "SUSPENDED", label: "Suspended" },
-  { value: "BANNED",    label: "Banned" },
+  { value: "ACTIVE",               label: "Active" },
+  { value: "SUSPENDED",            label: "Suspended" },
+  { value: "SUSPENDED_COMPLIANCE", label: "Suspended · document expired" },
+  { value: "BANNED",               label: "Banned" },
 ]
 
 const REVIEW_BADGE: Record<OutletReviewStatus, string> = {
@@ -59,7 +60,10 @@ const REVIEW_LABEL: Record<OutletReviewStatus, string> = {
 }
 
 const ADMIN_STATUS_BADGE: Record<string, string> = {
-  ACTIVE: "badge-success", SUSPENDED: "badge-warning", BANNED: "badge-danger",
+  ACTIVE: "badge-success", SUSPENDED: "badge-warning", SUSPENDED_COMPLIANCE: "badge-warning", BANNED: "badge-danger",
+}
+const ADMIN_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: "Active", SUSPENDED: "Suspended", SUSPENDED_COMPLIANCE: "Doc expired", BANNED: "Banned",
 }
 
 const FLAG_REASON_LABEL: Record<string, string> = {
@@ -100,12 +104,14 @@ export default async function VendorOutletsPage({ searchParams }: PageProps) {
     next: { revalidate: 60, tags: ["vendor-outlets-admin"] },
   }).catch(() => null)
 
-  const counts = result?.counts ?? { flagged: 0, suspended: 0, banned: 0 }
+  const counts = result?.counts ?? { flagged: 0, suspended: 0, complianceSuspended: 0, banned: 0, pendingDocs: 0 }
 
   const statCards = [
-    { label: "Flagged",   value: counts.flagged,   icon: Flag,        badgeClass: "icon-badge-warning" },
-    { label: "Suspended", value: counts.suspended, icon: ShieldAlert, badgeClass: "icon-badge-warning" },
-    { label: "Banned",    value: counts.banned,    icon: Ban,         badgeClass: "icon-badge-danger" },
+    { label: "Flagged",       value: counts.flagged,             icon: Flag,        badgeClass: "icon-badge-warning" },
+    { label: "Pending docs",  value: counts.pendingDocs,          icon: FileClock,   badgeClass: "icon-badge-warning" },
+    { label: "Doc expired",   value: counts.complianceSuspended,  icon: ShieldAlert, badgeClass: "icon-badge-danger" },
+    { label: "Suspended",     value: counts.suspended,            icon: ShieldAlert, badgeClass: "icon-badge-warning" },
+    { label: "Banned",        value: counts.banned,               icon: Ban,         badgeClass: "icon-badge-danger" },
   ]
 
   return (
@@ -233,7 +239,7 @@ export default async function VendorOutletsPage({ searchParams }: PageProps) {
                       <span className={REVIEW_BADGE[outlet.reviewStatus]}>{REVIEW_LABEL[outlet.reviewStatus]}</span>
                     </TableCell>
                     <TableCell>
-                      <span className={ADMIN_STATUS_BADGE[outlet.adminStatus]}>{outlet.adminStatus}</span>
+                      <span className={ADMIN_STATUS_BADGE[outlet.adminStatus]}>{ADMIN_STATUS_LABEL[outlet.adminStatus] ?? outlet.adminStatus}</span>
                     </TableCell>
                     <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
                       {outlet.flagReasons.length > 0

@@ -19,8 +19,9 @@ const STATUS_BADGE: Record<VendorPayoutAccount["verificationStatus"], { label: s
 }
 
 function accountIdentifier(a: VendorPayoutAccount): string {
-  if (a.mobileNumber) return a.mobileNumber
-  if (a.accountNumber) return `•••• ${a.accountNumber.slice(-4)}`
+  if (a.masked?.mobileNumber) return a.masked.mobileNumber
+  if (a.masked?.accountNumber) return a.masked.accountNumber
+  if (a.masked?.iban) return a.masked.iban
   if (a.paypalEmail) return a.paypalEmail
   if (a.stripeAccountId) return a.stripeAccountId
   return "—"

@@ -16,6 +16,7 @@ import {
     removeCountryFromRegion,
     setVendorOnboardingReadiness,
     setCustomerOperationsReadiness,
+    setOutletInspectionPolicy,
 } from "../services/admin.country.service"
 import { ApiError } from "@/middleware/error"
 
@@ -87,6 +88,17 @@ export const handleSetNotReadyForCustomers: RequestHandler = async (req, res, ne
     const { countryRef } = req.params as { countryRef: string }
     const data = await setCustomerOperationsReadiness(countryRef, false, adminUser.id, adminScope)
     return sendSuccess(res, data, "Country marked not ready for customer operations")
+  } catch (err) { next(err) }
+}
+
+export const handleSetOutletInspectionPolicy: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { countryRef } = req.params as { countryRef: string }
+    const { policy } = req.body as { policy?: string }
+    if (!policy) throw new ApiError(400, "policy is required", "MISSING_FIELDS")
+    const data = await setOutletInspectionPolicy(countryRef, policy, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Inspection policy updated")
   } catch (err) { next(err) }
 }
 

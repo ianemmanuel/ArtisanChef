@@ -47,7 +47,9 @@ export { DocumentStatus } from "../enums/document"
 export type { ServiceAreaMode } from "../enums/geography"
 export type { GeoStatus } from "../enums/geography"
 export type { OutletServiceMode } from "../enums/geography"
-export type { BoundarySource } from "../enums/geography"   
+export type { BoundarySource } from "../enums/geography"
+export type { ZoneLevel } from "../enums/geography"
+export type { ZoneOperationalStatus } from "../enums/geography"
 
 //* DOMAIN TYPES
 
@@ -67,6 +69,20 @@ export type {
     VendorTypeSummary,
     VendorTypeListResult,
     VendorTypeStats,
+    OutletGoLiveStatus,
+    OutletClearanceStatus,
+    OutletGoLiveBlocker,
+    AdminOutletDocumentRow,
+    OutletDocumentSeverity,
+    VendorDocumentActionStatus,
+    OutletInspectionPolicy,
+    OutletInspectionStatus,
+    OutletInspectionRow,
+    AdminOutletInspectionRow,
+    OutletInspectionListResult,
+    OutletInspectionDetail,
+    OutletMealPlanBlocker,
+    OutletMealPlanReadiness,
 } from "../domain/vendor"
 export type { VendorTypeStatus } from "../enums/vendor"
 export type {
@@ -83,6 +99,21 @@ export type {
 
 export type { ServiceArea } from "../domain/geography"
 export type { DeliveryZone } from "../domain/geography"
+export type { Zone } from "../domain/geography"
+export type { ZoneListItem } from "../domain/geography"
+export type { ZoneBoundary } from "../domain/geography"
+export type { ZoneCapabilityFlags } from "../domain/geography"
+export type { ResolvedCapabilities } from "../domain/geography"
+export type { CreateZoneRequest } from "../domain/geography"
+export type { UpdateZoneRequest } from "../domain/geography"
+export type { SetZoneLevelRequest } from "../domain/geography"
+export type { SetZoneOperationalStatusRequest } from "../domain/geography"
+export type { MarketSignalType, MarketSignalStatus } from "../enums/geography"
+export type {
+  MarketSignal, MarketSignalBucket, MarketSignalZoneRow,
+  CityMarketSignalSummary, MarketSignalListResult,
+  CreateMarketSignalRequest, UpdateMarketSignalStatusRequest,
+} from "../domain/geography"
 
 export type { ServiceAreaBoundary } from "../domain/geography"
 export type { DeliveryZoneBoundary } from "../domain/geography" 

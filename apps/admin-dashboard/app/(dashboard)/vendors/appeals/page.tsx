@@ -16,6 +16,7 @@ import { getFilterableCountries } from "@/lib/countries/filterable-countries"
 import { TableFilterBar } from "@/components/shared/TableFilterBar"
 import { TablePagination } from "@/components/shared/TablePagination"
 import { EmptyState } from "@/components/shared/EmptyState"
+import { QueueDot } from "@/components/shared/QueueDot"
 import { VendorAppealActions } from "@/components/vendors/VendorAppealActions"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { VendorAppealListResult, AppealStatus, AppealSubjectType } from "@/types"
@@ -26,15 +27,25 @@ export const revalidate = 60
 const PAGE_SIZE = 20
 
 interface PageProps {
-  searchParams: Promise<{ page?: string; search?: string; country?: string; type?: string; status?: string }>
+  searchParams: Promise<{ page?: string; search?: string; country?: string; type?: string; status?: string; queue?: string }>
 }
 
 const STATUS_TABS: { value: string; label: string }[] = [
   { value: "",             label: "All" },
   { value: "OPEN",         label: "Open" },
   { value: "UNDER_REVIEW", label: "Under Review" },
+  { value: "ESCALATED",    label: "Escalated" },
   { value: "UPHELD",       label: "Upheld" },
   { value: "OVERTURNED",   label: "Overturned" },
+]
+
+// Same three-pill "what should I be working on" concept as compliance's
+// queue filter.
+const QUEUE_OPTIONS: { value: string; label: string }[] = [
+  { value: "",           label: "All" },
+  { value: "mine",       label: "My Appeals" },
+  { value: "unclaimed",  label: "Unclaimed" },
+  { value: "escalated",  label: "Escalated" },
 ]
 
 const SUBJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -46,12 +57,13 @@ const SUBJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
 const STATUS_BADGE: Record<AppealStatus, string> = {
   OPEN        : "badge-neutral",
   UNDER_REVIEW: "badge-warning",
+  ESCALATED   : "badge-danger",
   UPHELD      : "badge-danger",
   OVERTURNED  : "badge-success",
 }
 
 const STATUS_LABEL: Record<AppealStatus, string> = {
-  OPEN: "Open", UNDER_REVIEW: "Under Review", UPHELD: "Upheld", OVERTURNED: "Overturned",
+  OPEN: "Open", UNDER_REVIEW: "Under Review", ESCALATED: "Escalated", UPHELD: "Upheld", OVERTURNED: "Overturned",
 }
 
 const SUBJECT_TYPE_LABEL: Record<AppealSubjectType, string> = {
@@ -64,7 +76,15 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
   const session = await getAdminSession()
 
   if (!session.permissions.includes(AdminPermissions.VENDORS_APPEALS_READ)) redirect("/vendors")
-  const canManage = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_MANAGE)
+  const canManage    = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_MANAGE)
+  const canClaim     = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_CLAIM)
+  const canEscalate  = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_ESCALATE)
+  const canReassign  = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_REASSIGN)
+  const showQueuePills = canClaim || canEscalate
+  // Same country-scoped-only eligibility as claimAppeal's actual
+  // enforcement — a globally-scoped holder still can't self-claim out of
+  // the pool, so the Escalated pill's dot shouldn't light up for them.
+  const canReceiveEscalation = session.permissions.includes(AdminPermissions.VENDORS_APPEALS_RECEIVE_ESCALATION) && !session.scope.isGlobal
 
   const params  = await searchParams
   const page    = params.page   ?? "1"
@@ -72,6 +92,7 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
   const country = params.country ?? ""
   const type    = params.type   ?? ""
   const status  = params.status ?? ""
+  const queue   = params.queue  ?? ""
 
   const { countries: allCountries, showFilter: showCountryFilter } = await getFilterableCountries(session.scope.isGlobal)
 
@@ -80,6 +101,7 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
   if (country) qsParams.countrySlug = country
   if (type)    qsParams.subjectType = type
   if (status)  qsParams.status      = status
+  if (queue)   qsParams.queue       = queue
   const qs = new URLSearchParams(qsParams)
 
   // Stat cards are server-computed counts (same Promise.all(pageSize=1)
@@ -91,7 +113,7 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
   const typeFilterQs    = type    ? `&subjectType=${type}`    : ""
   const scopedQs        = `${countryFilterQs}${typeFilterQs}`
 
-  const [result, openCountResult, reviewCountResult, upheldCountResult, overturnedCountResult] = await Promise.all([
+  const [result, openCountResult, reviewCountResult, upheldCountResult, overturnedCountResult, unclaimedCount, escalatedCount] = await Promise.all([
     adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?${qs}`, {
       next: { revalidate: 60, tags: ["vendor-appeals"] },
     }).catch(() => null),
@@ -107,6 +129,19 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
     adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?status=OVERTURNED&pageSize=1${scopedQs}`, {
       next: { revalidate: 60, tags: ["vendor-appeals"] },
     }).catch(() => ({ total: 0 })),
+    showQueuePills
+      ? adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?queue=unclaimed&pageSize=1${scopedQs}`, {
+          next: { revalidate: 60, tags: ["vendor-appeals"] },
+        }).catch(() => ({ total: 0 }))
+      : Promise.resolve({ total: 0 }),
+    // Narrower than the tab's own "escalated" filter — only appeals still
+    // sitting unclaimed in the open pool, i.e. actually pickable by this
+    // viewer.
+    canReceiveEscalation
+      ? adminFetch<VendorAppealListResult>(`/admin/v1/vendors/appeals?queue=escalated_unclaimed&pageSize=1${scopedQs}`, {
+          next: { revalidate: 60, tags: ["vendor-appeals"] },
+        }).catch(() => ({ total: 0 }))
+      : Promise.resolve({ total: 0 }),
   ])
 
   const openCount     = (openCountResult as { total: number }).total
@@ -163,12 +198,44 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
         ))}
       </div>
 
+      {/* Operational queue — who's working on what, distinct from the
+          status breakdown below. Only shown to admins who can actually
+          own an appeal. */}
+      {showQueuePills && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 p-1 w-fit">
+          {QUEUE_OPTIONS.map(({ value, label }) => {
+            const qp = new URLSearchParams()
+            if (status)  qp.set("status", status)
+            if (country) qp.set("country", country)
+            if (type)    qp.set("type", type)
+            if (value)   qp.set("queue", value)
+            const href = qp.toString() ? `/vendors/appeals?${qp}` : "/vendors/appeals"
+            const active = queue === value
+            return (
+              <Link
+                key={value || "all"}
+                href={href}
+                className={[
+                  "inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                  active ? "bg-card text-foreground shadow-[var(--shadow-xs)]" : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                {label}
+                {value === "unclaimed" && <QueueDot show={(unclaimedCount as { total: number }).total > 0} />}
+                {value === "escalated" && <QueueDot show={(escalatedCount  as { total: number }).total > 0} />}
+              </Link>
+            )
+          })}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-1.5 rounded-full border border-border/70 bg-muted/30 p-1 w-fit">
         {STATUS_TABS.map(({ value, label }) => {
           const qp = new URLSearchParams()
           if (search)  qp.set("search", search)
           if (country) qp.set("country", country)
           if (type)    qp.set("type", type)
+          if (queue)   qp.set("queue", queue)
           if (value)   qp.set("status", value)
           const href = qp.toString() ? `/vendors/appeals?${qp}` : "/vendors/appeals"
           const active = status === value
@@ -245,7 +312,7 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
                       {new Date(appeal.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <VendorAppealActions appeal={appeal} canManage={canManage} />
+                      <VendorAppealActions appeal={appeal} canManage={canManage} canClaim={canClaim} canEscalate={canEscalate} canReassign={canReassign} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -261,7 +328,7 @@ export default async function VendorAppealsPage({ searchParams }: PageProps) {
           page={result.page}
           totalPages={result.totalPages}
           basePath="/vendors/appeals"
-          params={{ ...(search ? { search } : {}), ...(country ? { country } : {}), ...(type ? { type } : {}), ...(status ? { status } : {}) }}
+          params={{ ...(search ? { search } : {}), ...(country ? { country } : {}), ...(type ? { type } : {}), ...(status ? { status } : {}), ...(queue ? { queue } : {}) }}
           itemLabel="appeals"
         />
       )}

@@ -29,6 +29,7 @@ import {
   UserCheck,
   MapPin,
   Plug,
+  ClipboardCheck,
 } from "lucide-react"
 import { AdminPermissions, type AdminPermissionKey } from "@repo/types/admin-app"
 
@@ -80,8 +81,9 @@ export const navSections: NavSection[] = [
       { label: "Home",         href: "/vendors",              icon: Store },
       { label: "Applications", href: "/vendors/applications", icon: FileCheck2 },
       { label: "Accounts",     href: "/vendors/accounts",     icon: Briefcase },
-      { label: "Outlets",      href: "/vendors/outlets",      icon: MapPin,      requiredPermission: AdminPermissions.VENDORS_OUTLETS_READ },
-      { label: "Compliance",   href: "/vendors/compliance",   icon: ShieldAlert, requiredPermission: AdminPermissions.VENDORS_COMPLIANCE_READ },
+      { label: "Outlets",      href: "/vendors/outlets",      icon: MapPin,          requiredPermission: AdminPermissions.VENDORS_OUTLETS_READ },
+      { label: "Inspections",  href: "/vendors/inspections",  icon: ClipboardCheck,  requiredPermission: AdminPermissions.VENDORS_OUTLETS_READ },
+      { label: "Compliance",   href: "/vendors/compliance",   icon: ShieldAlert,     requiredPermission: AdminPermissions.VENDORS_COMPLIANCE_READ },
       { label: "Appeals",      href: "/vendors/appeals",      icon: Scale,       requiredPermission: AdminPermissions.VENDORS_APPEALS_READ },
       { label: "Profiles",     href: "/vendors/profiles",     icon: UserCheck,   requiredPermission: AdminPermissions.VENDORS_PROFILES_READ },
       // Revenue moved to its own "Finance" section below (CLAUDE.md) —

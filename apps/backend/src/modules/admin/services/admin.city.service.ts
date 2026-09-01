@@ -1,6 +1,7 @@
 
 import { buildCountrySlug, buildCitySlug } from "@/utils/geo-slug.utils"
-import { prisma, GeoStatus } from "@repo/db"
+import { prisma, GeoStatus, Prisma } from "@repo/db"
+import { recomputeOutletZonesForCity } from "@/modules/vendor/services/vendor.geography.service"
 import type { AdminScopeContext }  from "@repo/types/backend"
 import { UUID_RE } from "@/constants/system"
 import { ApiError } from "@/middleware/error"
@@ -466,6 +467,15 @@ export async function saveCityBoundary(
         },
     })
 
+    // A moved/reshaped boundary can pull outlets in or out of the operational
+    // area (and thus in/out of zones). Best-effort — the boundary save has
+    // already committed.
+    try {
+        await recomputeOutletZonesForCity(city.id)
+    } catch (err) {
+        serviceLog.error({ err, cityId: city.id }, "Outlet zone recompute failed after city boundary save")
+    }
+
     return {
         success    : true,
         boundingBox,
@@ -493,11 +503,22 @@ export async function clearCityBoundary(
         )
     }
 
+    const zoneCount = await prisma.zone.count({ where: { cityId: city.id } })
+    if (zoneCount > 0) {
+        throw new ApiError(
+            409,
+            `Delete all ${zoneCount} zone(s) before clearing the city boundary.`,
+            "HAS_ZONES",
+        )
+    }
+
     await prisma.city.update({
         where: { id: city.id },
         data : {
-            boundary : {},
-            boundingBox : {},
+            // JsonNull, not `{}` — an empty object read back as non-null and
+            // made getCityBoundary report a cleared boundary as "configured".
+            boundary : Prisma.JsonNull,
+            boundingBox : Prisma.JsonNull,
             osmId : null,
             boundarySource : null,
             boundarySetAt  : null,

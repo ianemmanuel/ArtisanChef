@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, MapPin, Store, CheckCircle, PauseCircle, Ban, FileText, Clock } from "lucide-react"
+import { ArrowLeft, MapPin, Store, CheckCircle, PauseCircle, Ban, FileText, Clock, Map as MapIcon, ChevronRight } from "lucide-react"
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { CityActions } from "@/components/cities/CityActions"
@@ -31,6 +31,9 @@ export default async function CityDetailPage({ params }: Props) {
   // would otherwise hit that page's redirect. Only link there when it'd
   // actually work.
   const canViewCountryDocuments = session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE) && session.scope.isGlobal
+  const canViewGeography =
+    session.permissions.includes(AdminPermissions.SETTINGS_ZONES_READ) ||
+    session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE)
 
   let city: CityDetail
   try {
@@ -117,6 +120,27 @@ export default async function CityDetailPage({ params }: Props) {
           </div>
         ))}
       </div>
+
+      {/* Geography & zones */}
+      {canViewGeography && (
+        <Link
+          href={`/cities/${citySlug}/geography`}
+          className="admin-card group flex items-center justify-between gap-4 transition-colors hover:border-primary/40"
+        >
+          <div className="flex items-center gap-3">
+            <div className="icon-badge icon-badge-primary h-10 w-10">
+              <MapIcon className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Operational geography</p>
+              <p className="text-xs text-muted-foreground">
+                City boundary and operational zones — where outlets may exist and what can happen where.
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </Link>
+      )}
 
       {/* Document types */}
       <div className="admin-card flex flex-wrap items-center justify-between gap-4">

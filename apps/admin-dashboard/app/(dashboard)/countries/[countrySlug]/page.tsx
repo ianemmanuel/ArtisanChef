@@ -10,6 +10,7 @@ import { CountryLaunchChecklist } from "@/components/countries/CountryLaunchChec
 import { CountryVendorCategoriesPreview } from "@/components/countries/CountryVendorCategoriesPreview"
 import { CountryDocumentsPreview } from "@/components/countries/CountryDocumentsPreview"
 import { CountryReadinessActions } from "@/components/countries/CountryReadinessActions"
+import { CountryInspectionPolicy } from "@/components/countries/CountryInspectionPolicy"
 import { SectionViewMoreHeader } from "@/components/countries/SectionViewMoreHeader"
 import { CountryVendorAccountsSummary } from "@/components/countries/CountryVendorAccountsSummary"
 import { CountryVendorApplicationsSummary } from "@/components/countries/CountryVendorApplicationsSummary"
@@ -154,6 +155,12 @@ export default async function CountryDetailPage({ params }: Props) {
         hasInboundPaymentMethod={checklist.inboundPaymentMethodCount > 0}
         canWrite={canWrite}
         isGlobal={session.scope.isGlobal}
+      />
+
+      <CountryInspectionPolicy
+        countrySlug={country.slug}
+        current={country.outletInspectionPolicy ?? "MEAL_PLAN_ONLY"}
+        canWrite={canWrite}
       />
 
       {/* Headline stats */}

@@ -15,8 +15,11 @@ const cronLog = logger.child({ module: "document-expiry-cron" })
 // automatic vendor suspension on document expiry is explicitly out of scope
 // for now. Nothing here touches VendorAccount.status.
 //
-// Scoped to VendorDocument only. OutletDocument is intentionally untouched —
-// outlet administration is a separate, currently-deferred effort.
+// Flips both VendorDocument and OutletDocument APPROVED → EXPIRED once
+// expiryDate has passed. This is detection/flagging only — the automatic
+// consequences (auto-suspending an OUTLET whose CRITICAL document expired
+// past grace, sending vendor reminders) live in outlet-compliance.job.ts,
+// which runs right after this one reads the fresh EXPIRED rows.
 //
 // Idempotent by construction: the WHERE clause only ever matches documents
 // that are still APPROVED, so a document already flipped to EXPIRED by a
@@ -40,12 +43,12 @@ export function startDocumentExpiryCron(): ReturnType<typeof cron.schedule> {
         select: { id: true, vendorId: true, documentTypeId: true },
       })
 
-      if (newlyExpired.length === 0) return
-
-      await prisma.vendorDocument.updateMany({
-        where: { id: { in: newlyExpired.map((d) => d.id) } },
-        data : { status: DocumentStatus.EXPIRED },
-      })
+      if (newlyExpired.length > 0) {
+        await prisma.vendorDocument.updateMany({
+          where: { id: { in: newlyExpired.map((d) => d.id) } },
+          data : { status: DocumentStatus.EXPIRED },
+        })
+      }
 
       // One audit entry per document — these are real state changes an
       // admin should be able to trace, same as any other status change in
@@ -63,7 +66,32 @@ export function startDocumentExpiryCron(): ReturnType<typeof cron.schedule> {
         })
       }
 
-      cronLog.info({ count: newlyExpired.length, at: now.toISOString() }, "Marked vendor documents expired")
+      // ── Outlet documents ─────────────────────────────────────────────
+      const newlyExpiredOutlet = await prisma.outletDocument.findMany({
+        where : { status: DocumentStatus.APPROVED, expiryDate: { lt: now }, supersededAt: null },
+        select: { id: true, outletId: true, documentTypeId: true },
+      })
+      if (newlyExpiredOutlet.length > 0) {
+        await prisma.outletDocument.updateMany({
+          where: { id: { in: newlyExpiredOutlet.map((d) => d.id) } },
+          data : { status: DocumentStatus.EXPIRED },
+        })
+        for (const doc of newlyExpiredOutlet) {
+          auditService.log({
+            adminUserId: SYSTEM_USER_ID,
+            action     : "outlet_document.expired",
+            entityType : "OutletDocument",
+            entityId   : doc.id,
+            changes    : { before: { status: "APPROVED" }, after: { status: "EXPIRED" } },
+            metadata   : { outletId: doc.outletId, documentTypeId: doc.documentTypeId, source: "document-expiry-cron" },
+          })
+        }
+      }
+
+      cronLog.info(
+        { vendor: newlyExpired.length, outlet: newlyExpiredOutlet.length, at: now.toISOString() },
+        "Marked documents expired",
+      )
     } catch (err) {
       // Never let a cron failure crash the process — log and continue
       cronLog.error({ err }, "document-expiry-cron failed")

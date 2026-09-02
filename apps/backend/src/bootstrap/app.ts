@@ -7,6 +7,7 @@ import { rateLimiters } from "@/config/rateLimit"
 import { errorHandler } from "@/middleware/error/error.middleware"
 import { requestLogger } from "@/middleware/logger/requestLogger"
 import clerkWebhookRouter from "@/modules/integrations/clerk/webhooks"
+import { flutterwaveWebhookRouter } from "@/modules/finance/webhooks/flutterwave.webhook.routes"
 import { healthRouter } from "@/routes/health"
 import router from "@/routes"
 
@@ -24,11 +25,17 @@ app.use(cookieParser())
 //* every few seconds never get throttled
 app.use(healthRouter)
 
-//* Webhooks — must be BEFORE express.json(), Clerk needs the raw body
+//* Webhooks — must be BEFORE express.json(): the signature/HMAC is over the
+//* exact received bytes, so these routes need the raw body, not parsed JSON.
 app.use(
   "/webhooks/clerk",
   express.raw({ type: "application/json" }),
   clerkWebhookRouter,
+)
+app.use(
+  "/webhooks/flutterwave",
+  express.raw({ type: "application/json" }),
+  flutterwaveWebhookRouter,
 )
 
 //* Body parsing

@@ -121,3 +121,41 @@ export type { BoundingBox } from "../domain/geography"
 export type { GeoPoint } from "../domain/geography"
 
 export type { ApiSuccess, ApiErrorResponse } from "../shared/common"
+
+//* Finance domain (Phase 1A + 1B).
+export type {
+  Money,
+  Currency,
+  CreateCurrencyRequest,
+  UpdateCurrencyRequest,
+  PaymentProvider,
+  PaymentProviderListResult,
+  CreatePaymentProviderRequest,
+  UpdatePaymentProviderRequest,
+  SetFinanceReferenceStatusRequest,
+  CountryProviderAccount,
+  CreateCountryProviderAccountRequest,
+  UpdateCountryProviderAccountRequest,
+  SuspendRequest,
+  CountryFinancialConfig,
+  UpdateCountryFinancialConfigStructuralRequest,
+  SetOperationalSwitchesRequest,
+  ReadinessCheck,
+  FinancialReadiness,
+  CountryFinancialConfigView,
+  ProviderGatewayStatus,
+  CountryPaymentMethodWithProvider,
+  SetPaymentMethodProviderAccountRequest,
+  ProviderWebhookEvent,
+} from "../domain/finance"
+export {
+  FinanceReferenceStatus,
+  PaymentProviderCapability,
+  PAYMENT_PROVIDER_CAPABILITIES,
+  PaymentEnvironment,
+  CountryFinancialConfigStatus,
+  CountryProviderAccountStatus,
+  ProviderWebhookEventStatus,
+  FINANCIAL_READINESS_REASON_LABELS,
+} from "../enums/finance"
+export type { FinancialReadinessReason, NormalizedWebhookEventType } from "../enums/finance"

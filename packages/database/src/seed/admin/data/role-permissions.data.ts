@@ -34,6 +34,8 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "settings:documents:write",
     "finance:payment_methods:read",
     "finance:payment_methods:manage",
+    "finance:configuration:read",
+    "finance:configuration:manage",
   ],
 
   finance: [
@@ -57,6 +59,8 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "finance:reports:export",
     "finance:payment_methods:read",
     "finance:payment_methods:manage",
+    "finance:configuration:read",
+    "finance:configuration:manage",
     "orders:all:read",
   ],
 

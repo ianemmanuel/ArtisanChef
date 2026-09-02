@@ -32,6 +32,11 @@
       "types": "./src/frontend/admin.ts",
       "import": "./src/frontend/admin.ts",
       "require": "./src/frontend/admin.ts"
+    },
+    "./enums": {
+      "types": "./src/enums/index.ts",
+      "import": "./src/enums/index.ts",
+      "require": "./src/enums/index.ts"
     }
   },
   "dependencies": {

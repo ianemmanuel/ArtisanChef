@@ -7,6 +7,7 @@ import { startDocumentExpiryCron } from "@/jobs/vendor/document-expiry.job"
 import { startOutletComplianceCron } from "@/jobs/vendor/outlet-compliance.job"
 import { startComplianceCaseSyncCron } from "@/jobs/vendor/compliance-case-sync.job"
 import { startVendorOpsNotificationsCron } from "@/jobs/vendor/vendor-ops-notifications.job"
+import { registerProviderAdapters } from "@/modules/finance/providers/register-adapters"
 // TODO: point this at your real audit deletion job function
 // import { runAuditDeletionJob } from "@/services/audit"
 
@@ -32,6 +33,11 @@ export const r2Client = new S3Client({
 
 export async function initExternalServices() {
   logger.info({ bucket: env.R2_BUCKET_NAME }, "R2 client ready")
+
+  //* Finance — register the concrete payment-provider adapters into the
+  //* provider registry. The finance domain resolves a capability through
+  //* the registry; it never instantiates a provider itself.
+  registerProviderAdapters()
 
   //* Clerk: your vendor/admin secret keys and customer/courier JWKS
   //* URLs are already guaranteed present by env.ts. If you construct

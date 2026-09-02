@@ -8,7 +8,11 @@ import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/errors/ApiError"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
-import { assertGlobalFinanceScope, assertCountryFinanceConfigScope } from "../lib/scope"
+import {
+  assertGlobalFinanceScope,
+  assertCountryFinanceConfigScope,
+  assertFinanceRecordVisibleOr404,
+} from "../lib/scope"
 import { isEnvironmentActivatable, expectedProviderEnvironment } from "../lib/environment"
 import { enabledCapabilitiesNotSupported } from "../providers/provider.capabilities"
 import type {
@@ -76,7 +80,9 @@ export async function listProviderAccounts(countryId: string, scope: AdminScopeC
 
 export async function getProviderAccount(id: string, scope: AdminScopeContext) {
   const account = await loadAccount(id)
-  assertCountryFinanceConfigScope(scope, account.countryId)
+  // Opaque id → a caller who can't see the owning country gets a 404, not a
+  // 403 that would confirm the account exists (see assertFinanceRecordVisibleOr404).
+  assertFinanceRecordVisibleOr404(account.countryId, scope, "Provider account")
   return redactAlias(account)
 }
 
@@ -142,6 +148,11 @@ export async function updateProviderAccount(
   scope: AdminScopeContext,
 ) {
   const account = await loadAccount(id)
+  // Visibility first (404 if the caller can't see the owning country) — must
+  // come before the structural/global branching below, otherwise a
+  // country-scoped caller probing a non-DRAFT account id would get a 403
+  // that confirms it exists.
+  assertFinanceRecordVisibleOr404(account.countryId, scope, "Provider account")
 
   const touchesStructural = input.secretAlias !== undefined || input.environment !== undefined
   const isDraft = account.status === CountryProviderAccountStatus.DRAFT

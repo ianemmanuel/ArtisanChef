@@ -1,6 +1,8 @@
 import { prisma } from "@repo/db"
 import type { FinancialReadiness } from "@repo/types/backend"
 import { computeFinancialReadiness, type ReadinessInputs } from "./finance.readiness.compute"
+import { hasProviderAdapter } from "../providers/provider.registry"
+import { providerSecretsResolver } from "../secrets/provider-secrets.resolver"
 
 /*
  * Financial readiness — the reusable predicates that answer "can DailyBread
@@ -28,15 +30,41 @@ export async function loadReadinessInputs(countryId: string): Promise<ReadinessI
       include: {
         currency: { select: { status: true } },
         activeProviderAccount: {
-          include: { paymentProvider: { select: { status: true } } },
+          select: {
+            status: true,
+            environment: true,
+            enabledCapabilities: true,
+            secretAlias: true,
+            paymentProvider: { select: { code: true, status: true } },
+          },
         },
       },
     }),
     prisma.countryPaymentMethod.findMany({
       where: { countryId, status: "ACTIVE" },
-      include: { paymentMethod: { select: { type: true } } },
+      select: { direction: true, countryProviderAccountId: true, paymentMethod: { select: { type: true } } },
     }),
   ])
+
+  const activeAccountId = config?.activeProviderAccountId ?? null
+  const account = config?.activeProviderAccount ?? null
+
+  const providerAccount = account
+    ? {
+        status: account.status,
+        environment: account.environment,
+        enabledCapabilities: account.enabledCapabilities,
+        providerStatus: account.paymentProvider?.status ?? null,
+        adapterAvailable: hasProviderAdapter(account.paymentProvider?.code ?? ""),
+        // A no-network check: does the alias resolve to *any* credential keys.
+        credentialsResolvable: await providerSecretsResolver.has(account.secretAlias),
+      }
+    : null
+
+  const toMethod = (m: (typeof methods)[number]) => ({
+    type: m.paymentMethod.type,
+    wiredToActiveAccount: !!activeAccountId && m.countryProviderAccountId === activeAccountId,
+  })
 
   return {
     config: config
@@ -48,16 +76,9 @@ export async function loadReadinessInputs(countryId: string): Promise<ReadinessI
         }
       : null,
     currency: config?.currency ? { status: config.currency.status } : null,
-    providerAccount: config?.activeProviderAccount
-      ? {
-          status: config.activeProviderAccount.status,
-          environment: config.activeProviderAccount.environment,
-          enabledCapabilities: config.activeProviderAccount.enabledCapabilities,
-          providerStatus: config.activeProviderAccount.paymentProvider?.status ?? null,
-        }
-      : null,
-    inboundMethodTypes: methods.filter((m) => m.direction === "INBOUND").map((m) => m.paymentMethod.type),
-    outboundMethodTypes: methods.filter((m) => m.direction === "OUTBOUND").map((m) => m.paymentMethod.type),
+    providerAccount,
+    inboundMethods: methods.filter((m) => m.direction === "INBOUND").map(toMethod),
+    outboundMethods: methods.filter((m) => m.direction === "OUTBOUND").map(toMethod),
   }
 }
 

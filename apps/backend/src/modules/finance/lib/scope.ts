@@ -55,3 +55,26 @@ export function assertCountryFinanceConfigScope(scope: AdminScopeContext, countr
   }
   assertCountryInFinanceScope(scope, countryId)
 }
+
+/*
+ * A record addressed by an OPAQUE id (a provider-account id in a path, an
+ * account id in a request body) whose owning country the caller is not
+ * entitled to see must fail with a 404 that is identical to a genuinely
+ * missing row — never a 403/400 that says "wrong country" or "outside your
+ * scope", which would let a caller probe an id space and learn that a
+ * record exists in a country they can't access.
+ *
+ * (The 403 "outside your scope" pattern used elsewhere in the admin module
+ * is fine for routes addressed by a country :ref — the ref is already
+ * resolved in-scope by resolveCountryIdInScope, so a 403 there reveals
+ * nothing the caller didn't already supply. It's only opaque ids that leak.)
+ */
+export function assertFinanceRecordVisibleOr404(
+  ownerCountryId: string,
+  scope: AdminScopeContext,
+  label = "Record",
+): void {
+  if (isCityScoped(scope) || !isCountryInFinanceScope(scope, ownerCountryId)) {
+    throw new ApiError(404, `${label} not found`, "NOT_FOUND")
+  }
+}

@@ -20,11 +20,29 @@
  */
 
 export { default as financeAdminRouter } from "./routes/admin.routes"
+export { flutterwaveWebhookRouter } from "./webhooks/flutterwave.webhook.routes"
 
 export * as Money from "./lib/money"
 export { providerSecretsResolver } from "./secrets/provider-secrets.resolver"
-export { getProviderAdapter, registerProviderAdapter, assertAdapterCapability } from "./providers/provider.registry"
-export type { PaymentProviderAdapter } from "./providers/provider.types"
+export {
+  getProviderAdapter,
+  hasProviderAdapter,
+  registerProviderAdapter,
+  assertAdapterCapability,
+} from "./providers/provider.registry"
+export { registerProviderAdapters } from "./providers/register-adapters"
+export type { PaymentProviderAdapter, ProviderCallContext } from "./providers/provider.types"
+
+/*
+ * The bridge from the finance domain to a provider adapter — ask for a
+ * capability for a country, get a validated adapter + bound call context.
+ * Nothing in a request flow calls this yet (no checkout / payout run) — it
+ * exists so the next phase's payment flow plugs straight in.
+ */
+export {
+  resolveProviderGateway,
+  getProviderGatewayStatus,
+} from "./services/finance.providerGateway.service"
 
 /*
  * Financial readiness — the ONE readiness system. Consumed by

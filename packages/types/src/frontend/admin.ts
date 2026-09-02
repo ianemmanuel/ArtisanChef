@@ -143,6 +143,10 @@ export type {
   ReadinessCheck,
   FinancialReadiness,
   CountryFinancialConfigView,
+  ProviderGatewayStatus,
+  CountryPaymentMethodWithProvider,
+  SetPaymentMethodProviderAccountRequest,
+  ProviderWebhookEvent,
 } from "../domain/finance"
 export {
   FinanceReferenceStatus,
@@ -151,6 +155,7 @@ export {
   PaymentEnvironment,
   CountryFinancialConfigStatus,
   CountryProviderAccountStatus,
+  ProviderWebhookEventStatus,
   FINANCIAL_READINESS_REASON_LABELS,
 } from "../enums/finance"
-export type { FinancialReadinessReason } from "../enums/finance"
+export type { FinancialReadinessReason, NormalizedWebhookEventType } from "../enums/finance"

@@ -47,6 +47,24 @@ export enum CountryProviderAccountStatus {
   DISABLED  = "DISABLED",
 }
 
+//* ─── Phase 1C ───────────────────────────────────────────────────────────
+
+export enum ProviderWebhookEventStatus {
+  RECEIVED  = "RECEIVED",
+  PROCESSED = "PROCESSED",
+  SKIPPED   = "SKIPPED",
+}
+
+/** Normalized (provider-independent) webhook event type. */
+export type NormalizedWebhookEventType =
+  | "PAYMENT_SUCCEEDED"
+  | "PAYMENT_FAILED"
+  | "PAYOUT_PAID"
+  | "PAYOUT_FAILED"
+  | "REFUND_SUCCEEDED"
+  | "REFUND_FAILED"
+  | "UNKNOWN"
+
 //* Deterministic, admin-displayable reasons a country's financial readiness
 //* check can fail. Consumed by the Admin ERP and by country activation.
 export type FinancialReadinessReason =
@@ -65,6 +83,12 @@ export type FinancialReadinessReason =
   | "NO_PAYOUT_CAPABILITY"
   | "NO_VALID_OUTBOUND_PAYOUT_METHOD"
   | "NO_BANK_VERIFICATION_CAPABILITY"
+  //* Phase 1C — the explicit provider-account <-> payment-method wiring and
+  //* the concrete provider adapter.
+  | "PROVIDER_ADAPTER_UNAVAILABLE"
+  | "PROVIDER_CREDENTIALS_UNRESOLVED"
+  | "NO_INBOUND_METHOD_WIRED_TO_PROVIDER"
+  | "NO_OUTBOUND_METHOD_WIRED_TO_PROVIDER"
 
 /** Shared, deterministic display phrasing for each readiness reason. */
 export const FINANCIAL_READINESS_REASON_LABELS: Record<FinancialReadinessReason, string> = {
@@ -83,4 +107,8 @@ export const FINANCIAL_READINESS_REASON_LABELS: Record<FinancialReadinessReason,
   NO_PAYOUT_CAPABILITY: "no payout capability enabled",
   NO_VALID_OUTBOUND_PAYOUT_METHOD: "no usable vendor payout method",
   NO_BANK_VERIFICATION_CAPABILITY: "bank-account verification not available",
+  PROVIDER_ADAPTER_UNAVAILABLE: "no integration is available for the configured provider",
+  PROVIDER_CREDENTIALS_UNRESOLVED: "payment-provider credentials are not configured",
+  NO_INBOUND_METHOD_WIRED_TO_PROVIDER: "no customer payment method is wired to the provider account",
+  NO_OUTBOUND_METHOD_WIRED_TO_PROVIDER: "no vendor payout method is wired to the provider account",
 }

@@ -34,6 +34,10 @@ import {
   handleSuspendProviderAccount,
   handleDisableProviderAccount,
 } from "../controllers/finance.providerAccount.controller"
+import {
+  handleListCountryPaymentMethods,
+  handleSetPaymentMethodProviderAccount,
+} from "../controllers/finance.paymentMethodProvider.controller"
 
 /**
  * Finance module — admin-facing routes. Mounted at `/admin/v1/finance`
@@ -78,6 +82,14 @@ financeAdminRouter.patch("/provider-accounts/:accountId", MANAGE, handleUpdatePr
 financeAdminRouter.post("/provider-accounts/:accountId/activate", MANAGE, handleActivateProviderAccount)
 financeAdminRouter.post("/provider-accounts/:accountId/suspend", MANAGE, handleSuspendProviderAccount)
 financeAdminRouter.post("/provider-accounts/:accountId/disable", MANAGE, handleDisableProviderAccount)
+
+//* ─── Per-country payment-method <-> provider-account wiring (Phase 1C) ───
+financeAdminRouter.get("/countries/:countryRef/payment-methods", READ, handleListCountryPaymentMethods)
+financeAdminRouter.patch(
+  "/countries/:countryRef/payment-methods/:methodId/provider-account",
+  MANAGE,
+  handleSetPaymentMethodProviderAccount,
+)
 
 //* ─── Per-country financial configuration ────────────────────────────────
 financeAdminRouter.get("/countries/:countryRef/financial-config", READ, handleGetCountryFinancialConfig)

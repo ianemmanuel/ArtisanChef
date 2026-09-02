@@ -1,21 +1,48 @@
 /*
- * Payment-provider abstraction — CONTRACTS ONLY (Phase 1A).
- *
- * No implementation exists yet. Flutterwave / Stripe adapters come in a
- * later phase. The point of this file is that every future part of the
- * finance domain (payments, payouts, refunds, webhooks, bank resolution)
- * depends on THESE interfaces and THESE normalized types — never on a
- * provider's raw SDK/response shape.
+ * Payment-provider abstraction — the CONTRACTS every part of the finance
+ * domain depends on. No part of the domain ever sees a Flutterwave / Stripe
+ * SDK, payload, header, status string or error — only the normalized types
+ * and capability interfaces in this file.
  *
  * Capability-segregated: an adapter implements only the sub-interfaces it
- * supports. Nothing forces a card-only PSP to stub a mobile-money payout.
+ * supports (the rest are `undefined`). Nothing forces a card-only PSP to
+ * stub a mobile-money payout.
+ *
+ * Phase 1A shipped these as shapes only. Phase 1C adds `ProviderCallContext`
+ * (below) — the per-call bundle of resolved environment + secrets the
+ * finance service passes in, so an adapter can stay stateless and never
+ * read env or the DB itself. This is a refinement of the Phase 1A method
+ * signatures, not a redesign: the segregation, the normalized types and the
+ * registry are all unchanged.
  */
 
 import type { Money } from "../lib/money"
 import type { ProviderCapability } from "./provider.capabilities"
 
-//* Normalized boundary types 
-//* The finance domain only ever sees these — never a Flutterwave/Stripe payload.
+//* ─── Per-call context ───────────────────────────────────────────────────
+/*
+ * Everything an adapter needs to make one authenticated call, resolved by
+ * the finance domain (finance.providerGateway.service.ts) from the country's
+ * active CountryProviderAccount:
+ *   - `environment` comes from the provider account (TEST | LIVE) — the
+ *     adapter maps it to the provider's own sandbox/live host. Never
+ *     hard-coded in the adapter.
+ *   - `secrets` is the resolved bundle from ProviderSecretsResolver, keyed
+ *     by the alias on the account. The adapter reads only the keys it needs
+ *     and never logs them.
+ *   - `traceId` is an optional correlation id echoed to the provider where
+ *     supported (Flutterwave: X-Trace-Id) and into our own logs.
+ */
+export type ProviderEnvironment = "TEST" | "LIVE"
+
+export interface ProviderCallContext {
+  environment: ProviderEnvironment
+  secrets: Record<string, string>
+  traceId?: string
+}
+
+//* ─── Normalized boundary types ──────────────────────────────────────────
+//* The finance domain only ever sees these — never a provider payload.
 
 export type NormalizedTransactionStatus =
   | "PENDING"
@@ -34,26 +61,36 @@ export type NormalizedPayoutStatus =
 
 export type NormalizedRefundStatus = "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED"
 
+/** Where the customer must be sent to complete an initiated charge. */
+export interface NormalizedNextAction {
+  type: "REDIRECT" | "PAYMENT_INSTRUCTION" | "NONE"
+  /** For REDIRECT — the URL to send the customer to. */
+  redirectUrl?: string
+  /** For PAYMENT_INSTRUCTION — a short human instruction (e.g. "Approve the M-Pesa prompt"). */
+  instruction?: string
+}
+
 export interface NormalizedTransaction {
-  /** The provider's own id for this charge. */
+  /** The provider's own id for this charge — the handle for later verification. */
   providerRef: string
+  /** The reference WE supplied (idempotency + correlation), echoed back when available. */
+  reference?: string
   status: NormalizedTransactionStatus
   amount: Money
   /** Provider-reported fee, if any. */
   fee?: Money
-  /** Free-form provider status detail, for audit/troubleshooting. */
+  nextAction?: NormalizedNextAction
+  /** Safe, non-secret provider status detail — for audit/support, not business logic. */
   providerMessage?: string
-  /** The untouched provider payload, retained for reconciliation/audit. */
-  raw: unknown
 }
 
 export interface NormalizedPayout {
   providerRef: string
+  reference?: string
   status: NormalizedPayoutStatus
   amount: Money
   fee?: Money
   providerMessage?: string
-  raw: unknown
 }
 
 export interface NormalizedRefund {
@@ -61,7 +98,6 @@ export interface NormalizedRefund {
   status: NormalizedRefundStatus
   amount: Money
   providerMessage?: string
-  raw: unknown
 }
 
 export interface NormalizedBankAccount {
@@ -69,7 +105,6 @@ export interface NormalizedBankAccount {
   accountName: string
   bankCode: string
   bankName?: string
-  raw: unknown
 }
 
 export type NormalizedWebhookEventType =
@@ -78,32 +113,68 @@ export type NormalizedWebhookEventType =
   | "PAYOUT_PAID"
   | "PAYOUT_FAILED"
   | "REFUND_SUCCEEDED"
+  | "REFUND_FAILED"
   | "UNKNOWN"
 
 export interface NormalizedWebhookEvent {
   type: NormalizedWebhookEventType
   /** Provider id of the affected transaction/payout/refund, when resolvable. */
   providerRef: string | null
-  /** Provider's event id — used for internal idempotency. */
+  /** Provider's event id — the idempotency key. */
   providerEventId: string | null
+  /** Provider-reported status token, normalized where possible — advisory. */
+  providerStatus?: string
+  amount?: Money
+  occurredAt?: Date
+  /** The untouched provider payload — persisted for audit/replay ONLY, never
+   *  consumed by business logic. */
   raw: unknown
 }
 
-//* Capability interfaces
+//* ─── Capability interfaces ──────────────────────────────────────────────
+
+/**
+ * The payment instrument for a charge, provider-neutral. The adapter maps it
+ * to the provider's own representation. Populated by the customer checkout
+ * flow (a later phase) — Phase 1C only defines the shape and the mapping.
+ */
+export type ChargePaymentMethod =
+  | {
+      type: "MOBILE_MONEY"
+      /** Dialing code without '+', e.g. "254". */
+      countryCode: string
+      /** Provider-recognised network token, e.g. "MPESA", "AIRTEL". */
+      network: string
+      /** Local subscriber number, no country code. */
+      phoneNumber: string
+    }
+  | {
+      type: "CARD"
+      /** Already-encrypted card fields as the provider requires them. */
+      encrypted: Record<string, string>
+    }
+  | { type: "BANK_TRANSFER" }
 
 export interface CreateChargeInput {
   amount: Money
-  /** Internal reference the provider should echo back (idempotency + correlation). */
+  /** Internal reference the provider must echo back (idempotency + correlation). */
   reference: string
-  customerEmail?: string
+  /** Required by every provider we model. */
+  customerEmail: string
+  /** "First Last" — the adapter splits it if the provider wants structured names. */
   customerName?: string
+  /** Full international phone, e.g. "+254712345678". */
+  customerPhone?: string
+  /** Where the provider should return the customer after an off-site step. */
+  redirectUrl?: string
+  paymentMethod: ChargePaymentMethod
   metadata?: Record<string, string>
 }
 
 export interface PaymentCollectionCapability {
-  createCharge(input: CreateChargeInput): Promise<NormalizedTransaction>
-  verifyCharge(providerRef: string): Promise<NormalizedTransaction>
-  getTransaction(providerRef: string): Promise<NormalizedTransaction>
+  createCharge(ctx: ProviderCallContext, input: CreateChargeInput): Promise<NormalizedTransaction>
+  /** Authoritative status check — an initiated charge is NEVER assumed final. */
+  verifyCharge(ctx: ProviderCallContext, providerRef: string): Promise<NormalizedTransaction>
 }
 
 export interface RefundInput {
@@ -113,8 +184,8 @@ export interface RefundInput {
 }
 
 export interface RefundCapability {
-  refund(input: RefundInput): Promise<NormalizedRefund>
-  getRefund(providerRef: string): Promise<NormalizedRefund>
+  refund(ctx: ProviderCallContext, input: RefundInput): Promise<NormalizedRefund>
+  getRefund(ctx: ProviderCallContext, providerRef: string): Promise<NormalizedRefund>
 }
 
 export interface CreatePayoutInput {
@@ -129,9 +200,8 @@ export interface CreatePayoutInput {
 }
 
 export interface PayoutCapability {
-  createPayout(input: CreatePayoutInput): Promise<NormalizedPayout>
-  verifyPayout(providerRef: string): Promise<NormalizedPayout>
-  getPayout(providerRef: string): Promise<NormalizedPayout>
+  createPayout(ctx: ProviderCallContext, input: CreatePayoutInput): Promise<NormalizedPayout>
+  verifyPayout(ctx: ProviderCallContext, providerRef: string): Promise<NormalizedPayout>
 }
 
 export interface ResolveBankAccountInput {
@@ -140,22 +210,28 @@ export interface ResolveBankAccountInput {
 }
 
 export interface BankAccountResolutionCapability {
-  resolveBankAccount(input: ResolveBankAccountInput): Promise<NormalizedBankAccount>
+  resolveBankAccount(ctx: ProviderCallContext, input: ResolveBankAccountInput): Promise<NormalizedBankAccount>
 }
 
 export interface WebhookCapability {
-  /** Verify the provider's signature over the raw request. */
+  /**
+   * Verify the provider's signature over the EXACT raw request body.
+   * Pure and side-effect free so it's independently testable — the caller
+   * supplies the signing secret (resolved from the matching provider
+   * account) and the raw body/headers.
+   */
   verifySignature(rawBody: string, headers: Record<string, string | undefined>, signingSecret: string): boolean
+  /** Parse a verified raw body into a normalized event. Never called before verifySignature passes. */
   parseEvent(rawBody: string): NormalizedWebhookEvent
 }
 
 //* ─── Adapter ────────────────────────────────────────────────────────────
 
 /**
- * A concrete provider implementation. Declares its capability set, and
- * exposes ONLY the sub-interfaces it actually supports (the rest are
- * undefined). Stateless — the finance service passes resolved config +
- * secrets per call; the adapter never reads env or the DB.
+ * A concrete provider implementation. Declares its capability set and
+ * exposes ONLY the sub-interfaces it actually supports. Stateless — all
+ * per-call config + secrets arrive via ProviderCallContext; the adapter
+ * never reads env or the DB.
  */
 export interface PaymentProviderAdapter {
   readonly code: string

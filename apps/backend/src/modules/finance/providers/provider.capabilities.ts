@@ -73,6 +73,41 @@ export function payoutCapabilityForMethodType(type: string): ProviderCapability 
 }
 
 /**
+ * The single provider capability a CountryPaymentMethod needs from its
+ * provider account, given the method's type and direction. `null` means the
+ * combination is not payable (e.g. an OUTBOUND card) — a method like that
+ * cannot be wired to any provider account.
+ */
+export function requiredCapabilityForMethod(
+  methodType: string,
+  direction: "INBOUND" | "OUTBOUND",
+): ProviderCapability | null {
+  return direction === "INBOUND"
+    ? collectionCapabilityForMethodType(methodType)
+    : payoutCapabilityForMethodType(methodType)
+}
+
+/**
+ * Pure rule for whether a CountryProviderAccount may back a given
+ * CountryPaymentMethod. Returns a machine code for the problem, or null if
+ * it's fine. (The same-country guarantee is DB-enforced by the composite FK
+ * + a service-level 404 — this only covers capability/status.)
+ */
+export function methodProviderAccountProblem(input: {
+  methodType: string
+  direction: "INBOUND" | "OUTBOUND"
+  account: { status: string; enabledCapabilities: string[] } | null
+}): "ACCOUNT_DISABLED" | "METHOD_NOT_PAYABLE" | "CAPABILITY_NOT_ENABLED" | null {
+  if (!input.account) return null // unlink is always allowed
+  if (input.account.status === "DISABLED") return "ACCOUNT_DISABLED"
+
+  const needed = requiredCapabilityForMethod(input.methodType, input.direction)
+  if (!needed) return "METHOD_NOT_PAYABLE"
+  if (!input.account.enabledCapabilities.includes(needed)) return "CAPABILITY_NOT_ENABLED"
+  return null
+}
+
+/**
  * Enabled capabilities on a country provider account must be a subset of
  * what the provider's catalog entry declares — a country cannot turn on a
  * capability the provider can't do. Returns the offending values (empty =

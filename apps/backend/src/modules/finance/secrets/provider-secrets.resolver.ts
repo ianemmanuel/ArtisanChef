@@ -60,7 +60,9 @@ export class EnvProviderSecretsResolver implements ProviderSecretsResolver {
     const needle = `${this.prefix}${this.aliasToken(alias)}__`
     const out: ProviderSecrets = {}
     for (const [envKey, value] of Object.entries(process.env)) {
-      if (value == null || !envKey.startsWith(needle)) continue
+      // An empty / whitespace-only var is treated as "not set" — a blank
+      // placeholder in .env must not read as a configured credential.
+      if (value == null || value.trim() === "" || !envKey.startsWith(needle)) continue
       const rawKey = envKey.slice(needle.length)
       // FINANCE_PROVIDER_SECRET__X__SECRETKEY -> "secretKey" (lower first char run)
       out[rawKey.toLowerCase()] = value

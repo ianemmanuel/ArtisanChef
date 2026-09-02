@@ -15,9 +15,14 @@ const FULLY_READY: ReadinessInputs = {
     environment: "TEST",
     enabledCapabilities: ["COLLECTION_CARD", "COLLECTION_MOBILE_MONEY", "PAYOUT_BANK", "BANK_ACCOUNT_RESOLUTION"],
     providerStatus: "ACTIVE",
+    adapterAvailable: true,
+    credentialsResolvable: true,
   },
-  inboundMethodTypes: ["CARD", "MOBILE_MONEY"],
-  outboundMethodTypes: ["BANK"],
+  inboundMethods: [
+    { type: "CARD", wiredToActiveAccount: true },
+    { type: "MOBILE_MONEY", wiredToActiveAccount: true },
+  ],
+  outboundMethods: [{ type: "BANK", wiredToActiveAccount: true }],
 }
 
 function inputs(overrides: Partial<ReadinessInputs>): ReadinessInputs {
@@ -42,7 +47,6 @@ describe("computeFinancialReadiness — base prerequisites", () => {
     expect(r.collection.reasons).toContain("FINANCIAL_CONFIG_MISSING")
     expect(r.payout.reasons).toContain("FINANCIAL_CONFIG_MISSING")
     expect(r.bankVerification.reasons).toContain("FINANCIAL_CONFIG_MISSING")
-    // base short-circuits — no per-dimension currency/provider spam
     expect(r.collection.reasons).not.toContain("CURRENCY_NOT_CONFIGURED")
   })
 
@@ -81,6 +85,18 @@ describe("computeFinancialReadiness — base prerequisites", () => {
     const r = computeFinancialReadiness("ke", inputs({ providerAccount: { ...FULLY_READY.providerAccount!, environment: "LIVE" } }))
     expect(r.reasons).toContain("PROVIDER_ENVIRONMENT_MISMATCH")
   })
+
+  it("Phase 1C — no registered adapter for the provider", () => {
+    const r = computeFinancialReadiness("ke", inputs({ providerAccount: { ...FULLY_READY.providerAccount!, adapterAvailable: false } }))
+    expect(r.reasons).toContain("PROVIDER_ADAPTER_UNAVAILABLE")
+    expect(r.financiallyReady).toBe(false)
+  })
+
+  it("Phase 1C — provider credentials cannot be resolved", () => {
+    const r = computeFinancialReadiness("ke", inputs({ providerAccount: { ...FULLY_READY.providerAccount!, credentialsResolvable: false } }))
+    expect(r.reasons).toContain("PROVIDER_CREDENTIALS_UNRESOLVED")
+    expect(r.financiallyReady).toBe(false)
+  })
 })
 
 describe("computeFinancialReadiness — collection", () => {
@@ -88,7 +104,7 @@ describe("computeFinancialReadiness — collection", () => {
     const r = computeFinancialReadiness("ke", inputs({ config: { ...FULLY_READY.config!, collectionsEnabled: false } }))
     expect(r.collection.ready).toBe(false)
     expect(r.collection.reasons).toContain("COLLECTIONS_DISABLED")
-    expect(r.payout.ready).toBe(true) // independent
+    expect(r.payout.ready).toBe(true)
     expect(r.financiallyReady).toBe(false)
   })
 
@@ -103,15 +119,27 @@ describe("computeFinancialReadiness — collection", () => {
   it("inbound method type has no matching enabled capability", () => {
     const r = computeFinancialReadiness("ke", inputs({
       providerAccount: { ...FULLY_READY.providerAccount!, enabledCapabilities: ["COLLECTION_BANK_TRANSFER", "PAYOUT_BANK", "BANK_ACCOUNT_RESOLUTION"] },
-      inboundMethodTypes: ["CARD"], // enabled caps don't include COLLECTION_CARD
+      inboundMethods: [{ type: "CARD", wiredToActiveAccount: true }],
     }))
     expect(r.collection.reasons).toContain("NO_VALID_INBOUND_PAYMENT_METHOD")
-    expect(r.collection.reasons).not.toContain("NO_COLLECTION_CAPABILITY") // it does have one, just not for CARD
+    expect(r.collection.reasons).not.toContain("NO_COLLECTION_CAPABILITY")
   })
 
   it("no inbound methods at all", () => {
-    const r = computeFinancialReadiness("ke", inputs({ inboundMethodTypes: [] }))
+    const r = computeFinancialReadiness("ke", inputs({ inboundMethods: [] }))
     expect(r.collection.reasons).toContain("NO_VALID_INBOUND_PAYMENT_METHOD")
+  })
+
+  it("Phase 1C — a usable inbound method exists but is not wired to the active provider account", () => {
+    const r = computeFinancialReadiness("ke", inputs({
+      inboundMethods: [
+        { type: "CARD", wiredToActiveAccount: false },
+        { type: "MOBILE_MONEY", wiredToActiveAccount: false },
+      ],
+    }))
+    expect(r.collection.reasons).toContain("NO_INBOUND_METHOD_WIRED_TO_PROVIDER")
+    expect(r.collection.reasons).not.toContain("NO_VALID_INBOUND_PAYMENT_METHOD")
+    expect(r.collection.ready).toBe(false)
   })
 })
 
@@ -141,14 +169,22 @@ describe("computeFinancialReadiness — payout", () => {
   })
 
   it("no outbound methods at all", () => {
-    const r = computeFinancialReadiness("ke", inputs({ outboundMethodTypes: [] }))
+    const r = computeFinancialReadiness("ke", inputs({ outboundMethods: [] }))
     expect(r.payout.reasons).toContain("NO_VALID_OUTBOUND_PAYOUT_METHOD")
+  })
+
+  it("Phase 1C — a usable outbound method exists but is not wired to the active provider account", () => {
+    const r = computeFinancialReadiness("ke", inputs({
+      outboundMethods: [{ type: "BANK", wiredToActiveAccount: false }],
+    }))
+    expect(r.payout.reasons).toContain("NO_OUTBOUND_METHOD_WIRED_TO_PROVIDER")
+    expect(r.payout.reasons).not.toContain("NO_VALID_OUTBOUND_PAYOUT_METHOD")
+    expect(r.payout.ready).toBe(false)
   })
 })
 
 describe("computeFinancialReadiness — configured launch model is enough", () => {
   it("CARD + MOBILE_MONEY collection, BANK payout only — financially ready without every provider capability", () => {
-    // provider technically supports more, but the country only enables this model
     const r = computeFinancialReadiness("ke", FULLY_READY)
     expect(r.financiallyReady).toBe(true)
   })
@@ -167,7 +203,7 @@ describe("environment guard respects NODE_ENV", () => {
 
   it("in production, a TEST provider account is an environment mismatch", () => {
     process.env.NODE_ENV = "production"
-    const r = computeFinancialReadiness("ke", FULLY_READY) // FULLY_READY uses a TEST account
+    const r = computeFinancialReadiness("ke", FULLY_READY)
     expect(r.reasons).toContain("PROVIDER_ENVIRONMENT_MISMATCH")
   })
 

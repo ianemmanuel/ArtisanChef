@@ -14,6 +14,8 @@ import type {
   CountryFinancialConfigStatus,
   CountryProviderAccountStatus,
   FinancialReadinessReason,
+  ProviderWebhookEventStatus,
+  NormalizedWebhookEventType,
 } from "../enums/finance"
 
 //* ─── Money ──────────────────────────────────────────────────────────────
@@ -203,7 +205,66 @@ export interface CountryFinancialConfigView {
   config: CountryFinancialConfig | null
   providerAccounts: CountryProviderAccount[]
   readiness: FinancialReadiness
+  /** Phase 1C — can this country actually reach its provider (no network check). */
+  providerGateway: ProviderGatewayStatus
+  /** Phase 1C — payment methods and which provider account (if any) executes each. */
+  paymentMethods: CountryPaymentMethodWithProvider[]
   /** What the current admin may do, given permission + scope. */
   canManageDraft: boolean
   canManageLifecycle: boolean
+}
+
+//* ─── Phase 1C — provider wiring ────────────────────────────────────────
+
+export interface ProviderGatewayStatus {
+  configured: boolean
+  providerCode: string | null
+  environment: PaymentEnvironment | null
+  /** A concrete adapter is registered for the provider code. */
+  adapterRegistered: boolean
+  /** The account's secret alias resolves to a credential bundle. */
+  credentialsResolvable: boolean
+  enabledCapabilities: string[]
+  blockers: string[]
+}
+
+export interface CountryPaymentMethodWithProvider {
+  id: string
+  countryId: string
+  direction: "INBOUND" | "OUTBOUND"
+  status: string
+  countryProviderAccountId: string | null
+  displayOrder: number
+  paymentMethod: {
+    id: string
+    code: string
+    name: string
+    type: string
+  }
+  countryProviderAccount: {
+    id: string
+    status: CountryProviderAccountStatus
+    environment: PaymentEnvironment
+    accountLabel: string | null
+    enabledCapabilities: PaymentProviderCapability[]
+    paymentProvider: { code: string; name: string; status: FinanceReferenceStatus }
+  } | null
+}
+
+export interface SetPaymentMethodProviderAccountRequest {
+  countryProviderAccountId: string | null
+}
+
+//* ─── Phase 1C — recorded provider webhook event ────────────────────────
+
+export interface ProviderWebhookEvent {
+  id: string
+  provider: string
+  providerEventId: string
+  eventType: NormalizedWebhookEventType | string
+  providerRef: string | null
+  countryProviderAccountId: string | null
+  status: ProviderWebhookEventStatus
+  receivedAt: string
+  processedAt: string | null
 }

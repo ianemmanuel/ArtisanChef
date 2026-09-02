@@ -7,6 +7,8 @@ import { assertGlobalFinanceScope, assertCountryFinanceConfigScope } from "../li
 import { isEnvironmentActivatable, expectedProviderEnvironment } from "../lib/environment"
 import { COLLECTION_CAPABILITIES, PAYOUT_CAPABILITIES } from "../providers/provider.capabilities"
 import { getFinancialReadiness } from "./finance.readiness.service"
+import { getProviderGatewayStatus } from "./finance.providerGateway.service"
+import { listCountryPaymentMethods } from "./finance.paymentMethodProvider.service"
 import type { SetOperationalSwitchesInput } from "../schemas/finance.countryConfig.schema"
 
 const serviceLog = logger.child({ module: "finance-country-config-service" })
@@ -54,7 +56,7 @@ function isStructuralScopeAllowed(status: string, scope: AdminScopeContext, coun
   }
 }
 
-//* ─── Read / get-or-create ──────────────────────────────────────────────
+//* Read / get-or-create
 
 export async function getOrCreateConfig(countryId: string, actorId: string, scope: AdminScopeContext) {
   assertCountryFinanceConfigScope(scope, countryId)
@@ -84,7 +86,7 @@ export async function getConfig(countryId: string, scope: AdminScopeContext) {
   return loadConfig(countryId)
 }
 
-//* ─── Structural configuration ──────────────────────────────────────────
+//* Structural configuration 
 
 export async function setConfigCurrency(countryId: string, currencyCode: string, actorId: string, scope: AdminScopeContext) {
   const config = await loadConfig(countryId)
@@ -132,9 +134,13 @@ export async function setActiveProviderAccount(
 
   if (accountId) {
     const account = await prisma.countryProviderAccount.findUnique({ where: { id: accountId } })
-    if (!account) throw new ApiError(404, "Provider account not found", "NOT_FOUND")
-    if (account.countryId !== countryId) {
-      throw new ApiError(400, "That provider account belongs to a different country", "ACCOUNT_COUNTRY_MISMATCH")
+    // A provider account that doesn't exist AND one that belongs to another
+    // country must be indistinguishable here — the caller supplied this id
+    // and is only authorised for `countryId`, so anything else is "not
+    // found", never "wrong country" (which would leak that the id is a real
+    // provider account somewhere else).
+    if (!account || account.countryId !== countryId) {
+      throw new ApiError(404, "Provider account not found", "NOT_FOUND")
     }
     if (account.status === CountryProviderAccountStatus.DISABLED) {
       throw new ApiError(400, "A disabled provider account cannot be set as active", "ACCOUNT_DISABLED")
@@ -345,13 +351,13 @@ export async function disableConfig(countryId: string, actorId: string, scope: A
   return updated
 }
 
-//* ─── Combined view for the Admin ERP ───────────────────────────────────
+//* Combined view for the Admin ERP 
 
 export async function getCountryFinancialConfigView(countryId: string, scope: AdminScopeContext) {
   assertCountryFinanceConfigScope(scope, countryId)
   await assertCountryExists(countryId)
 
-  const [config, providerAccounts, readiness] = await Promise.all([
+  const [config, providerAccounts, readiness, providerGateway, paymentMethods] = await Promise.all([
     loadConfig(countryId),
     prisma.countryProviderAccount.findMany({
       where: { countryId },
@@ -359,12 +365,18 @@ export async function getCountryFinancialConfigView(countryId: string, scope: Ad
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     }),
     getFinancialReadiness(countryId),
+    getProviderGatewayStatus(countryId),
+    listCountryPaymentMethods(countryId, scope),
   ])
 
   return {
     config,
     providerAccounts: providerAccounts.map((a) => ({ ...a, secretAlias: "***" })),
     readiness,
+    providerGateway,
+    // listCountryPaymentMethods selects no secret material on the linked
+    // account (id/status/environment/label/capabilities/provider only).
+    paymentMethods,
     canManageDraft: scope.isGlobal || scope.countryIds.includes(countryId),
     canManageLifecycle: scope.isGlobal,
   }

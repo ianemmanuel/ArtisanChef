@@ -21,6 +21,7 @@ import { EmptyState }          from "@/components/shared/EmptyState"
 import { ComplianceIssueBadge } from "@/components/vendors/ComplianceIssueBadge"
 import { VendorPayoutAccountsSection } from "@/components/vendors/VendorPayoutAccountsSection"
 import { VendorCommissionRateSection } from "@/components/vendors/VendorCommissionRateSection"
+import { VendorReadinessCard } from "@/components/vendors/VendorReadinessCard"
 import { LogAppealDialog }     from "@/components/vendors/LogAppealDialog"
 import { getMockVendorRevenue, getMockVendorRevenueSeries, getMockOutletRevenue, formatMockCurrency } from "@/lib/mock/vendor-revenue"
 import { AdminPermissions } from "@repo/types/admin-app"
@@ -203,6 +204,11 @@ export default async function VendorAccountDetailPage({ params }: Props) {
           )}
         </div>
       )}
+
+      {/* Selling readiness — the authoritative getVendorGoLiveStatus, computed
+          server-side in getVendorAccount. Read-only: an admin doesn't resolve
+          these (the vendor does), this just shows where the vendor stands. */}
+      {account.goLiveStatus && <VendorReadinessCard status={account.goLiveStatus} />}
 
       {/* Compliance — document expiry + missing-document visibility. Data
           comes pre-computed from getVendorAccount (account.compliance,

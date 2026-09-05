@@ -14,6 +14,7 @@ const BLOCKER_LABEL: Record<OutletGoLiveBlocker, { text: string; owner: "vendor"
   OUTLET_SUSPENDED           : { text: "Admin-suspended", owner: "platform" },
   OUTLET_SUSPENDED_COMPLIANCE: { text: "Auto-suspended — CRITICAL document expired", owner: "vendor" },
   OUTLET_BANNED              : { text: "Banned", owner: "platform" },
+  OUTLET_DEACTIVATED         : { text: "Vendor deactivated this outlet", owner: "vendor" },
   TEMPORARILY_CLOSED         : { text: "Vendor marked it temporarily closed", owner: "vendor" },
   VENDOR_NOT_LIVE            : { text: "Vendor storefront not published", owner: "vendor" },
   ZONE_LEVEL_TOO_LOW         : { text: "Outlet's zone doesn't allow orders yet (registration-only / unzoned)", owner: "platform" },

@@ -105,7 +105,7 @@ export function UpdateOutletForm({ outlet }: Props) {
 
       if (Object.keys(payload).length === 0) return
 
-      const res  = await fetch(`/api/vendor/outlets/${outlet.id}`, {
+      const res  = await fetch(`/api/outlets/${outlet.id}/update`, {
         method : "PATCH",
         headers: { "Content-Type": "application/json" },
         body   : JSON.stringify(payload),

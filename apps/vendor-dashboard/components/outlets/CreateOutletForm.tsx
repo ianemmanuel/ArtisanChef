@@ -8,30 +8,22 @@ import { Input } from "@repo/ui/components/input"
 import { Label } from "@repo/ui/components/label"
 import { Textarea } from "@repo/ui/components/textarea"
 import {
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue,
-} from "@repo/ui/components/select"
-import {
-  Card, 
-  CardContent, 
-  CardHeader, 
-  CardTitle, 
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   CardDescription,
 } from "@repo/ui/components/card"
 import {
-  Loader2, 
-  MapPin, 
-  Phone, 
-  Mail, 
-  Navigation,
-  Store, 
-  Truck, 
-  BadgeDollarSign, 
-  Map,
+  Loader2,
+  MapPin,
+  Phone,
+  Mail,
+  Store,
+  Truck,
+  BadgeDollarSign,
 } from "lucide-react"
+import { SearchableCombobox } from "@/components/onboarding/SearchableCombobox"
 import { createOutletSchema } from "@/lib/validations/create-outlet"
 import type { City } from "@/types/outlet"
 
@@ -121,7 +113,7 @@ export function CreateOutletForm({ cities }: Props) {
         postalCode  : parsed.data.postalCode   || undefined,
       }
 
-      const res  = await fetch("/api/vendor/outlets", {
+      const res  = await fetch("/api/outlets/create", {
         method : "POST",
         headers: { "Content-Type": "application/json" },
         body   : JSON.stringify(payload),
@@ -151,7 +143,7 @@ export function CreateOutletForm({ cities }: Props) {
         router.refresh() after push is redundant — it causes a second
         server round-trip to the same new page. Removed.
       */
-      router.push(`/dashboard/outlets/${data.data.id}`)
+      router.push(`/setup/outlets/${data.data.id}`)
     },
   })
 
@@ -203,16 +195,19 @@ export function CreateOutletForm({ cities }: Props) {
                 <Label htmlFor="cityId">
                   City <span className="text-[var(--destructive)]">*</span>
                 </Label>
-                <Select value={field.state.value} onValueChange={field.handleChange}>
-                  <SelectTrigger id="cityId" className={inputCls}>
-                    <SelectValue placeholder="Select city…" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-xl">
-                    {cities.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableCombobox
+                  aria-label="City"
+                  options={cities.map((c) => ({ value: c.id, label: c.name }))}
+                  value={field.state.value || undefined}
+                  onChange={field.handleChange}
+                  placeholder={cities.length ? "Select city…" : "No active cities available"}
+                  searchPlaceholder="Search cities…"
+                  emptyText="No matching city."
+                  disabled={cities.length === 0}
+                />
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Cities where DailyBread currently operates in your country.
+                </p>
                 <InlineError errors={field.state.meta.errors} touched={field.state.meta.isTouched} />
               </div>
             )}
@@ -343,26 +338,25 @@ export function CreateOutletForm({ cities }: Props) {
           ))}
         </div>
 
-        {/* GPS */}
-        <div
-          className="space-y-3 rounded-xl border p-4"
-          style={{
-            borderColor: "var(--border)",
-            background : "color-mix(in oklch, var(--muted) 25%, transparent)",
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <Navigation className="size-4 text-[var(--primary)]" />
-            <p className="text-sm font-medium text-[var(--foreground)]">GPS Coordinates</p>
+        {/* Coordinates — the map picker that ties a pin to the city's
+            operational area is a separate, later initiative; for now the
+            vendor supplies coordinates and the backend validates them
+            against the city (and its boundary, where one is configured). */}
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-sm font-medium text-[var(--foreground)]">Coordinates</p>
             <a
-              href="https://maps.google.com"
+              href="https://www.google.com/maps"
               target="_blank"
               rel="noopener noreferrer"
-              className="ml-auto text-xs text-[var(--primary)] underline-offset-2 hover:underline"
+              className="text-xs text-[var(--primary)] underline-offset-2 hover:underline"
             >
-              Find on Google Maps ↗
+              Look up on Google Maps ↗
             </a>
           </div>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Right-click your exact location in Google Maps and copy the latitude and longitude.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             {(["latitude", "longitude"] as const).map((name) => (
               <form.Field
@@ -416,65 +410,7 @@ export function CreateOutletForm({ cities }: Props) {
         </div>
       </Section>
 
-      {/* ── 3. Map Picker ──────────────────────────── */}
-      {/*
-        MAP INTEGRATION PLAN (Mapbox GL JS via react-map-gl)
-        ──────────────────────────────────────────────────────
-        Why Mapbox over Google Maps:
-          - Cheaper at scale (Google charges per load)
-          - GeoJSON polygons are first-class — service area overlays are trivial
-          - react-map-gl has excellent Next.js/React 18+ support
-          - fitBounds() restricts the viewport to the city bounding box natively
-
-        Data flow:
-          1. Create page SSR fetches the city object including:
-             - boundingBoxNorth/South/East/West (for map viewport)
-             - ServiceArea[].boundaries (GeoJSON Polygon/MultiPolygon)
-          2. Pass {cityBounds, serviceAreas} as props to this form
-          3. On map click → write lat/lng into form fields via:
-               latField.handleChange(lngLat.lat)
-               lngField.handleChange(lngLat.lng)
-          4. Optionally restrict clicking outside service areas client-side
-             (backend always enforces as final authority)
-
-        Polygon support:
-          - Single city, connected areas → GeoJSON Polygon
-          - Disconnected zones (east + west) → GeoJSON MultiPolygon
-          - Rendered as shaded fill-layer on the map
-          - Admin sets these in admin dashboard; vendor sees them as read-only
-
-        OUTSIDE SERVICE AREA flow:
-          - Backend sets flagReasons: ["OUTSIDE_SERVICE_AREA"], reviewStatus: "FLAGGED"
-          - Frontend toast: "We don't currently deliver here — we'll notify you when we expand."
-          - Outlet still created and stored (for future area expansion notifications)
-
-        TO INTEGRATE:
-          npm install react-map-gl mapbox-gl
-          Add NEXT_PUBLIC_MAPBOX_TOKEN to .env.local
-          Replace the placeholder below with <OutletMapPicker /> component
-      */}
-      <Section icon={Map} title="Pin Your Location" description="Drop a pin on your exact outlet location">
-        <div
-          className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <div
-            className="flex size-12 items-center justify-center rounded-2xl"
-            style={{ background: "color-mix(in oklch, var(--primary) 12%, transparent)" }}
-          >
-            <Map className="size-6 text-[var(--primary)]" />
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-[var(--foreground)]">Interactive map coming soon</p>
-            <p className="mt-1 max-w-xs text-xs text-[var(--muted-foreground)]">
-              You'll be able to drop a pin directly on the map. For now, enter
-              coordinates manually using the Google Maps link above.
-            </p>
-          </div>
-        </div>
-      </Section>
-
-      {/* ── 4. Delivery & Pricing ──────────────────── */}
+      {/* ── 3. Delivery & Pricing ──────────────────── */}
       <Section icon={Truck} title="Delivery & Pricing" description="Optional — can be updated anytime">
         <div className="grid gap-4 sm:grid-cols-3">
           {(

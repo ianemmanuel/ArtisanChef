@@ -20,6 +20,7 @@ import { ClerkVendorStateService } from "@/lib/clerk"
 import { getVendorComplianceIssues, getVendorOperationalIssues } from "./admin.vendor.compliance.service"
 import { getDuplicatePayoutFlags } from "./admin.vendor.payout.service"
 import { presentPayoutAccount } from "@/modules/vendor/services/vendor.payout.service"
+import { getVendorGoLiveStatus } from "@/modules/vendor/services/vendor.profile.service"
 import { assertVendorDocumentReviewableByActor } from "./admin.vendor.compliance-case.service"
 import { MAX_APPLICATION_PRIORITY_SCAN } from "@/constants/vendor"
 import { toCsv } from "@/lib/csv"
@@ -1374,7 +1375,13 @@ export async function getVendorAccount(vendorId: string, actorScope: AdminScopeC
     duplicateElsewhere: duplicateFlags.get(p.id) ?? 0,
   }))
 
-  return { ...account, outlets, compliance, payoutAccounts }
+  // Vendor-level selling readiness — the SAME authoritative getVendorGoLiveStatus
+  // the vendor dashboard renders, never a re-derivation here. Gated only by the
+  // VENDORS_ACCOUNTS_READ this endpoint already requires; the underlying facts
+  // (payout / profile / outlet) are all already in this response.
+  const goLiveStatus = await getVendorGoLiveStatus(vendorId)
+
+  return { ...account, outlets, compliance, payoutAccounts, goLiveStatus }
 }
 
 //* Suspend

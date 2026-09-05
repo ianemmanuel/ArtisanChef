@@ -232,6 +232,9 @@ export interface VendorAccountWithDetails extends VendorAccount {
   vendorType : VendorType
   vendorProfile : VendorProfile | null
   outlets  : OutletSummary[]
+  //* Authoritative vendor-level selling readiness (getVendorGoLiveStatus).
+  //* Surfaced on the admin vendor detail page — never recomputed client-side.
+  goLiveStatus? : VendorGoLiveStatus | null
 }
 
 //* Vendor profile
@@ -321,6 +324,16 @@ export interface UpsertVendorProfileRequest {
  * VendorLifecycleState. See getVendorGoLiveStatus/publishVendorProfile in
  * vendor.profile.service.ts.
  */
+//* Why a vendor can't publish their storefront (go live) yet. Centralised
+//* here — the same codes the backend emits and the vendor-dashboard renders,
+//* so the two can't drift. Same convention as OutletGoLiveBlocker below:
+//* audience-specific wording stays in each consumer, only the codes are shared.
+export type VendorGoLiveBlocker =
+  | "VERIFIED_PAYOUT_ACCOUNT"  // no VERIFIED payout account
+  | "PROFILE"                  // no public profile created yet
+  | "PROFILE_UNDER_REVIEW"     // profile exists but is FLAGGED / MANUALLY_REJECTED
+  | "OUTLET"                   // no qualifying active outlet (see getVendorGoLiveStatus)
+
 export interface VendorGoLiveStatus {
   hasVerifiedPayoutAccount: boolean
   hasActiveOutlet         : boolean
@@ -328,7 +341,7 @@ export interface VendorGoLiveStatus {
   isProfileReviewClear    : boolean
   isPublished              : boolean
   canGoLive                : boolean
-  blockers                 : string[]
+  blockers                 : VendorGoLiveBlocker[]
 }
 
 /*
@@ -348,6 +361,7 @@ export type OutletGoLiveBlocker =
   | "OUTLET_BANNED"
   | "TEMPORARILY_CLOSED"         // vendor closed it temporarily
   | "VENDOR_NOT_LIVE"            // the vendor hasn't published their storefront
+  | "OUTLET_DEACTIVATED"        // the vendor deactivated this outlet themselves (Outlet.vendorDisabledAt)
   | "ZONE_LEVEL_TOO_LOW"         // outlet's operational zone doesn't allow orders yet (registration-only / unzoned)
   | "ZONE_NOT_OPERATIONAL"       // zone is suspended / maintenance / emergency, or the city is inactive
 
@@ -358,11 +372,11 @@ export interface OutletGoLiveStatus {
   isAcceptingOrders: boolean
   vendorPublished  : boolean
   blockers         : OutletGoLiveBlocker[]
-  /** Required CRITICAL-severity outlet documents and where each one stands. */
+  /** Required, in-force CRITICAL-severity outlet documents and where each one stands. */
   criticalDocuments: Array<{
     documentTypeId: string
     name          : string
-    status        : "MISSING" | "PENDING_REVIEW" | "APPROVED" | "EXPIRED"
+    status        : "MISSING" | "PENDING_REVIEW" | "APPROVED" | "EXPIRED" | "REJECTED"
   }>
   zone: {
     id               : string | null
@@ -559,6 +573,13 @@ export interface VendorSessionData {
   }
   application   : VendorSessionApplication | null
   vendorAccount : VendorSessionAccount | null
+  //* Vendor-level selling readiness — the authoritative getVendorGoLiveStatus
+  //* result, attached by the session controller (one extra awaited call, same
+  //* "kept out of the pure session transform" pattern the admin module uses
+  //* for hasOpenComplianceIssues). Present only when state is ACTIVE — null
+  //* everywhere else (no account, or SUSPENDED/BANNED). Never recomputed
+  //* client-side; the frontend renders straight off this.
+  goLiveStatus  : VendorGoLiveStatus | null
 }
 
 
@@ -956,6 +977,25 @@ export interface VendorPayoutAccount {
   createdAt             : string
   updatedAt             : string
   countryPaymentMethod  : { paymentMethod: { name: string; type: string; logoUrl: string | null; code: string } }
+}
+
+//* Vendor 1E — GET /vendor/v1/payouts/banks. `code` is what must be
+//* submitted back as AddPayoutAccountRequest.bankCode — the same provider
+//* bank identifier the bank-resolution verification capability expects,
+//* never re-derived from `name`. A distinct type from Finance's own
+//* NormalizedBank (identical shape today) — the vendor API contract stays
+//* decoupled from Finance's internal provider-adapter surface.
+export interface VendorPayoutBankOption {
+  code: string
+  name: string
+}
+
+export interface VendorSupportedBanks {
+  //* false = the vendor's country has no configured bank-list capability
+  //* yet (not an error — a normal, expected state). `banks` is always []
+  //* when false.
+  supported: boolean
+  banks    : VendorPayoutBankOption[]
 }
 
 export type idParam = { id: string }

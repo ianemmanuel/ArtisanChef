@@ -31,7 +31,13 @@ export {
   assertAdapterCapability,
 } from "./providers/provider.registry"
 export { registerProviderAdapters } from "./providers/register-adapters"
-export type { PaymentProviderAdapter, ProviderCallContext } from "./providers/provider.types"
+export type {
+  PaymentProviderAdapter,
+  ProviderCallContext,
+  NormalizedBank,
+  NormalizedBankAccount,
+} from "./providers/provider.types"
+export { ProviderError, isProviderError, type ProviderErrorCategory } from "./providers/provider.errors"
 
 /*
  * The bridge from the finance domain to a provider adapter — ask for a

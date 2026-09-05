@@ -116,6 +116,8 @@ function adapterSurfaceFor(capability: ProviderCapability): keyof PaymentProvide
       return "payouts"
     case "BANK_ACCOUNT_RESOLUTION":
       return "bankResolution"
+    case "BANK_LIST":
+      return "bankList"
     case "WEBHOOKS":
       return "webhooks"
     default:

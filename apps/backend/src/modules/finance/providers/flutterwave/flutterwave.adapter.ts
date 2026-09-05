@@ -25,13 +25,19 @@ import type {
   RefundCapability,
   PayoutCapability,
   WebhookCapability,
+  BankAccountResolutionCapability,
+  BankListCapability,
   CreateChargeInput,
   ChargePaymentMethod,
   RefundInput,
   CreatePayoutInput,
+  ResolveBankAccountInput,
+  ListBanksInput,
   NormalizedTransaction,
   NormalizedPayout,
   NormalizedRefund,
+  NormalizedBankAccount,
+  NormalizedBank,
   NormalizedNextAction,
 } from "../provider.types"
 import type { ProviderCapability } from "../provider.capabilities"
@@ -50,8 +56,17 @@ const CAPABILITIES: ProviderCapability[] = [
   "REFUND",
   "PAYOUT_BANK",
   "BANK_ACCOUNT_RESOLUTION",
+  "BANK_LIST",
   "WEBHOOKS",
 ]
+
+/** Bank lists change essentially never — cached in-memory per environment +
+ *  country, same "Map + expiry timestamp" shape as FlutterwaveTokenManager's
+ *  token cache (flutterwave.token.ts), for the same reason: avoid a
+ *  provider round trip on every vendor's setup-page visit without any new
+ *  infra. Per-adapter-instance (the registry holds one adapter instance),
+ *  not global/module-level. */
+const BANK_LIST_CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 export interface FlutterwaveAdapterDeps {
   http?: FlutterwaveHttpClient
@@ -254,6 +269,31 @@ function normalizeRefund(data: Record<string, unknown>, expected?: Money): Norma
   }
 }
 
+/** POST /banks/account-resolve response: { data: { bank_code, account_number, account_name } }. */
+function normalizeBankAccount(data: Record<string, unknown>, fallback: ResolveBankAccountInput): NormalizedBankAccount {
+  return {
+    accountNumber: typeof data.account_number === "string" ? data.account_number : fallback.accountNumber,
+    accountName  : typeof data.account_name === "string" ? data.account_name : "",
+    bankCode     : typeof data.bank_code === "string" ? data.bank_code : fallback.bankCode,
+  }
+}
+
+/** GET /banks response: { data: [{ id, code, name }] }. `code` — not `id` —
+ *  is what /banks/account-resolve and /direct-transfers expect back as
+ *  bankCode; `id` is a Flutterwave-internal handle this adapter never
+ *  surfaces (kept provider-internal, per the ownership boundary). */
+function normalizeBankList(data: unknown): NormalizedBank[] {
+  if (!Array.isArray(data)) return []
+  const out: NormalizedBank[] = []
+  for (const entry of data) {
+    const e = entry as Record<string, unknown>
+    if (typeof e.code === "string" && typeof e.name === "string" && e.code && e.name) {
+      out.push({ code: e.code, name: e.name })
+    }
+  }
+  return out
+}
+
 //* ─── Request builders ───────────────────────────────────────────────────
 
 function buildCustomer(input: CreateChargeInput): Record<string, unknown> {
@@ -390,12 +430,65 @@ export function createFlutterwaveAdapter(deps: FlutterwaveAdapterDeps = {}): Pay
     parseEvent: parseFlutterwaveEvent,
   }
 
+  /*
+   * v4 Bank Account Look Up (developer.flutterwave.com/reference/bank_account_resolve_post):
+   * POST /banks/account-resolve, body discriminated by `currency`. The
+   * request shape below is the common NGN/GHS/UGX/KES-style minimal form
+   * ({ currency, account: { code, number } }) — the only shape Vendor 1D
+   * needs (a bank code + account number, no personal/corporate discriminator
+   * fields like GBP requires). A currency whose resolve request needs more
+   * than that isn't reachable yet — the caller (Finance's gateway) doesn't
+   * offer a way to supply it, so extending this is the next currency's job,
+   * not a speculative addition now. No idempotency key: this is a read-only
+   * lookup, not a state-changing operation.
+   */
+  const bankResolution: BankAccountResolutionCapability = {
+    async resolveBankAccount(ctx, input: ResolveBankAccountInput): Promise<NormalizedBankAccount> {
+      const data = await client.call(ctx, {
+        method: "POST",
+        path: "/banks/account-resolve",
+        json: {
+          currency: input.currency,
+          account: { code: input.bankCode, number: input.accountNumber },
+        },
+      })
+      return normalizeBankAccount(data, input)
+    },
+  }
+
+  const bankListCache = new Map<string, { banks: NormalizedBank[]; expiresAt: number }>()
+
+  /*
+   * v4 Retrieve Banks (developer.flutterwave.com/reference/banks_get):
+   * GET /banks?country={ISO2}. No idempotency key — a read. Cached
+   * in-memory per environment+country (see BANK_LIST_CACHE_TTL_MS above).
+   */
+  const bankList: BankListCapability = {
+    async listBanks(ctx, input: ListBanksInput): Promise<NormalizedBank[]> {
+      const cacheKey = `${ctx.environment}::${input.countryCode.toUpperCase()}`
+      const cached = bankListCache.get(cacheKey)
+      if (cached && Date.now() < cached.expiresAt) return cached.banks
+
+      const data = await client.call(ctx, {
+        method: "GET",
+        path  : `/banks?country=${encodeURIComponent(input.countryCode.toUpperCase())}`,
+      })
+      // The v4 envelope for a list endpoint is { data: [...] } — client.call
+      // already unwraps `body.data`, so `data` here IS the array itself.
+      const banks = normalizeBankList(data)
+      bankListCache.set(cacheKey, { banks, expiresAt: Date.now() + BANK_LIST_CACHE_TTL_MS })
+      return banks
+    },
+  }
+
   return {
     code: FLUTTERWAVE_PROVIDER_CODE,
     capabilities: new Set<ProviderCapability>(CAPABILITIES),
     collection,
     refunds,
     payouts,
+    bankResolution,
+    bankList,
     webhooks,
   }
 }

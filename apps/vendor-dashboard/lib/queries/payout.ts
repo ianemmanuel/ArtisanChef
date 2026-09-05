@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { clientFetch } from "@/lib/api/client"
-import type { AvailablePayoutMethod, VendorPayoutAccount, AddPayoutAccountRequest } from "@repo/types/vendor-app"
+import type { AvailablePayoutMethod, VendorPayoutAccount, AddPayoutAccountRequest, VendorSupportedBanks } from "@repo/types/vendor-app"
 
 /*
  * Roadmap Phase 4 (CLAUDE.md) — the vendor.payout.routes.ts backend was
@@ -13,6 +13,7 @@ import type { AvailablePayoutMethod, VendorPayoutAccount, AddPayoutAccountReques
 
 export const payoutKeys = {
   methods : ["payout", "methods"] as const,
+  banks   : ["payout", "banks"] as const,
   accounts: ["payout", "accounts"] as const,
 }
 
@@ -20,6 +21,23 @@ export function usePayoutMethods() {
   return useQuery({
     queryKey: payoutKeys.methods,
     queryFn : () => clientFetch<AvailablePayoutMethod[]>("/api/payout/methods"),
+  })
+}
+
+/*
+ * Vendor 1E — the vendor's country/active-provider bank list. `enabled`
+ * lets the caller defer the request until the BANK method is actually
+ * selected, since most vendors never need it. `supported: false` (no
+ * banks configured for this country/provider yet) is a normal response,
+ * not an error — react-query only ever surfaces a transport/provider
+ * failure as `isError`.
+ */
+export function usePayoutBanks(enabled: boolean) {
+  return useQuery({
+    queryKey: payoutKeys.banks,
+    queryFn : () => clientFetch<VendorSupportedBanks>("/api/payout/banks"),
+    enabled,
+    staleTime: 60 * 60 * 1000, // banks change essentially never — an hour is plenty
   })
 }
 

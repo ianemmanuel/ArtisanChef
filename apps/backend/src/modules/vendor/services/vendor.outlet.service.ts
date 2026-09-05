@@ -7,6 +7,8 @@ import { Filter } from "bad-words"
 import { OUTLET_PROXIMITY_DEGREES, MAX_TEMP_CLOSURE_DAYS } from "@/constants/vendor"
 import { resolveCapabilitiesForPoint, resolveCapabilitiesForOutlet } from "./vendor.geography.service"
 import { getOutletDocumentRequirements } from "./vendor.document.service"
+import { getOutletCriticalDocuments } from "./vendor.outletDocument.service"
+import { selectEnforcedCriticalRequired } from "./vendor.outletClearance"
 import type {
   CreateOutletRequest, UpdateOutletRequest, OperatingHoursEntry,
   OutletGoLiveStatus, OutletGoLiveBlocker,
@@ -26,14 +28,10 @@ async function resolveInitialClearance(
   cityId: string,
 ): Promise<"PENDING_DOCUMENTS" | "CLEARED"> {
   const reqs = await getOutletDocumentRequirements({ countryId: vendor.countryId, vendorTypeId: vendor.vendorTypeId, cityId })
-  const now = new Date()
-  const hasUnmetCritical = reqs.some(
-    (r) =>
-      r.complianceSeverity === "CRITICAL" &&
-      (r.vendorTypeConfigs[0]?.isRequired ?? r.isRequired) &&
-      !(r.enforcedFrom && r.enforcedFrom > now),
-  )
-  return hasUnmetCritical ? "PENDING_DOCUMENTS" : "CLEARED"
+  // A brand-new outlet has no documents yet, so any in-force required CRITICAL
+  // requirement means it starts at PENDING_DOCUMENTS (recomputeOutletClearance
+  // re-evaluates it against actual uploads on every upsert / admin review).
+  return selectEnforcedCriticalRequired(reqs).length > 0 ? "PENDING_DOCUMENTS" : "CLEARED"
 }
 
 const serviceLog = logger.child({ module: "vendor-outlet-service" })
@@ -312,7 +310,7 @@ export async function getOutletMealPlanReadiness(outletId: string): Promise<Outl
   const outlet = await prisma.outlet.findUnique({
     where : { id: outletId },
     select: {
-      id: true, deletedAt: true,
+      id: true, deletedAt: true, vendorDisabledAt: true,
       clearanceStatus: true, adminStatus: true, reviewStatus: true, isTemporarilyClosed: true,
       vendor: { select: { country: { select: { outletInspectionPolicy: true } } } },
     },
@@ -334,12 +332,15 @@ export async function getOutletMealPlanReadiness(outletId: string): Promise<Outl
   const now = new Date()
   const blockers: OutletMealPlanBlocker[] = []
 
-  // The outlet must first be cleared for on-demand serving at all.
+  // The outlet must first be cleared for on-demand serving at all — same set
+  // of gates getOutletGoLiveStatus applies for isClearedToServe, kept in
+  // lockstep so a vendor-deactivated outlet can't look meal-plan-eligible.
   const clearedToServe =
     outlet.clearanceStatus === "CLEARED" &&
     outlet.adminStatus === OutletAdminStatus.ACTIVE &&
     outlet.reviewStatus !== OutletReviewStatus.MANUALLY_REJECTED &&
-    !outlet.isTemporarilyClosed
+    !outlet.isTemporarilyClosed &&
+    !outlet.vendorDisabledAt
   if (!clearedToServe) blockers.push("NOT_CLEARED_TO_SERVE")
 
   if (!zoneAllowsMealPlans) blockers.push("ZONE_LEVEL_TOO_LOW")
@@ -371,8 +372,9 @@ export async function getOutletMealPlanReadiness(outletId: string): Promise<Outl
 
 //* Go-live status — the outlet-level counterpart to getVendorGoLiveStatus.
 //* Combines the outlet's own gates (clearance, admin status, content review,
-//* temporary closure) with its operational zone (level + status) and, for
-//* the customer-facing answer, whether the vendor's storefront is published.
+//* vendor deactivation, temporary closure) with its operational zone (level +
+//* status) and, for the customer-facing answer, whether the vendor's
+//* storefront is published.
 //* Computed live, never stored (OutletGoLiveStatus). Backend is the source of
 //* truth — the dashboards render off this, they never re-derive it.
 
@@ -380,18 +382,19 @@ export async function getOutletGoLiveStatus(outletId: string): Promise<OutletGoL
   const outlet = await prisma.outlet.findUnique({
     where : { id: outletId },
     select: {
-      id: true, vendorId: true, deletedAt: true,
+      id: true, vendorId: true, deletedAt: true, vendorDisabledAt: true,
       clearanceStatus: true, adminStatus: true, reviewStatus: true, isTemporarilyClosed: true,
     },
   })
   if (!outlet || outlet.deletedAt) throw new ApiError(404, "Outlet not found", "NOT_FOUND")
 
-  const [profile, caps] = await Promise.all([
+  const [profile, caps, criticalDocuments] = await Promise.all([
     prisma.vendorProfile.findUnique({
       where : { vendorAccountId: outlet.vendorId },
       select: { isPublished: true },
     }),
     resolveCapabilitiesForOutlet(outletId),
+    getOutletCriticalDocuments(outletId),
   ])
 
   const vendorPublished = profile?.isPublished ?? false
@@ -402,6 +405,7 @@ export async function getOutletGoLiveStatus(outletId: string): Promise<OutletGoL
   if (outlet.adminStatus === OutletAdminStatus.SUSPENDED)            blockers.push("OUTLET_SUSPENDED")
   if (outlet.adminStatus === "SUSPENDED_COMPLIANCE")                 blockers.push("OUTLET_SUSPENDED_COMPLIANCE")
   if (outlet.adminStatus === OutletAdminStatus.BANNED)               blockers.push("OUTLET_BANNED")
+  if (outlet.vendorDisabledAt)                                       blockers.push("OUTLET_DEACTIVATED")
   if (outlet.isTemporarilyClosed)                                    blockers.push("TEMPORARILY_CLOSED")
 
   if (!caps || !caps.canListOnDemand)  blockers.push("ZONE_LEVEL_TOO_LOW")
@@ -417,8 +421,7 @@ export async function getOutletGoLiveStatus(outletId: string): Promise<OutletGoL
     isAcceptingOrders: isClearedToServe && vendorPublished,
     vendorPublished,
     blockers,
-    // Populated once OUTLET-scoped document requirements exist (build order #2/#3).
-    criticalDocuments: [],
+    criticalDocuments,
     zone: {
       id               : caps?.zoneId ?? null,
       name             : caps?.zoneName ?? null,

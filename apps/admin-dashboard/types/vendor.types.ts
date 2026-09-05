@@ -382,6 +382,7 @@ export type OutletReviewStatus = "AUTO_APPROVED" | "FLAGGED" | "MANUALLY_APPROVE
 export type OutletAdminStatus  = "ACTIVE" | "SUSPENDED" | "SUSPENDED_COMPLIANCE" | "BANNED"
 export type OutletClearanceStatus = "PENDING_DOCUMENTS" | "CLEARED"
 export type {
+  VendorGoLiveStatus, VendorGoLiveBlocker,
   OutletGoLiveStatus, OutletGoLiveBlocker,
   AdminOutletDocumentRow, OutletDocumentSeverity, VendorDocumentActionStatus,
   OutletInspectionPolicy, OutletInspectionStatus, OutletInspectionRow,

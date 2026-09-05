@@ -18,6 +18,10 @@ export const PROVIDER_CAPABILITIES = [
   "PAYOUT_BANK",
   "PAYOUT_MOBILE_MONEY",
   "WEBHOOKS",
+  // Vendor 1E — list a provider's supported banks for a country. Auxiliary
+  // (doesn't itself act on a payment), so deliberately NOT added to
+  // METHOD_TYPE_REQUIRES below.
+  "BANK_LIST",
 ] as const
 
 export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number]

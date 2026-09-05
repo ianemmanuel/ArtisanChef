@@ -6,6 +6,12 @@ import { auditService } from "@/services/audit"
 import { R2Service } from "@/lib/r2"
 import { SYSTEM_USER_ID } from "@/constants/system"
 import { getOutletDocumentRequirements } from "./vendor.document.service"
+import {
+  selectEnforcedCriticalRequired,
+  outletCriticalDocumentsAllClear,
+  computeOutletCriticalDocuments,
+  type OutletCriticalDocument,
+} from "./vendor.outletClearance"
 
 /*
  * Row shape returned to the vendor dashboard — kept as a local type (not the
@@ -246,15 +252,7 @@ export async function recomputeOutletClearance(outletId: string): Promise<Outlet
   const reqs = await getOutletDocumentRequirements({
     countryId: outlet.vendor.countryId, vendorTypeId: outlet.vendor.vendorTypeId, cityId: outlet.cityId,
   })
-  const now = new Date()
-  const criticalRequired = reqs.filter(
-    (r) =>
-      r.complianceSeverity === "CRITICAL" &&
-      (r.vendorTypeConfigs[0]?.isRequired ?? r.isRequired) &&
-      // A requirement with a future enforcedFrom (an admin-set transition
-      // window) doesn't gate yet — it applies uniformly once the date passes.
-      !(r.enforcedFrom && r.enforcedFrom > now),
-  )
+  const criticalRequired = selectEnforcedCriticalRequired(reqs)
 
   let next: OutletClearanceStatus = "CLEARED"
   if (criticalRequired.length > 0) {
@@ -262,12 +260,7 @@ export async function recomputeOutletClearance(outletId: string): Promise<Outlet
       where : { outletId, documentTypeId: { in: criticalRequired.map((r) => r.id) }, supersededAt: null },
       select: { documentTypeId: true, status: true, expiryDate: true },
     })
-    const byType = new Map(docs.map((d) => [d.documentTypeId, d]))
-    const allGood = criticalRequired.every((r) => {
-      const d = byType.get(r.id)
-      return !!d && d.status === DocumentStatus.APPROVED && (!d.expiryDate || d.expiryDate > now)
-    })
-    next = allGood ? "CLEARED" : "PENDING_DOCUMENTS"
+    next = outletCriticalDocumentsAllClear(criticalRequired, docs) ? "CLEARED" : "PENDING_DOCUMENTS"
   }
 
   if (next !== outlet.clearanceStatus) {
@@ -286,4 +279,32 @@ export async function recomputeOutletClearance(outletId: string): Promise<Outlet
   }
 
   return next
+}
+
+/*
+ * The per-document breakdown behind an outlet's PENDING_DOCUMENTS clearance —
+ * every required, in-force, CRITICAL-severity OUTLET document type and where
+ * it currently stands. Same requirement resolution + enforcedFrom rule as
+ * recomputeOutletClearance (which decides the single clearanceStatus flag);
+ * this is the itemised view getOutletGoLiveStatus surfaces. Returns [] when
+ * the outlet has no CRITICAL required outlet documents at all.
+ */
+export async function getOutletCriticalDocuments(outletId: string): Promise<OutletCriticalDocument[]> {
+  const outlet = await prisma.outlet.findUnique({
+    where : { id: outletId },
+    select: { cityId: true, vendor: { select: { countryId: true, vendorTypeId: true } } },
+  })
+  if (!outlet) return []
+
+  const reqs = await getOutletDocumentRequirements({
+    countryId: outlet.vendor.countryId, vendorTypeId: outlet.vendor.vendorTypeId, cityId: outlet.cityId,
+  })
+  const criticalRequired = selectEnforcedCriticalRequired(reqs)
+  if (criticalRequired.length === 0) return []
+
+  const docs = await prisma.outletDocument.findMany({
+    where : { outletId, documentTypeId: { in: criticalRequired.map((r) => r.id) }, supersededAt: null },
+    select: { documentTypeId: true, status: true, expiryDate: true },
+  })
+  return computeOutletCriticalDocuments(criticalRequired, docs)
 }

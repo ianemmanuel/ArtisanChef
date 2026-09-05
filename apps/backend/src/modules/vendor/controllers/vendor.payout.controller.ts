@@ -9,6 +9,7 @@ import {
   listPayoutAccounts,
   getPayoutAccount,
   getAvailablePayoutMethods,
+  listSupportedBanks,
 } from "../services/vendor.payout.service"
 import type { AddPayoutAccountRequest, idParam } from "@repo/types/backend"
 
@@ -20,6 +21,17 @@ export const handleGetAvailablePayoutMethods = async (req: Request, res: Respons
 
     const methods = await getAvailablePayoutMethods(auth.vendorAccount.id)
     return sendSuccess(res, methods, "Available payout methods fetched")
+  } catch (err) { next(err) }
+}
+
+
+//* GET the supported bank list for the vendor's own country/provider (Vendor 1E)
+export const handleListSupportedBanks = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await getVendorAccount(req)
+
+    const result = await listSupportedBanks(auth.vendorAccount.id)
+    return sendSuccess(res, result, "Supported banks fetched")
   } catch (err) { next(err) }
 }
 

@@ -20,6 +20,7 @@ export enum PaymentProviderCapability {
   PAYOUT_BANK              = "PAYOUT_BANK",
   PAYOUT_MOBILE_MONEY      = "PAYOUT_MOBILE_MONEY",
   WEBHOOKS                 = "WEBHOOKS",
+  BANK_LIST                = "BANK_LIST",
 }
 
 /** Every capability value, for iteration / validation. */

@@ -6,6 +6,7 @@ import {
   handleAddPayoutAccount,
   handleSetDefaultPayoutAccount,
   handleRemovePayoutAccount,
+  handleListSupportedBanks,
 } from "../../controllers/vendor.payout.controller"
 
 const payoutRouter: Router = Router()
@@ -14,6 +15,9 @@ const payoutRouter: Router = Router()
 
 //* Available methods the vendor can choose from (driven by their country)
 payoutRouter.get("/methods", handleGetAvailablePayoutMethods)
+
+//* Supported banks for the vendor's own country/active provider (Vendor 1E)
+payoutRouter.get("/banks", handleListSupportedBanks)
 
 //* Vendor's registered payout accounts
 payoutRouter.get("/accounts",     handleListPayoutAccounts)

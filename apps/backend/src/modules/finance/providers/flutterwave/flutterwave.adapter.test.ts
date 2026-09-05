@@ -256,13 +256,165 @@ describe("Flutterwave adapter — payout (POST /direct-transfers)", () => {
   })
 })
 
+describe("Flutterwave adapter — bank account resolution (POST /banks/account-resolve)", () => {
+  const RESOLVE_PATH = "/banks/account-resolve"
+
+  it("sends the currency-discriminated body ({ currency, account: { code, number} }) and normalizes the result", async () => {
+    const { http, adapter } = build([
+      tokenOk,
+      {
+        match: (r) => r.url.includes(RESOLVE_PATH) && r.method === "POST",
+        respond: { status: 200, body: { status: "success", message: "ok", data: { bank_code: "044", account_number: "0690000031", account_name: "JANE WANJIKU" } } },
+      },
+    ])
+    const result = await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "0690000031", currency: "KES" })
+
+    const call = http.calls.find((c) => c.url.includes(RESOLVE_PATH))!
+    const body = call.json as Record<string, unknown>
+    expect(body.currency).toBe("KES")
+    expect((body.account as Record<string, unknown>).code).toBe("044")
+    expect((body.account as Record<string, unknown>).number).toBe("0690000031")
+
+    expect(result).toEqual({ accountNumber: "0690000031", accountName: "JANE WANJIKU", bankCode: "044" })
+  })
+
+  it("authenticates the same way as every other endpoint (bearer token + trace id)", async () => {
+    const { http, adapter } = build([
+      tokenOk,
+      { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 200, body: { data: { bank_code: "044", account_number: "1", account_name: "A" } } } },
+    ])
+    await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "KES" })
+    const call = http.calls.find((c) => c.url.includes(RESOLVE_PATH))!
+    expect(call.headers.authorization).toBe("Bearer tok_abc")
+    expect(call.headers["x-trace-id"]).toBe("verify-trace-1234")
+  })
+
+  it("normalizes a 'not found' style failure to ProviderError(INVALID_REQUEST) via the standard error envelope", async () => {
+    const { adapter } = build([
+      tokenOk,
+      {
+        match: (r) => r.url.includes(RESOLVE_PATH),
+        respond: { status: 400, body: fwError("RESOURCE_NOT_FOUND", "Account not found") },
+      },
+    ])
+    await expect(
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "0000000000", currency: "KES" }),
+    ).rejects.toMatchObject({ name: "ProviderError", category: "INVALID_REQUEST" })
+  })
+
+  it("maps a provider outage (5xx) to PROVIDER_UNAVAILABLE", async () => {
+    const { adapter } = build([
+      tokenOk,
+      { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 503, body: {} } },
+    ])
+    await expect(
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "KES" }),
+    ).rejects.toMatchObject({ category: "PROVIDER_UNAVAILABLE" })
+  })
+
+  it("maps an authentication failure to AUTHENTICATION", async () => {
+    const { adapter } = build([
+      tokenOk,
+      { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 401, body: fwError("UNAUTHORIZED", "Invalid credentials") } },
+    ])
+    await expect(
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "KES" }),
+    ).rejects.toMatchObject({ category: "AUTHENTICATION" })
+  })
+
+  it("never leaks the account number/bank code into the thrown error's message", async () => {
+    const { adapter } = build([
+      tokenOk,
+      { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 400, body: fwError("REQUEST_NOT_VALID", "Invalid account") } },
+    ])
+    try {
+      await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "9999999999", currency: "KES" })
+      throw new Error("expected rejection")
+    } catch (err) {
+      expect(String((err as Error).message)).not.toContain("9999999999")
+    }
+  })
+})
+
+describe("Flutterwave adapter — bank list (GET /banks)", () => {
+  const isBankList = (r: FlutterwaveHttpRequest) => r.url.includes("/banks?")
+
+  it("sends the ISO2 country as a query param and normalizes { id, code, name } -> { code, name }", async () => {
+    const { http, adapter } = build([
+      tokenOk,
+      {
+        match: isBankList,
+        respond: { status: 200, body: { status: "success", message: "ok", data: [
+          { id: "bnk_1", code: "044", name: "Access Bank" },
+          { id: "bnk_2", code: "011", name: "First Bank" },
+        ] } },
+      },
+    ])
+    const banks = await adapter.bankList!.listBanks(CTX, { countryCode: "ke" })
+
+    const call = http.calls.find(isBankList)!
+    expect(call.url).toContain("/banks?country=KE") // uppercased
+    expect(banks).toEqual([{ code: "044", name: "Access Bank" }, { code: "011", name: "First Bank" }])
+    // The provider-internal `id` never leaks into the normalized shape.
+    expect(Object.keys(banks[0])).toEqual(["code", "name"])
+  })
+
+  it("caches the result in-memory per environment+country — a second call for the same country makes no second HTTP request", async () => {
+    const { http, adapter } = build([
+      tokenOk,
+      { match: isBankList, respond: { status: 200, body: { data: [{ id: "b", code: "044", name: "Access Bank" }] } } },
+    ])
+    await adapter.bankList!.listBanks(CTX, { countryCode: "KE" })
+    const callsAfterFirst = http.calls.filter(isBankList).length
+    await adapter.bankList!.listBanks(CTX, { countryCode: "KE" })
+    expect(http.calls.filter(isBankList).length).toBe(callsAfterFirst)
+  })
+
+  it("does not reuse the cache across different countries", async () => {
+    const { http, adapter } = build([
+      tokenOk,
+      { match: (r) => isBankList(r) && r.url.includes("country=KE"), respond: { status: 200, body: { data: [{ id: "b1", code: "044", name: "Access Bank" }] } } },
+      { match: (r) => isBankList(r) && r.url.includes("country=NG"), respond: { status: 200, body: { data: [{ id: "b2", code: "011", name: "First Bank" }] } } },
+    ])
+    const ke = await adapter.bankList!.listBanks(CTX, { countryCode: "KE" })
+    const ng = await adapter.bankList!.listBanks(CTX, { countryCode: "NG" })
+    expect(ke[0].name).toBe("Access Bank")
+    expect(ng[0].name).toBe("First Bank")
+  })
+
+  it("skips a malformed entry (missing code/name) instead of throwing", async () => {
+    const { adapter } = build([
+      tokenOk,
+      { match: isBankList, respond: { status: 200, body: { data: [{ id: "b1" }, { id: "b2", code: "044", name: "Access Bank" }] } } },
+    ])
+    const banks = await adapter.bankList!.listBanks(CTX, { countryCode: "GH" })
+    expect(banks).toEqual([{ code: "044", name: "Access Bank" }])
+  })
+
+  it("normalizes an unsupported-country failure to a ProviderError", async () => {
+    const { adapter } = build([
+      tokenOk,
+      { match: isBankList, respond: { status: 400, body: fwError("VALIDATION_ERROR", "Unsupported country") } },
+    ])
+    await expect(adapter.bankList!.listBanks(CTX, { countryCode: "ZZ" })).rejects.toMatchObject({ name: "ProviderError", category: "INVALID_REQUEST" })
+  })
+})
+
 describe("Flutterwave adapter — capability set", () => {
-  it("declares collection / refund / bank-payout / bank-resolution / webhooks, not mobile-money payout", () => {
+  it("declares collection / refund / bank-payout / bank-resolution / bank-list / webhooks, not mobile-money payout", () => {
     const { adapter } = build([])
     expect(adapter.capabilities.has("COLLECTION_MOBILE_MONEY")).toBe(true)
     expect(adapter.capabilities.has("PAYOUT_BANK")).toBe(true)
+    expect(adapter.capabilities.has("BANK_ACCOUNT_RESOLUTION")).toBe(true)
+    expect(adapter.capabilities.has("BANK_LIST")).toBe(true)
     expect(adapter.capabilities.has("WEBHOOKS")).toBe(true)
     expect(adapter.capabilities.has("PAYOUT_MOBILE_MONEY")).toBe(false)
+  })
+
+  it("actually implements bankResolution and bankList on the adapter surface, not just the capability set", () => {
+    const { adapter } = build([])
+    expect(adapter.bankResolution).toBeDefined()
+    expect(adapter.bankList).toBeDefined()
   })
 })
 

@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       body = JSON.stringify(json)
     }
 
-    const res = await fetch(`${BACKEND}/vendors/v1/outlets/${id}/${action}`, {
+    const res = await fetch(`${BACKEND}/vendor/v1/outlets/${id}/${action}`, {
       method : "POST",
       headers: {
         Authorization : `Bearer ${token}`,

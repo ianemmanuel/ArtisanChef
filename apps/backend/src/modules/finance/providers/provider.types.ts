@@ -207,10 +207,33 @@ export interface PayoutCapability {
 export interface ResolveBankAccountInput {
   bankCode: string
   accountNumber: string
+  /** ISO 4217 alpha code — the provider's bank-account-resolve request is
+   *  currency-discriminated (field shape differs NGN vs GBP vs USD etc.). */
+  currency: string
 }
 
 export interface BankAccountResolutionCapability {
   resolveBankAccount(ctx: ProviderCallContext, input: ResolveBankAccountInput): Promise<NormalizedBankAccount>
+}
+
+//* ─── Vendor 1E — bank discovery ─────────────────────────────────────────
+
+/** A provider's own bank entry, normalized. `code` is what the SAME
+ *  provider's other capabilities (BankAccountResolutionCapability,
+ *  PayoutCapability) expect back as `bankCode` — one bank identifier,
+ *  reused end to end, never re-derived from a display name. */
+export interface NormalizedBank {
+  code: string
+  name: string
+}
+
+export interface ListBanksInput {
+  /** ISO 3166-1 alpha-2, e.g. "KE". */
+  countryCode: string
+}
+
+export interface BankListCapability {
+  listBanks(ctx: ProviderCallContext, input: ListBanksInput): Promise<NormalizedBank[]>
 }
 
 export interface WebhookCapability {
@@ -241,5 +264,6 @@ export interface PaymentProviderAdapter {
   refunds?: RefundCapability
   payouts?: PayoutCapability
   bankResolution?: BankAccountResolutionCapability
+  bankList?: BankListCapability
   webhooks?: WebhookCapability
 }

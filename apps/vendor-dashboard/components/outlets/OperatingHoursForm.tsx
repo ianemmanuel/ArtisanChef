@@ -59,7 +59,7 @@ export function OperatingHoursForm({ outletId, existing }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/vendor/outlets/${outletId}/operating-hours`, {
+      const res = await fetch(`/api/outlets/${outletId}/operating-hours`, {
         method : "PUT",
         headers: { "Content-Type": "application/json" },
         body   : JSON.stringify({ hours }),

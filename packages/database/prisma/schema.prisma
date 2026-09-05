@@ -2085,6 +2085,12 @@ enum VendorNotificationType {
   OUTLET_INSPECTION_PASSED
   OUTLET_INSPECTION_FAILED
   OUTLET_INSPECTION_CANCELLED
+  //* Vendor 1D — payout verification (see vendor.payout.service.ts /
+  //* lib/payout-verification). Fired only for the two "needs attention"
+  //* outcomes of a verification attempt (PENDING/VERIFIED are visible
+  //* immediately in /setup/payout and don't need a proactive nudge).
+  PAYOUT_VERIFICATION_FAILED
+  PAYOUT_REVIEW_REQUIRED
 }
 
 enum DocumentScope {
@@ -2198,6 +2204,11 @@ enum PaymentProviderCapability {
   PAYOUT_BANK
   PAYOUT_MOBILE_MONEY
   WEBHOOKS
+  //* Vendor 1E — list the banks a provider supports for a given country, so
+  //* the vendor payout form can offer a bank picker instead of free-text
+  //* bank code entry. Auxiliary/reference, not an "acts on a payment"
+  //* capability — deliberately not added to METHOD_TYPE_REQUIRES.
+  BANK_LIST
 }
 
 //* Finance Phase 1B — which set of provider credentials an account uses.

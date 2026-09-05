@@ -1,10 +1,11 @@
 /*
- * Pluggable payout-account verification. Today the only implementations are
- * offline (structural checksums + manual admin review). A real provider —
- * telco name-lookup (Daraja / Africa's Talking), open-banking account
- * verification (Plaid), Stripe Connect account links — drops in here as
- * another `PayoutVerificationProvider` with zero changes to the payout
- * service. See CLAUDE.md for the deferred-until-paid-API list.
+ * Pluggable payout-account verification. Vendor 1D wires in a Finance-backed
+ * implementation (finance-bank.provider.ts) for BANK accounts, via the
+ * existing Finance provider gateway / BankAccountResolutionCapability — see
+ * that file's own doc comment for the ownership boundary. Every other
+ * method type (and any country without a configured verification capability)
+ * still falls back to the offline structural checks + manual admin review
+ * this module shipped with originally.
  */
 
 export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
@@ -24,6 +25,13 @@ export interface PayoutVerificationInput {
   mobileNumber?     : string | null
   paypalEmail?      : string | null
   stripeAccountId?  : string | null
+  /** The vendor's registered country — required for a provider-backed
+   *  capability lookup. Absent (or no matching capability) => the offline
+   *  fallback applies, same as before this field existed. */
+  countryId?: string | null
+  /** ISO 4217 alpha code for the vendor's country — required by the bank
+   *  resolution request shape. */
+  currency? : string | null
 }
 
 export interface PayoutVerificationOutcome {

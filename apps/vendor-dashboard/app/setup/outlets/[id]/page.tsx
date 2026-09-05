@@ -67,7 +67,7 @@ export default async function OutletDetailsPage({
       {/* ── Back + header ── */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" className="rounded-xl" asChild>
-          <Link href="/dashboard/outlets">
+          <Link href="/setup/outlets">
             <ChevronLeft className="size-4" />
           </Link>
         </Button>

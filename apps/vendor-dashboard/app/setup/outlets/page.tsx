@@ -42,7 +42,7 @@ export default async function OutletsPage() {
             className="gap-2 rounded-xl"
             style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
           >
-            <Link href="/outlets/create">
+            <Link href="/setup/outlets/create">
               <Plus className="size-4" />Add Outlet
             </Link>
           </Button>
@@ -70,7 +70,7 @@ export default async function OutletsPage() {
             className="gap-2 rounded-xl"
             style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
           >
-            <Link href="/outlets/create">
+            <Link href="/setup/outlets/create">
               <Plus className="size-4" />Create your first outlet
             </Link>
           </Button>

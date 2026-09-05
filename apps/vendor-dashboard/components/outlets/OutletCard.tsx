@@ -17,7 +17,7 @@ export function OutletCard({ outlet }: OutletCardProps) {
 
   return (
     <Link
-      href={`/dashboard/outlets/${outlet.id}`}
+      href={`/setup/outlets/${outlet.id}`}
       className="dash-card group block p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
       style={{ boxShadow: "0 2px 12px var(--shadow-card)" }}
     >

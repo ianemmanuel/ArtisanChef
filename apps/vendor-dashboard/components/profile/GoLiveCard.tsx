@@ -1,50 +1,27 @@
 "use client"
 
 import Link from "next/link"
-import { toast } from "sonner"
-import { CheckCircle2, Circle, Loader2, Radio, ShieldAlert } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { CheckCircle2, Circle, Radio } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { useGoLiveStatus, useVendorProfile, usePublishProfile, useUnpublishProfile } from "@/lib/queries/profile"
-import { ClientApiError } from "@/lib/api/client"
+import { useGoLiveStatus, useVendorProfile } from "@/lib/queries/profile"
+import { readinessRequirements } from "@/lib/readiness"
+import { GoLiveButton } from "@/components/readiness/GoLiveButton"
 
-const BLOCKER_LABEL: Record<string, { label: string; href?: string }> = {
-  VERIFIED_PAYOUT_ACCOUNT: { label: "Add and verify a payout account", href: "/settings" },
-  PROFILE                : { label: "Fill out your public profile below" },
-  PROFILE_UNDER_REVIEW   : { label: "Your profile is pending admin review" },
-  OUTLET                 : { label: "Add at least one active outlet", href: "/outlets" },
-}
-
+/*
+ * The go-live widget on the Public profile page. The profile form is right
+ * below on the same page, so the "profile" requirement here is plain text
+ * rather than a link. The fuller setup overview lives at /setup
+ * (SetupOverview) — both consume the same readinessRequirements() mapper
+ * and the same GoLiveButton.
+ */
 export function GoLiveCard() {
   const { data: status, isLoading: statusLoading } = useGoLiveStatus()
   const { data: profile, isLoading: profileLoading } = useVendorProfile()
-  const publish = usePublishProfile()
-  const unpublish = useUnpublishProfile()
 
-  const isLoading = statusLoading || profileLoading
-
-  async function handlePublish() {
-    try {
-      await publish.mutateAsync()
-      toast.success("You're live!")
-    } catch (err) {
-      toast.error(err instanceof ClientApiError ? err.message : "Failed to go live")
-    }
-  }
-
-  async function handleUnpublish() {
-    try {
-      await unpublish.mutateAsync()
-      toast.success("Profile unpublished")
-    } catch (err) {
-      toast.error(err instanceof ClientApiError ? err.message : "Failed to unpublish")
-    }
-  }
-
-  if (isLoading) return <Skeleton className="h-48 w-full rounded-xl" />
+  if (statusLoading || profileLoading) return <Skeleton className="h-48 w-full rounded-xl" />
   if (!status) return null
 
   return (
@@ -58,8 +35,8 @@ export function GoLiveCard() {
             </CardTitle>
             <CardDescription>
               {status.isPublished
-                ? "Your profile is public and your outlets can accept orders."
-                : "Complete these to make your profile public."}
+                ? "Your storefront is published and visible to customers."
+                : "Complete these to publish your storefront. They can be done in any order."}
             </CardDescription>
           </div>
           {profile?.reviewStatus === "MANUALLY_REJECTED" && <Badge className="bg-destructive-bg text-destructive">Rejected</Badge>}
@@ -67,38 +44,26 @@ export function GoLiveCard() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {profile?.reviewStatus === "MANUALLY_REJECTED" && profile.rejectionReason && (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive-bg p-3 text-sm text-destructive">
-            <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-            <span>{profile.rejectionReason} — edit your profile below to resubmit it for review.</span>
-          </div>
-        )}
-
         <div className="space-y-2">
-          {status.blockers.length === 0 ? (
-            <p className="flex items-center gap-2 text-sm text-success"><CheckCircle2 className="size-4" /> Everything's ready</p>
-          ) : (
-            status.blockers.map((b) => {
-              const meta = BLOCKER_LABEL[b] ?? { label: b }
-              return (
-                <div key={b} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Circle className="size-3.5 shrink-0" />
-                  {meta.href ? <Link href={meta.href} className="underline underline-offset-2 hover:text-foreground">{meta.label}</Link> : <span>{meta.label}</span>}
-                </div>
-              )
-            })
-          )}
+          {readinessRequirements(status).map((req) => (
+            <div key={req.key} className="flex items-center gap-2 text-sm">
+              {req.met
+                ? <CheckCircle2 className="size-4 shrink-0 text-success" />
+                : <Circle className="size-3.5 shrink-0 text-muted-foreground" />}
+              {req.met ? (
+                <span className="text-foreground">{req.doneLabel}</span>
+              ) : req.key === "profile" ? (
+                <span className="text-muted-foreground">{req.todoLabel}</span>
+              ) : (
+                <Link href={req.href} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                  {req.todoLabel}
+                </Link>
+              )}
+            </div>
+          ))}
         </div>
 
-        {status.isPublished ? (
-          <Button type="button" variant="outline" size="sm" onClick={handleUnpublish} disabled={unpublish.isPending}>
-            {unpublish.isPending && <Loader2 className="size-3.5 animate-spin" />} Take offline
-          </Button>
-        ) : (
-          <Button type="button" size="sm" onClick={handlePublish} disabled={!status.canGoLive || publish.isPending}>
-            {publish.isPending && <Loader2 className="size-3.5 animate-spin" />} Go live
-          </Button>
-        )}
+        <GoLiveButton />
       </CardContent>
     </Card>
   )

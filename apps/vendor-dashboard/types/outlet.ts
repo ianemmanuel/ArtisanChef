@@ -93,4 +93,4 @@ export const DAY_LABELS: Record<DayOfWeek, string> = {
   SUNDAY   : "Sun",
 }
 
-export interface City { id: string; name: string, code: string }
+export interface City { id: string; name: string; code: string | null }

@@ -69,6 +69,8 @@ export type {
     VendorTypeSummary,
     VendorTypeListResult,
     VendorTypeStats,
+    VendorGoLiveStatus,
+    VendorGoLiveBlocker,
     OutletGoLiveStatus,
     OutletClearanceStatus,
     OutletGoLiveBlocker,

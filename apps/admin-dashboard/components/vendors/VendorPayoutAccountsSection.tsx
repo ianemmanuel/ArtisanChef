@@ -45,6 +45,21 @@ const RISK_LABEL: Record<PayoutRiskFlag, string> = {
   DUPLICATE_IDENTIFIER: "Identifier used by another vendor",
 }
 
+// Vendor 1D — how this account reached its current verificationStatus.
+// FORMAT_CHECKS/MANUAL predate Vendor 1D; FINANCE_BANK_RESOLUTION is the
+// new automatic path (finance-bank.provider.ts). Unrecognised/null falls
+// back to the raw method string so a future provider name isn't hidden.
+const METHOD_LABEL: Record<string, string> = {
+  FINANCE_BANK_RESOLUTION: "Verified automatically",
+  MANUAL                 : "Reviewed by an admin",
+  FORMAT_CHECKS           : "Structural check only",
+}
+
+function methodLabel(method: string | null): string | null {
+  if (!method) return null
+  return METHOD_LABEL[method] ?? method
+}
+
 function accountIdentifier(a: VendorPayoutAccount): string {
   if (a.masked?.accountNumber) return `${a.bankName ?? "Bank"} ${a.masked.accountNumber}`
   if (a.masked?.iban) return `IBAN ${a.masked.iban}`
@@ -186,6 +201,12 @@ export function VendorPayoutAccountsSection({ vendorId, accounts, canManage, hol
                     {a.accountHolderName ? ` · ${a.accountHolderName}` : ""}
                     {a.failureReason && a.verificationStatus === "FAILED" ? ` — ${a.failureReason}` : ""}
                   </p>
+                  {methodLabel(a.verificationMethod) && (
+                    <p className="truncate text-[11px] text-muted-foreground/80">
+                      {methodLabel(a.verificationMethod)}
+                      {a.verifiedAt ? ` · ${new Date(a.verifiedAt).toLocaleDateString()}` : ""}
+                    </p>
+                  )}
                   {a.duplicateElsewhere > 0 && (
                     <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-warning">
                       <AlertTriangle className="h-3 w-3 shrink-0" />

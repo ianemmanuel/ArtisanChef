@@ -13,27 +13,48 @@ import {
 import { adminFetch } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { EmptyState } from "@/components/shared/EmptyState"
+import { TableFilterBar } from "@/components/shared/TableFilterBar"
+import { TablePagination } from "@/components/shared/TablePagination"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { CountryListResult } from "@repo/types/admin-app"
 
 export const metadata: Metadata = { title: "Country Finance" }
 export const revalidate = 60
 
+const PAGE_SIZE = 10
+
+interface PageProps {
+  searchParams: Promise<{ page?: string; search?: string; status?: string }>
+}
+
 /*
  * Finance Phase 1B — per-country financial configuration. Lists every
- * country in scope (INCLUDING inactive ones — financial config is set up
- * BEFORE a country is activated) and links into each one's config page.
- * Gated on finance:configuration:read; city-scoped admins never reach it
- * (they don't hold the permission).
+ * country in scope — INCLUDING inactive ones by default (financial config
+ * is set up BEFORE a country is activated), with an explicit status filter
+ * for narrowing to just Active (or Inactive) — and links into each one's
+ * config page. Server-side paginated/searched/filtered via the same
+ * getCountriesByStatus endpoint /countries already uses. Gated on
+ * finance:configuration:read; city-scoped admins never reach it (they
+ * don't hold the permission).
  */
-export default async function FinanceCountriesPage() {
+export default async function FinanceCountriesPage({ searchParams }: PageProps) {
   const session = await getAdminSession()
   if (!session.permissions.includes(AdminPermissions.FINANCE_CONFIGURATION_READ)) redirect("/overview")
 
-  const result = await adminFetch<CountryListResult>("/admin/v1/countries?pageSize=200", {
+  const { page = "1", search = "", status = "" } = await searchParams
+
+  const query = new URLSearchParams({ page, pageSize: String(PAGE_SIZE) })
+  if (search) query.set("search", search)
+  if (status && status !== "all") query.set("status", status)
+
+  const result = await adminFetch<CountryListResult>(`/admin/v1/countries?${query.toString()}`, {
     next: { revalidate: 60, tags: ["countries"] },
   }).catch(() => null)
   const countries = result?.countries ?? []
+
+  const persistedParams: Record<string, string> = {}
+  if (search) persistedParams.search = search
+  if (status && status !== "all") persistedParams.status = status
 
   return (
     <div className="page-content animate-slide-up">
@@ -60,8 +81,21 @@ export default async function FinanceCountriesPage() {
         </div>
       </div>
 
+      <TableFilterBar
+        showSearch
+        searchPlaceholder="Search countries…"
+        defaultSearch={search}
+        statusLabel="Country status"
+        statusOptions={[
+          { value: "all", label: "All statuses" },
+          { value: "ACTIVE", label: "Active", dot: "bg-success" },
+          { value: "INACTIVE", label: "Inactive", dot: "bg-muted-foreground" },
+        ]}
+        defaultStatus={status || "all"}
+      />
+
       {countries.length === 0 ? (
-        <EmptyState icon={Landmark} title="No countries in scope" description="Nothing to configure." />
+        <EmptyState icon={Landmark} title="No countries found" description="Try a different search or status filter." />
       ) : (
         <div className="admin-card overflow-hidden p-0">
           <div className="overflow-x-auto">
@@ -100,6 +134,14 @@ export default async function FinanceCountriesPage() {
                 ))}
               </TableBody>
             </Table>
+            <TablePagination
+              total={result?.total ?? 0}
+              page={page}
+              totalPages={result?.totalPages ?? 1}
+              basePath="/finance/countries"
+              params={persistedParams}
+              itemLabel="countries"
+            />
           </div>
         </div>
       )}

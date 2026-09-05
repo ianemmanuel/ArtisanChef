@@ -5,7 +5,7 @@ import { auditService } from "@/services/audit"
 import { SYSTEM_USER_ID } from "@/constants/system"
 import { getModerationProvider, checkImpersonation, type ModerationFlag } from "@/lib/moderation"
 import { notifyAdminsProfileFlagged } from "@/lib/moderation/profile-flag-notify"
-import type { UpsertVendorProfileRequest, VendorGoLiveStatus } from "@repo/types/backend"
+import type { UpsertVendorProfileRequest, VendorGoLiveStatus, VendorGoLiveBlocker } from "@repo/types/backend"
 
 const serviceLog = logger.child({ module: "vendor-profile-service" })
 
@@ -187,6 +187,7 @@ export async function getVendorGoLiveStatus(vendorId: string): Promise<VendorGoL
     prisma.outlet.count({
       where: {
         vendorId, deletedAt: null,
+        vendorDisabledAt  : null,                       // a vendor-deactivated outlet doesn't count
         adminStatus       : OutletAdminStatus.ACTIVE,
         clearanceStatus   : "CLEARED",
         reviewStatus      : { not: "MANUALLY_REJECTED" },
@@ -206,7 +207,7 @@ export async function getVendorGoLiveStatus(vendorId: string): Promise<VendorGoL
     ? profile.reviewStatus === ProfileReviewStatus.AUTO_APPROVED || profile.reviewStatus === ProfileReviewStatus.MANUALLY_APPROVED
     : false
 
-  const blockers: string[] = []
+  const blockers: VendorGoLiveBlocker[] = []
   if (!hasVerifiedPayoutAccount) blockers.push("VERIFIED_PAYOUT_ACCOUNT")
   if (!hasProfile) blockers.push("PROFILE")
   else if (!isProfileReviewClear) blockers.push("PROFILE_UNDER_REVIEW")
@@ -243,9 +244,17 @@ export async function publishVendorProfile(vendorId: string) {
     )
   }
 
+  // getVendorGoLiveStatus is the single authority for what "selling ready"
+  // means — publish enforces exactly that, it never re-defines the rules.
+  // The specific guards below are only for friendlier error messages; the
+  // canGoLive backstop keeps this in lockstep with any future requirement
+  // added to getVendorGoLiveStatus without needing an edit here.
   const status = await getVendorGoLiveStatus(vendorId)
   if (!status.hasVerifiedPayoutAccount) throw new ApiError(400, "Add and verify a payout account before going live", "PAYOUT_ACCOUNT_REQUIRED")
-  if (!status.hasActiveOutlet) throw new ApiError(400, "Add at least one outlet before going live", "OUTLET_REQUIRED")
+  if (!status.hasActiveOutlet) throw new ApiError(400, "Add at least one active outlet before going live", "OUTLET_REQUIRED")
+  if (!status.canGoLive) {
+    throw new ApiError(400, `Your storefront isn't ready to go live yet (${status.blockers.join(", ")})`, "NOT_READY_TO_GO_LIVE")
+  }
 
   const updated = await prisma.vendorProfile.update({
     where: { id: profile.id },

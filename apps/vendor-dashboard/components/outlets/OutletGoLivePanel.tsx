@@ -22,7 +22,7 @@ const BLOCKER_COPY: Record<OutletGoLiveBlocker, BlockerCopy> = {
   PENDING_DOCUMENTS: {
     title : "A required document is being reviewed",
     detail: "This outlet needs an approved document before it can take orders. Upload it under Documents if you haven't already.",
-    action: { label: "Go to Documents", href: "/dashboard/documents" },
+    action: { label: "Go to Documents", href: "/setup/documents" },
   },
   REVIEW_REJECTED: {
     title : "This outlet was rejected in review",
@@ -35,11 +35,15 @@ const BLOCKER_COPY: Record<OutletGoLiveBlocker, BlockerCopy> = {
   OUTLET_SUSPENDED_COMPLIANCE: {
     title : "Suspended — a required document expired",
     detail: "Upload a current version of the expired document and it will be reinstated once approved.",
-    action: { label: "Go to Documents", href: "/dashboard/documents" },
+    action: { label: "Go to Documents", href: "/setup/documents" },
   },
   OUTLET_BANNED: {
     title : "This outlet has been banned",
     detail: "Contact support if you believe this is a mistake.",
+  },
+  OUTLET_DEACTIVATED: {
+    title : "You've deactivated this outlet",
+    detail: "Reactivate it from the actions above to start taking orders here again.",
   },
   TEMPORARILY_CLOSED: {
     title : "You've marked this outlet temporarily closed",
@@ -48,7 +52,7 @@ const BLOCKER_COPY: Record<OutletGoLiveBlocker, BlockerCopy> = {
   VENDOR_NOT_LIVE: {
     title : "Your storefront isn't published yet",
     detail: "Finish setting up your public profile and publish it — that turns on every outlet at once.",
-    action: { label: "Go to Public profile", href: "/dashboard/profile" },
+    action: { label: "Go to Public profile", href: "/setup/profile" },
   },
   ZONE_LEVEL_TOO_LOW: {
     title : "We're still setting up operations in this area",

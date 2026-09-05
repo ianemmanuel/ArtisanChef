@@ -59,7 +59,11 @@ export default async function RootPage() {
   }
 
   if (session.state === "ACTIVE") {
-    redirect("/dashboard")
+    // ACTIVE splits on selling readiness: not-ready vendors go to the setup
+    // command center, ready vendors to the operational dashboard. goLiveStatus
+    // is the authoritative getVendorGoLiveStatus result (Vendor 1B) — never
+    // re-derived here.
+    redirect(session.goLiveStatus?.canGoLive ? "/dashboard" : "/setup")
   }
 
   redirect(onboardingRouteForState(session.state))

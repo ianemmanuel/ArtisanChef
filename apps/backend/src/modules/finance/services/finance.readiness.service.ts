@@ -1,6 +1,11 @@
 import { prisma } from "@repo/db"
 import type { FinancialReadiness } from "@repo/types/backend"
-import { computeFinancialReadiness, type ReadinessInputs } from "./finance.readiness.compute"
+import {
+  computeFinancialReadiness,
+  type ReadinessInputs,
+  type ReadinessAccountSnapshot,
+  type ReadinessMethodInput,
+} from "./finance.readiness.compute"
 import { hasProviderAdapter } from "../providers/provider.registry"
 import { providerSecretsResolver } from "../secrets/provider-secrets.resolver"
 
@@ -14,6 +19,11 @@ import { providerSecretsResolver } from "../secrets/provider-secrets.resolver"
  * There is exactly ONE readiness system — this one. The decision rules are
  * in finance.readiness.compute.ts (pure, unit-tested); this file only
  * loads the inputs from the DB.
+ *
+ * Routing is capability-scoped: collection/payout readiness resolves each
+ * payment method's OWN wired provider account; bank-verification readiness
+ * resolves the country-global bankVerificationProviderAccount. No "the
+ * country's active account" — there is none.
  */
 
 export {
@@ -23,62 +33,104 @@ export {
   type ReadinessInputs,
 } from "./finance.readiness.compute"
 
+type AccountRow = {
+  id: string
+  status: string
+  environment: string
+  secretAlias: string
+  enabledCapabilities: string[]
+  paymentProvider: { code: string; status: string } | null
+}
+
+/**
+ * Turn a provider-account row into the pure snapshot the compute layer
+ * needs. `credentialsResolvable` is a no-network "does the alias resolve to
+ * any credential keys" check — memoised per alias across the call.
+ */
+async function snapshotAccount(
+  row: AccountRow | null,
+  credCache: Map<string, Promise<boolean>>,
+): Promise<ReadinessAccountSnapshot | null> {
+  if (!row) return null
+  let credPromise = credCache.get(row.secretAlias)
+  if (!credPromise) {
+    credPromise = providerSecretsResolver.has(row.secretAlias)
+    credCache.set(row.secretAlias, credPromise)
+  }
+  return {
+    status: row.status,
+    providerStatus: row.paymentProvider?.status ?? null,
+    environment: row.environment,
+    enabledCapabilities: row.enabledCapabilities,
+    adapterAvailable: hasProviderAdapter(row.paymentProvider?.code ?? ""),
+    credentialsResolvable: await credPromise,
+  }
+}
+
 export async function loadReadinessInputs(countryId: string): Promise<ReadinessInputs> {
-  const [config, methods] = await Promise.all([
+  const ACCOUNT_SELECT = {
+    id: true,
+    status: true,
+    environment: true,
+    secretAlias: true,
+    enabledCapabilities: true,
+    paymentProvider: { select: { code: true, status: true } },
+  } as const
+
+  const [country, config, methods] = await Promise.all([
+    // Currency is owned by the country (Country.currencyCode) — the config
+    // mirrors it, but fall back to the country's own value so readiness is
+    // correct even before the config has been synced.
+    prisma.country.findUnique({
+      where: { id: countryId },
+      select: { currencyCode: true, currencyRef: { select: { status: true } } },
+    }),
     prisma.countryFinancialConfig.findUnique({
       where: { countryId },
       include: {
         currency: { select: { status: true } },
-        activeProviderAccount: {
-          select: {
-            status: true,
-            environment: true,
-            enabledCapabilities: true,
-            secretAlias: true,
-            paymentProvider: { select: { code: true, status: true } },
-          },
-        },
+        bankVerificationProviderAccount: { select: ACCOUNT_SELECT },
       },
     }),
     prisma.countryPaymentMethod.findMany({
       where: { countryId, status: "ACTIVE" },
-      select: { direction: true, countryProviderAccountId: true, paymentMethod: { select: { type: true } } },
+      select: {
+        direction: true,
+        paymentMethod: { select: { type: true } },
+        countryProviderAccount: { select: ACCOUNT_SELECT },
+      },
     }),
   ])
 
-  const activeAccountId = config?.activeProviderAccountId ?? null
-  const account = config?.activeProviderAccount ?? null
+  const credCache = new Map<string, Promise<boolean>>()
 
-  const providerAccount = account
-    ? {
-        status: account.status,
-        environment: account.environment,
-        enabledCapabilities: account.enabledCapabilities,
-        providerStatus: account.paymentProvider?.status ?? null,
-        adapterAvailable: hasProviderAdapter(account.paymentProvider?.code ?? ""),
-        // A no-network check: does the alias resolve to *any* credential keys.
-        credentialsResolvable: await providerSecretsResolver.has(account.secretAlias),
-      }
-    : null
-
-  const toMethod = (m: (typeof methods)[number]) => ({
+  const toMethod = async (m: (typeof methods)[number]): Promise<ReadinessMethodInput> => ({
     type: m.paymentMethod.type,
-    wiredToActiveAccount: !!activeAccountId && m.countryProviderAccountId === activeAccountId,
+    account: await snapshotAccount(m.countryProviderAccount, credCache),
   })
+
+  const [inboundMethods, outboundMethods, bankVerificationAccount] = await Promise.all([
+    Promise.all(methods.filter((m) => m.direction === "INBOUND").map(toMethod)),
+    Promise.all(methods.filter((m) => m.direction === "OUTBOUND").map(toMethod)),
+    snapshotAccount(config?.bankVerificationProviderAccount ?? null, credCache),
+  ])
+
+  const effectiveCurrencyCode = config?.currencyCode ?? country?.currencyCode ?? null
+  const effectiveCurrency = config?.currency ?? country?.currencyRef ?? null
 
   return {
     config: config
       ? {
           status: config.status,
-          currencyCode: config.currencyCode,
+          currencyCode: effectiveCurrencyCode,
           collectionsEnabled: config.collectionsEnabled,
           payoutsEnabled: config.payoutsEnabled,
         }
       : null,
-    currency: config?.currency ? { status: config.currency.status } : null,
-    providerAccount,
-    inboundMethods: methods.filter((m) => m.direction === "INBOUND").map(toMethod),
-    outboundMethods: methods.filter((m) => m.direction === "OUTBOUND").map(toMethod),
+    currency: effectiveCurrency ? { status: effectiveCurrency.status } : null,
+    inboundMethods,
+    outboundMethods,
+    bankVerificationAccount,
   }
 }
 

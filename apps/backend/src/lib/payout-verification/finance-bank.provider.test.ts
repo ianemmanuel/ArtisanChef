@@ -62,11 +62,20 @@ describe("financeBankVerificationProvider", () => {
     expect(outcome.reason).not.toMatch(/flutterwave/i)
   })
 
-  it("FAILED when the provider says the request is invalid (INVALID_REQUEST)", async () => {
+  it("REQUIRES_REVIEW on a BARE INVALID_REQUEST (no field detail — could be a bad account or our request)", async () => {
     const err = new ProviderError("INVALID_REQUEST", "bad request", "FLUTTERWAVE")
     const provider = createFinanceBankVerificationProvider(gatewayThatThrows(err))
     const outcome = await provider.verify(BANK_INPUT)
+    expect(outcome.status).toBe("REQUIRES_REVIEW")
+    expect(outcome.failureCode).toBe("PROVIDER_REJECTED")
+  })
+
+  it("FAILED (INVALID_ACCOUNT) when the provider rejected a specific FIELD — the vendor can fix it", async () => {
+    const err = new ProviderError("INVALID_REQUEST", "bad request", "FLUTTERWAVE", { fieldValidation: true })
+    const provider = createFinanceBankVerificationProvider(gatewayThatThrows(err))
+    const outcome = await provider.verify(BANK_INPUT)
     expect(outcome.status).toBe("FAILED")
+    expect(outcome.failureCode).toBe("INVALID_ACCOUNT")
   })
 
   it("REQUIRES_REVIEW when the provider is unreachable (PROVIDER_UNAVAILABLE) — never silently FAILED or VERIFIED", async () => {
@@ -90,12 +99,13 @@ describe("financeBankVerificationProvider", () => {
     expect(outcome.status).toBe("REQUIRES_REVIEW")
   })
 
-  it("falls back to the offline structural result when the provider lacks the capability", async () => {
+  it("falls back to PENDING (manual review) when the provider can't verify this currency at all — tagged PROVIDER_UNSUPPORTED", async () => {
     const err = new ProviderError("UNSUPPORTED_CAPABILITY", "not supported", "FLUTTERWAVE")
     const provider = createFinanceBankVerificationProvider(gatewayThatThrows(err))
     const outcome = await provider.verify(BANK_INPUT)
     expect(outcome.status).toBe("PENDING")
     expect(outcome.method).toBe("FORMAT_CHECKS")
+    expect(outcome.failureCode).toBe("PROVIDER_UNSUPPORTED")
   })
 
   it("falls back to the offline structural result when the country has no finance config yet (ApiError)", async () => {

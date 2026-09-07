@@ -14,7 +14,12 @@ import {
   assertFinanceRecordVisibleOr404,
 } from "../lib/scope"
 import { isEnvironmentActivatable, expectedProviderEnvironment } from "../lib/environment"
-import { enabledCapabilitiesNotSupported } from "../providers/provider.capabilities"
+import {
+  enabledCapabilitiesNotSupported,
+  resolveEnabledCapabilities,
+  autoEnabledIntegrationCapabilities,
+} from "../providers/provider.capabilities"
+import { deriveProviderSecretAlias } from "../secrets/provider-secrets.resolver"
 import type {
   CreateCountryProviderAccountInput,
   UpdateCountryProviderAccountInput,
@@ -25,7 +30,14 @@ const serviceLog = logger.child({ module: "finance-provider-account-service" })
 /*
  * CountryProviderAccount — "Kenya uses THIS Flutterwave account, in THIS
  * environment". Append-only: never hard-deleted (retire via DISABLED).
- * At most one ACTIVE per country (enforced in a transaction on activate).
+ *
+ * A country may have MANY ACTIVE accounts at once — one per capability
+ * domain (collection via Provider A, payout via Provider B, bank-account
+ * verification via Provider C, or all three via one provider). There is no
+ * "the country's active account": every runtime provider call resolves a
+ * specific account by explicit routing context (method wiring for
+ * collection/payout, CountryFinancialConfig.bankVerificationProviderAccountId
+ * for bank verification). See finance.providerGateway.service.ts.
  *
  * Scope:
  *   - create/edit DRAFT (non-secret fields) : own country OK (assertCountryFinanceConfigScope)
@@ -44,7 +56,10 @@ async function loadProvider(paymentProviderId: string) {
 async function loadAccount(id: string) {
   const account = await prisma.countryProviderAccount.findUnique({
     where: { id },
-    include: { paymentProvider: { select: { id: true, code: true, name: true, status: true, capabilities: true } } },
+    include: {
+      paymentProvider: { select: { id: true, code: true, name: true, status: true, capabilities: true } },
+      country: { select: { code: true } },
+    },
   })
   if (!account) throw new ApiError(404, "Provider account not found", "NOT_FOUND")
   return account
@@ -96,22 +111,28 @@ export async function createProviderAccount(
 ) {
   assertCountryFinanceConfigScope(scope, countryId)
 
-  const country = await prisma.country.findUnique({ where: { id: countryId }, select: { id: true } })
+  const country = await prisma.country.findUnique({ where: { id: countryId }, select: { id: true, code: true } })
   if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
 
   const provider = await loadProvider(input.paymentProviderId)
   if (provider.status !== "ACTIVE") {
     throw new ApiError(400, "Cannot wire an inactive payment provider", "PROVIDER_INACTIVE")
   }
-  assertEnabledSubsetOfProvider(input.enabledCapabilities, provider.capabilities)
+
+  // The admin picks business capabilities; integration capabilities
+  // (webhooks / bank directory / account verification) are merged in from
+  // what the provider supports. The secret alias is derived, not entered.
+  const enabledCapabilities = resolveEnabledCapabilities(input.enabledCapabilities, provider.capabilities)
+  assertEnabledSubsetOfProvider(enabledCapabilities, provider.capabilities)
+  const secretAlias = deriveProviderSecretAlias(provider.code, country.code, input.environment)
 
   const account = await prisma.countryProviderAccount.create({
     data: {
       countryId,
       paymentProviderId: provider.id,
       environment: input.environment as PaymentEnvironment,
-      secretAlias: input.secretAlias.trim(),
-      enabledCapabilities: input.enabledCapabilities as PaymentProviderCapability[],
+      secretAlias,
+      enabledCapabilities: enabledCapabilities as PaymentProviderCapability[],
       accountLabel: input.accountLabel?.trim() || null,
       externalAccountId: input.externalAccountId?.trim() || null,
       status: CountryProviderAccountStatus.DRAFT,
@@ -154,7 +175,7 @@ export async function updateProviderAccount(
   // that confirms it exists.
   assertFinanceRecordVisibleOr404(account.countryId, scope, "Provider account")
 
-  const touchesStructural = input.secretAlias !== undefined || input.environment !== undefined
+  const touchesStructural = input.environment !== undefined
   const isDraft = account.status === CountryProviderAccountStatus.DRAFT
 
   // Structural fields, or ANY edit to a non-DRAFT account → global only.
@@ -167,18 +188,27 @@ export async function updateProviderAccount(
     throw new ApiError(400, "A disabled provider account cannot be edited", "ACCOUNT_DISABLED")
   }
 
-  if (input.enabledCapabilities !== undefined) {
-    assertEnabledSubsetOfProvider(input.enabledCapabilities, account.paymentProvider.capabilities)
-  }
+  const nextCapabilities =
+    input.enabledCapabilities !== undefined
+      ? resolveEnabledCapabilities(input.enabledCapabilities, account.paymentProvider.capabilities)
+      : undefined
+  if (nextCapabilities) assertEnabledSubsetOfProvider(nextCapabilities, account.paymentProvider.capabilities)
+
+  // Changing environment re-derives the secret alias (it's a deterministic
+  // function of provider + country + environment).
+  const nextSecretAlias =
+    input.environment !== undefined
+      ? deriveProviderSecretAlias(account.paymentProvider.code, account.country.code, input.environment)
+      : undefined
 
   const updated = await prisma.countryProviderAccount.update({
     where: { id },
     data: {
-      ...(input.enabledCapabilities !== undefined ? { enabledCapabilities: input.enabledCapabilities as PaymentProviderCapability[] } : {}),
+      ...(nextCapabilities ? { enabledCapabilities: nextCapabilities as PaymentProviderCapability[] } : {}),
       ...(input.accountLabel !== undefined ? { accountLabel: input.accountLabel?.trim() || null } : {}),
       ...(input.externalAccountId !== undefined ? { externalAccountId: input.externalAccountId?.trim() || null } : {}),
-      ...(input.secretAlias !== undefined ? { secretAlias: input.secretAlias.trim() } : {}),
       ...(input.environment !== undefined ? { environment: input.environment as PaymentEnvironment } : {}),
+      ...(nextSecretAlias ? { secretAlias: nextSecretAlias } : {}),
     },
     include: { paymentProvider: { select: { id: true, code: true, name: true, status: true, capabilities: true } } },
   })
@@ -195,14 +225,12 @@ export async function updateProviderAccount(
         accountLabel: account.accountLabel,
         externalAccountId: account.externalAccountId,
         environment: account.environment,
-        secretAliasChanged: input.secretAlias !== undefined ? true : undefined,
       },
       after: {
         enabledCapabilities: updated.enabledCapabilities,
         accountLabel: updated.accountLabel,
         externalAccountId: updated.externalAccountId,
         environment: updated.environment,
-        secretAliasChanged: input.secretAlias !== undefined ? true : undefined,
       },
     },
     metadata: { countryId: account.countryId },
@@ -221,7 +249,7 @@ export async function activateProviderAccount(id: string, actorId: string, scope
     throw new ApiError(400, "Provider account is already active", "ALREADY_ACTIVE")
   }
   if (account.status === CountryProviderAccountStatus.DISABLED) {
-    throw new ApiError(400, "A disabled provider account cannot be reactivated — create a new one", "ACCOUNT_DISABLED")
+    throw new ApiError(400, "This provider account is archived — restore it first", "ACCOUNT_ARCHIVED")
   }
   if (account.paymentProvider.status !== "ACTIVE") {
     throw new ApiError(422, "The payment provider is inactive", "PROVIDER_INACTIVE")
@@ -230,6 +258,17 @@ export async function activateProviderAccount(id: string, actorId: string, scope
   if (account.enabledCapabilities.length === 0) {
     throw new ApiError(422, "Enable at least one capability before activating this account", "NO_CAPABILITIES_ENABLED")
   }
+
+  // Heal integration capabilities on activation — an account created before
+  // integration capabilities were auto-derived (or one whose provider later
+  // gained one) still gets webhooks / bank directory / account verification
+  // if its provider supports them. Only ever ADDS provider-declared caps.
+  const healedCapabilities = [
+    ...new Set([
+      ...account.enabledCapabilities,
+      ...autoEnabledIntegrationCapabilities(account.paymentProvider.capabilities),
+    ]),
+  ]
   if (!isEnvironmentActivatable(account.environment)) {
     throw new ApiError(
       422,
@@ -238,30 +277,23 @@ export async function activateProviderAccount(id: string, actorId: string, scope
     )
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    // At most one ACTIVE per country.
-    const otherActive = await tx.countryProviderAccount.findFirst({
-      where: { countryId: account.countryId, status: CountryProviderAccountStatus.ACTIVE, id: { not: id } },
-      select: { id: true },
-    })
-    if (otherActive) {
-      throw new ApiError(
-        409,
-        "This country already has an active provider account — suspend or disable it first",
-        "ANOTHER_ACCOUNT_ACTIVE",
-      )
-    }
-    return tx.countryProviderAccount.update({
-      where: { id },
-      data: {
-        status: CountryProviderAccountStatus.ACTIVE,
-        activatedAt: new Date(),
-        activatedByAdminId: actorId,
-        suspendedAt: null,
-        suspendedByAdminId: null,
-        suspensionReason: null,
-      },
-    })
+  // A country may have multiple ACTIVE accounts (one per capability domain)
+  // — there is no "only one ACTIVE" check. Which account serves which
+  // capability is decided by explicit routing (payment-method wiring /
+  // bank-verification binding), not by an implicit "the active one".
+  const updated = await prisma.countryProviderAccount.update({
+    where: { id },
+    data: {
+      status: CountryProviderAccountStatus.ACTIVE,
+      activatedAt: new Date(),
+      activatedByAdminId: actorId,
+      suspendedAt: null,
+      suspendedByAdminId: null,
+      suspensionReason: null,
+      ...(healedCapabilities.length !== account.enabledCapabilities.length
+        ? { enabledCapabilities: healedCapabilities as PaymentProviderCapability[] }
+        : {}),
+    },
   })
 
   serviceLog.info({ accountId: id, countryId: account.countryId, actorId }, "Provider account activated")
@@ -316,13 +348,18 @@ export async function disableProviderAccount(id: string, actorId: string, scope:
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    // If this account is the config's active pointer, clear it — a disabled
-    // account can't be the active one. The config stays (now non-operational,
-    // readiness will report PROVIDER_ACCOUNT_NOT_CONFIGURED). Existing
-    // financial records are untouched.
+    // A disabled account must not stay referenced by any routing binding —
+    // clear every pointer at it so nothing silently keeps routing to a dead
+    // account. The config / methods stay (now non-operational for that
+    // capability; readiness reports the specific gap). Existing financial
+    // records are untouched — DISABLED is a retire, not a delete.
     await tx.countryFinancialConfig.updateMany({
-      where: { countryId: account.countryId, activeProviderAccountId: id },
-      data: { activeProviderAccountId: null },
+      where: { countryId: account.countryId, bankVerificationProviderAccountId: id },
+      data: { bankVerificationProviderAccountId: null },
+    })
+    await tx.countryPaymentMethod.updateMany({
+      where: { countryId: account.countryId, countryProviderAccountId: id },
+      data: { countryProviderAccountId: null },
     })
     return tx.countryProviderAccount.update({
       where: { id },
@@ -341,6 +378,42 @@ export async function disableProviderAccount(id: string, actorId: string, scope:
     entityType: "CountryProviderAccount",
     entityId: id,
     changes: { before: { status: account.status }, after: { status: "DISABLED" } },
+    metadata: { countryId: account.countryId },
+  })
+
+  return redactAlias({ ...updated, paymentProvider: account.paymentProvider })
+}
+
+/**
+ * Bring an archived (DISABLED) provider account back as a DRAFT — it must be
+ * re-enabled (and re-set as the country's primary account) before it can be
+ * used again, so no archived set of credentials silently becomes live. This
+ * is the "unarchive" every enterprise config surface has; archiving is
+ * reversible, it is not deletion.
+ */
+export async function restoreProviderAccount(id: string, actorId: string, scope: AdminScopeContext) {
+  assertGlobalFinanceScope(scope)
+  const account = await loadAccount(id)
+  if (account.status !== CountryProviderAccountStatus.DISABLED) {
+    throw new ApiError(400, "Only an archived provider account can be restored", "NOT_ARCHIVED")
+  }
+
+  const updated = await prisma.countryProviderAccount.update({
+    where: { id },
+    data: {
+      status: CountryProviderAccountStatus.DRAFT,
+      disabledAt: null,
+      disabledByAdminId: null,
+    },
+  })
+
+  serviceLog.info({ accountId: id, countryId: account.countryId, actorId }, "Provider account restored to DRAFT")
+  auditService.log({
+    adminUserId: actorId,
+    action: "country_provider_account.restored",
+    entityType: "CountryProviderAccount",
+    entityId: id,
+    changes: { before: { status: "DISABLED" }, after: { status: "DRAFT" } },
     metadata: { countryId: account.countryId },
   })
 

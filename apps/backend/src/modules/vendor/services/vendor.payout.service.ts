@@ -12,9 +12,11 @@ import {
 } from "@/lib/crypto/field-encryption"
 import { getPayoutVerificationProvider, bestNameMatch } from "@/lib/payout-verification"
 import { resolveProviderGateway } from "@/modules/finance"
+import { isOutboundMethodPayable } from "@/modules/finance/providers/provider.capabilities"
 import { resolveSupportedBanks, type BankListGateway } from "./vendor.payoutBanks"
 import type { VendorSupportedBanks } from "@repo/types/backend"
-import { computePayoutRiskFlags, decidePayoutAccountStatus, type PayoutRiskFlag } from "./vendor.payoutRisk"
+import { computePayoutRiskFlags, decidePayoutAccountStatus, resolvePayoutFailureCode, type PayoutRiskFlag } from "./vendor.payoutRisk"
+import { notifyAdminsPayoutAccountNeedsReview } from "@/lib/payout-verification/admin-review-notify"
 import { presentPayoutAccount, SENSITIVE_FIELDS, type PayoutMaskedDetails } from "./vendor.payoutPresentation"
 import {
   PAYOUT_ADD_VELOCITY_MAX,
@@ -80,7 +82,10 @@ export async function addPayoutAccount(
 ) {
   const vendor = await prisma.vendorAccount.findUnique({
     where : { id: vendorId },
-    select: { id: true, countryId: true, status: true, legalBusinessName: true, ownerFirstName: true, ownerLastName: true },
+    select: {
+      id: true, countryId: true, status: true, legalBusinessName: true, ownerFirstName: true, ownerLastName: true,
+      country: { select: { name: true } },
+    },
   })
   if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
   if (vendor.status !== "ACTIVE") throw new ApiError(403, "Your account has been deactivated", "ACCOUNT_INACTIVE")
@@ -94,6 +99,25 @@ export async function addPayoutAccount(
   }
   if (type === "BANK" && (!input.accountNumber || !input.bankName)) {
     throw new ApiError(400, "accountNumber and bankName are required for bank accounts", "MISSING_FIELDS")
+  }
+
+  // Vendor 1E — the bank a vendor picks must originate from the authoritative
+  // supported-bank list (Finance's BANK_LIST capability), not be invented by
+  // the client. Only enforced when a list is actually available for this
+  // vendor's country/provider; when it isn't (supported: false — capability
+  // not configured yet) the manual bankName/bankCode fallback stays allowed.
+  // On a match we also canonicalise the display name from the provider list.
+  if (type === "BANK") {
+    const supported = await listSupportedBanks(vendorId)
+    if (supported.supported && supported.banks.length > 0) {
+      const match = input.bankCode
+        ? supported.banks.find((b) => b.code === input.bankCode)
+        : undefined
+      if (!match) {
+        throw new ApiError(400, "Select your bank from the supported list", "BANK_NOT_IN_SUPPORTED_LIST")
+      }
+      input.bankName = match.name
+    }
   }
   if (type === "DIGITAL_WALLET" && !input.paypalEmail && !input.stripeAccountId) {
     throw new ApiError(400, "A wallet identifier is required", "MISSING_FIELDS")
@@ -178,6 +202,17 @@ export async function addPayoutAccount(
     addVelocityExceeded: recentAdds >= PAYOUT_ADD_VELOCITY_MAX,
   })
   const verificationStatus = decidePayoutAccountStatus(outcome.status, riskFlags) as PayoutVerificationStatus
+  const verificationFailureCode = resolvePayoutFailureCode(verificationStatus, outcome.failureCode, riskFlags)
+  // Safe, human-readable "why" for the vendor + ERP — never account data.
+  // For a provider-VERIFIED account that risk routed to REQUIRES_REVIEW,
+  // outcome.reason would read "confirmed by the provider" (misleading), so
+  // use review wording there instead.
+  const safeReason =
+    verificationStatus === "VERIFIED"
+      ? null
+      : verificationStatus === "REQUIRES_REVIEW" && outcome.status === "VERIFIED"
+        ? "Your payout account needs a manual review before it can be used."
+        : outcome.reason ?? null
 
   // --- Encrypt sensitive fields + build the masked display object ---
   const masked: PayoutMaskedDetails = {}
@@ -208,6 +243,7 @@ export async function addPayoutAccount(
         stripeAccountId       : input.stripeAccountId ?? null,
         // encrypted at rest
         bankCode              : encryptOptional(input.bankCode),
+        branchCode            : encryptOptional(input.branchCode),
         accountNumber         : encryptOptional(input.accountNumber),
         swiftCode             : encryptOptional(input.swiftCode),
         iban                  : encryptOptional(input.iban),
@@ -221,11 +257,13 @@ export async function addPayoutAccount(
         nameMatchScore,
         riskFlags,
         verificationStatus,
+        verificationFailureCode,
         verificationMethod    : outcome.method,
-        // Populated on the automatic FAILED path so the vendor and admin
-        // surfaces show *why*, not just the status — same field the
-        // manual admin-reject path (rejectPayoutAccount) already uses.
-        failureReason         : verificationStatus === "FAILED" ? outcome.reason ?? null : null,
+        // Safe "why" for any non-VERIFIED outcome — FAILED, REQUIRES_REVIEW,
+        // or a PENDING that's awaiting manual review because the provider
+        // can't verify this currency. Never account data (guaranteed safe
+        // upstream). Same field the manual admin-reject path already uses.
+        failureReason         : safeReason,
         // verifiedAt marks *when* an automatic VERIFIED happened; verifiedBy
         // stays null here — it's "adminUserId if MANUAL" (see schema), and
         // this path isn't manual.
@@ -253,12 +291,26 @@ export async function addPayoutAccount(
     action     : "vendor_payout_account.added",
     entityType : "VendorPayoutAccount",
     entityId   : account.id,
-    changes    : { after: { verificationStatus, verificationMethod: outcome.method, methodType: type } },
+    changes    : { after: { verificationStatus, verificationFailureCode, verificationMethod: outcome.method, methodType: type } },
     metadata   : { vendorId, riskFlags },
   })
 
   if (verificationStatus === "FAILED" || verificationStatus === "REQUIRES_REVIEW") {
     void notifyVendorAboutVerificationOutcome(vendorId, account.id, verificationStatus)
+    // §14/§15 — the ERP-side operational signal, scoped to admins who can act
+    // on this country. Best-effort; never blocks account creation.
+    const maskedAccount =
+      masked.accountNumber ?? masked.iban ?? masked.mobileNumber ?? input.paypalEmail ?? input.stripeAccountId ?? "—"
+    void notifyAdminsPayoutAccountNeedsReview({
+      accountId    : account.id,
+      vendorId,
+      vendorName   : vendor.legalBusinessName,
+      countryId    : vendor.countryId,
+      countryName  : vendor.country?.name ?? "—",
+      bankLabel    : input.bankName ?? method.paymentMethod.name,
+      maskedAccount,
+      status       : verificationStatus,
+    })
   }
 
   return presentPayoutAccount(account)
@@ -293,56 +345,69 @@ async function notifyVendorAboutVerificationOutcome(
   }
 }
 
-//* Remove payout account
+//* Remove (deactivate) a payout account.
+//
+// This is a SOFT delete — the row stays (isActive:false, deletedAt set) so a
+// verified/previously-usable payout destination is never physically erased
+// (§8: financial history is preserved; a future payout run must still be able
+// to resolve which account it paid). What changes here vs. before is WHICH
+// accounts a vendor may clear on their own:
+//
+//   • A non-VERIFIED account (PENDING / FAILED / REQUIRES_REVIEW) never
+//     became a real payout destination — the vendor may always remove it,
+//     even if it's their only one, so a bad first attempt isn't a dead end
+//     (§7 "correct/replace/retry").
+//   • A VERIFIED account that is the vendor's only active one can't be
+//     removed directly — they must add + get a replacement verified first
+//     (replacement semantics, §7), so they're never left with zero usable
+//     accounts by a single click.
 
 export async function removePayoutAccount(vendorId: string, accountId: string) {
-    const account = await prisma.vendorPayoutAccount.findUnique({
-        where: { id: accountId },
+  const account = await prisma.vendorPayoutAccount.findUnique({ where: { id: accountId } })
+
+  if (!account || account.deletedAt) throw new ApiError(404, "Payout account not found", "NOT_FOUND")
+  if (account.vendorId !== vendorId) throw new ApiError(403, "Unauthorized", "FORBIDDEN")
+
+  const isVerified = account.verificationStatus === PayoutVerificationStatus.VERIFIED
+
+  await prisma.$transaction(async (tx) => {
+    const otherVerified = await tx.vendorPayoutAccount.findFirst({
+      where  : { vendorId, isActive: true, deletedAt: null, id: { not: accountId }, verificationStatus: PayoutVerificationStatus.VERIFIED },
+      orderBy: { createdAt: "asc" },
     })
 
-    if (!account || account.deletedAt) throw new ApiError(404, "Payout account not found", "NOT_FOUND")
-    if (account.vendorId !== vendorId) throw new ApiError(403, "Unauthorized", "FORBIDDEN")
-
-    if (account.isDefault) {
-        // Check if there's another account that can take over as default
-        const others = await prisma.vendorPayoutAccount.count({
-        where: { vendorId, isActive: true, deletedAt: null, id: { not: accountId } },
-        })
-        if (others === 0) {
-        throw new ApiError(
-            400,
-            "You cannot remove your only payout account. Add another account first.",
-            "CANNOT_REMOVE_ONLY_ACCOUNT",
-        )
-        }
-        // Auto-promote the oldest remaining account to default
-        const next = await prisma.vendorPayoutAccount.findFirst({
-        where  : { vendorId, isActive: true, deletedAt: null, id: { not: accountId } },
-        orderBy: { createdAt: "asc" },
-        })
-        if (next) {
-        await prisma.vendorPayoutAccount.update({
-            where: { id: next.id },
-            data : { isDefault: true },
-        })
-        }
+    // Removing a VERIFIED account that's the vendor's LAST verified one would
+    // leave them unable to be paid out — force replace-first (§7).
+    if (isVerified && !otherVerified) {
+      throw new ApiError(
+        400,
+        "This is your only verified payout account. Add another account and get it verified first, then remove this one.",
+        "CANNOT_REMOVE_ONLY_VERIFIED_ACCOUNT",
+      )
     }
 
-    await prisma.vendorPayoutAccount.update({
-        where: { id: accountId },
-        data : { isActive: false, deletedAt: new Date(), isDefault: false },
-    })
+    // If the account being removed is the default, hand the flag to another
+    // VERIFIED account — never to a non-verified one.
+    if (account.isDefault && otherVerified) {
+      await tx.vendorPayoutAccount.update({ where: { id: otherVerified.id }, data: { isDefault: true } })
+    }
 
-    serviceLog.info({ vendorId, accountId }, "Payout account removed")
-    auditService.log({
-        adminUserId: SYSTEM_USER_ID,
-        action     : "vendor_payout_account.removed",
-        entityType : "VendorPayoutAccount",
-        entityId   : accountId,
-        changes    : { before: { verificationStatus: account.verificationStatus, isActive: true }, after: { isActive: false } },
-        metadata   : { vendorId },
+    await tx.vendorPayoutAccount.update({
+      where: { id: accountId },
+      data : { isActive: false, deletedAt: new Date(), isDefault: false },
     })
-    return { success: true }
+  })
+
+  serviceLog.info({ vendorId, accountId, wasVerified: isVerified }, "Payout account removed")
+  auditService.log({
+    adminUserId: SYSTEM_USER_ID,
+    action     : "vendor_payout_account.removed",
+    entityType : "VendorPayoutAccount",
+    entityId   : accountId,
+    changes    : { before: { verificationStatus: account.verificationStatus, isActive: true }, after: { isActive: false } },
+    metadata   : { vendorId },
+  })
+  return { success: true }
 }
 
 //* Set default payout account
@@ -433,7 +498,7 @@ export async function getAvailablePayoutMethods(vendorId: string) {
   })
   if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
 
-  return prisma.countryPaymentMethod.findMany({
+  const methods = await prisma.countryPaymentMethod.findMany({
     where  : {
       countryId: vendor.countryId,
       direction: PaymentDirection.OUTBOUND,
@@ -442,8 +507,47 @@ export async function getAvailablePayoutMethods(vendorId: string) {
     orderBy: { displayOrder: "asc" },
     include: {
       paymentMethod: { select: { name: true, type: true, logoUrl: true, code: true, description: true } },
+      countryProviderAccount: {
+        select: {
+          status: true,
+          enabledCapabilities: true,
+          paymentProvider: { select: { status: true } },
+        },
+      },
     },
   })
+
+  // A vendor may only be offered a method that can ACTUALLY execute a payout
+  // today: it must be bound (on the Finance page) to a provider account that
+  // is ACTIVE, whose provider is ACTIVE, and that enables the payout
+  // capability this method type needs (PAYOUT_BANK / PAYOUT_MOBILE_MONEY).
+  // The capability rule is Finance's — reused via methodProviderAccountProblem,
+  // never re-implemented here. An unwired or unusable method is silently
+  // dropped rather than offered and then failing at account creation.
+  return methods
+    .filter((m) =>
+      isOutboundMethodPayable({
+        methodType: m.paymentMethod.type,
+        account: m.countryProviderAccount
+          ? {
+              status: m.countryProviderAccount.status,
+              enabledCapabilities: m.countryProviderAccount.enabledCapabilities,
+              providerStatus: m.countryProviderAccount.paymentProvider.status,
+            }
+          : null,
+      }),
+    )
+    // Reshape to the vendor-facing contract — the provider account was only
+    // needed to decide eligibility; its status/capabilities never leave the
+    // backend.
+    .map((m) => ({
+      id          : m.id,
+      countryId   : m.countryId,
+      direction   : m.direction,
+      status      : m.status,
+      displayOrder: m.displayOrder,
+      paymentMethod: m.paymentMethod,
+    }))
 }
 
 //* List supported banks (Vendor 1E)
@@ -494,6 +598,7 @@ export async function decryptPayoutIdentifiers(accountId: string) {
   if (!a || a.deletedAt) throw new ApiError(404, "Payout account not found", "NOT_FOUND")
   return {
     bankCode     : decryptOptional(a.bankCode),
+    branchCode   : decryptOptional(a.branchCode),
     accountNumber: decryptOptional(a.accountNumber),
     swiftCode    : decryptOptional(a.swiftCode),
     iban         : decryptOptional(a.iban),

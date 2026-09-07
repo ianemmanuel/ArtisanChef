@@ -7,6 +7,7 @@ import { getAdminSession } from "@/lib/auth/session"
 import { getMockCountryRevenue } from "@/lib/mock/country-revenue"
 import { CountryActions } from "@/components/countries/CountryActions"
 import { CountryLaunchChecklist } from "@/components/countries/CountryLaunchChecklist"
+import { CountryFinanceLinks } from "@/components/countries/CountryFinanceLinks"
 import { CountryVendorCategoriesPreview } from "@/components/countries/CountryVendorCategoriesPreview"
 import { CountryDocumentsPreview } from "@/components/countries/CountryDocumentsPreview"
 import { CountryReadinessActions } from "@/components/countries/CountryReadinessActions"
@@ -79,7 +80,8 @@ export default async function CountryDetailPage({ params }: Props) {
 
   const canWrite = session.permissions.includes(AdminPermissions.SETTINGS_GEOGRAPHY_WRITE)
   const checklist = country.checklist ?? {
-    vendorTypeCount: 0, documentTypeCount: 0, outboundPaymentMethodCount: 0, inboundPaymentMethodCount: 0, cityCount: 0, readyToActivate: false,
+    vendorTypeCount: 0, documentTypeCount: 0, outboundPaymentMethodCount: 0, inboundPaymentMethodCount: 0, cityCount: 0,
+    financiallyReady: false, financialReadinessReasons: [], readyToActivate: false,
   }
 
   const cityPreviewEntries: CityPreviewEntry[] = cityLeaderboard.length > 0
@@ -214,6 +216,20 @@ export default async function CountryDetailPage({ params }: Props) {
           <SectionViewMoreHeader title="Documents" href={`/countries/${country.slug}/documents`} />
           <CountryDocumentsPreview documentTypes={documentTypesResult?.documentTypes ?? []} />
         </div>
+      </div>
+
+      {/* Finance — hub links only, never the configuration forms themselves.
+          Financial Configuration and Payment Methods stay two dedicated
+          pages with their own permissions (Countries + Finance IA
+          restructuring); this card just connects them. */}
+      <div className="admin-card space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Finance</h2>
+        <CountryFinanceLinks
+          countrySlug={country.slug}
+          financiallyReady={checklist.financiallyReady}
+          outboundPaymentMethodCount={checklist.outboundPaymentMethodCount}
+          inboundPaymentMethodCount={checklist.inboundPaymentMethodCount}
+        />
       </div>
 
     </div>

@@ -1,0 +1,168 @@
+import type { Metadata } from "next"
+import { redirect, notFound } from "next/navigation"
+import Link from "next/link"
+import { ArrowLeft, Landmark, AlertTriangle } from "lucide-react"
+import { adminFetch, ApiCallError } from "@/lib/api"
+import { getAdminSession } from "@/lib/auth/session"
+import { PayoutAccountReviewActions } from "@/components/finance/PayoutAccountReviewActions"
+import {
+  PAYOUT_STATUS_BADGE, PAYOUT_STATUS_LABEL, PAYOUT_FAILURE_LABEL,
+} from "@/components/finance/payout-account-status"
+import { AdminPermissions } from "@repo/types/admin-app"
+import type { AdminPayoutAccountDetail } from "@repo/types/admin-app"
+
+export const metadata: Metadata = { title: "Payout Account" }
+export const revalidate = 15
+
+const RISK_LABEL: Record<string, string> = {
+  NAME_MISMATCH       : "Account-holder name doesn't match the vendor",
+  ADD_VELOCITY        : "Many payout accounts added recently",
+  DUPLICATE_IDENTIFIER: "Identifier used by another vendor in this country",
+}
+
+interface PageProps { params: Promise<{ accountId: string }> }
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5 border-b border-border/50 py-2 last:border-0 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-sm text-foreground">{children}</span>
+    </div>
+  )
+}
+
+export default async function PayoutAccountDetailPage({ params }: PageProps) {
+  const session = await getAdminSession()
+  if (!session.permissions.includes(AdminPermissions.FINANCE_PAYOUTS_READ)) redirect("/overview")
+  const canManage = session.permissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_MANAGE)
+
+  const { accountId } = await params
+
+  let detail: AdminPayoutAccountDetail
+  try {
+    detail = await adminFetch<AdminPayoutAccountDetail>(`/admin/v1/finance/payout-accounts/${accountId}`, {
+      next: { revalidate: 15, tags: ["finance-payout-accounts"] },
+    })
+  } catch (err) {
+    if (err instanceof ApiCallError && err.status === 404) notFound()
+    throw err
+  }
+
+  const a = detail.account
+  const lifecycleStatus = a.isActive ? a.verificationStatus : "DEACTIVATED"
+
+  return (
+    <div className="page-content animate-slide-up">
+      <Link
+        href="/finance/payout-accounts"
+        className="group inline-flex w-fit items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-[var(--shadow-xs)] transition-all group-hover:-translate-x-0.5 group-hover:border-primary/40 group-hover:text-primary">
+          <ArrowLeft className="h-4 w-4" />
+        </span>
+        Back to payout accounts
+      </Link>
+
+      <div className="admin-card flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="icon-badge icon-badge-primary h-12 w-12"><Landmark className="h-5 w-5" /></div>
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+              {a.bankName ?? a.methodName} <span className="font-mono text-base text-muted-foreground">{a.maskedAccount}</span>
+            </h1>
+            <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+              <Link href={`/vendors/accounts/${a.vendorId}`} className="hover:text-primary hover:underline">{a.vendorName}</Link>
+              <span>· {a.countryName}</span>
+              <span className={PAYOUT_STATUS_BADGE[lifecycleStatus]}>{PAYOUT_STATUS_LABEL[lifecycleStatus]}</span>
+              {a.isDefault && a.isActive && <span className="badge-info">Default</span>}
+            </p>
+          </div>
+        </div>
+        {canManage && a.isActive && (
+          <PayoutAccountReviewActions
+            accountId={a.id}
+            identifier={`${a.bankName ?? a.methodName} ${a.maskedAccount}`}
+            verificationStatus={a.verificationStatus}
+            canVerify={detail.canVerify}
+            verifyBlockedReason={detail.verifyBlockedReason}
+            canManage={canManage}
+            variant="full"
+          />
+        )}
+      </div>
+
+      {detail.verifyBlockedReason && a.verificationStatus !== "VERIFIED" && (
+        <div className="admin-card flex items-start gap-2 border-l-2 border-l-warning/60 text-sm text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>{detail.verifyBlockedReason}</span>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="admin-card">
+          <h2 className="mb-2 text-sm font-semibold text-foreground">Account</h2>
+          <Row label="Vendor">
+            <Link href={`/vendors/accounts/${a.vendorId}`} className="hover:text-primary hover:underline">{a.vendorName}</Link>
+          </Row>
+          <Row label="Country">{a.countryName} ({a.countryCode})</Row>
+          <Row label="Payment method">{a.methodName} · {a.methodType}</Row>
+          <Row label="Bank">{a.bankName ?? "—"}</Row>
+          <Row label="Branch">{a.branchName ?? "—"}</Row>
+          <Row label="Account holder">{a.accountHolderName ?? "—"}</Row>
+          <Row label="Account identifier"><span className="font-mono">{a.maskedAccount}</span></Row>
+          <Row label="Currency">{a.currency}</Row>
+        </div>
+
+        <div className="admin-card">
+          <h2 className="mb-2 text-sm font-semibold text-foreground">Verification</h2>
+          <Row label="Status">
+            <span className={PAYOUT_STATUS_BADGE[lifecycleStatus]}>{PAYOUT_STATUS_LABEL[lifecycleStatus]}</span>
+          </Row>
+          <Row label="Provider">{a.providerName ?? "—"}{a.environment ? ` · ${a.environment}` : ""}</Row>
+          <Row label="Verification method">{a.verificationMethod ?? "—"}</Row>
+          <Row label="Reason">
+            {a.verificationFailureCode ? PAYOUT_FAILURE_LABEL[a.verificationFailureCode] : (a.failureReason ?? "—")}
+          </Row>
+          {a.failureReason && (
+            <Row label="Detail"><span className="text-muted-foreground">{a.failureReason}</span></Row>
+          )}
+          <Row label="Name match">
+            {a.nameMatchScore != null ? `${Math.round(a.nameMatchScore * 100)}%` : "not checked"}
+          </Row>
+          <Row label="Verified at">{a.verifiedAt ? new Date(a.verifiedAt).toLocaleString() : "—"}</Row>
+          <Row label="Created">{new Date(a.createdAt).toLocaleString()}</Row>
+          <Row label="Updated">{new Date(a.updatedAt).toLocaleString()}</Row>
+          {a.riskFlags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {a.riskFlags.map((f) => (
+                <span key={f} className="inline-flex items-center gap-1 rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-medium text-warning">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  {RISK_LABEL[f] ?? f}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <h2 className="mb-3 text-sm font-semibold text-foreground">Review &amp; audit history</h2>
+        {detail.audit.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No recorded actions yet.</p>
+        ) : (
+          <ul className="space-y-2.5">
+            {detail.audit.map((e) => (
+              <li key={e.id} className="flex flex-col gap-0.5 border-b border-border/50 pb-2.5 last:border-0 sm:flex-row sm:items-baseline sm:justify-between">
+                <span className="text-sm text-foreground">
+                  <span className="font-mono text-xs text-muted-foreground">{e.action}</span>
+                  {e.actor ? ` · ${e.actor}` : ""}
+                </span>
+                <span className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}

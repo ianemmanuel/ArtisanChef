@@ -11,6 +11,7 @@ import {
   setPaymentMethodActive,
   listCountryPaymentMethods,
   configureCountryPaymentMethod,
+  updateCountryPaymentMethod,
   setCountryPaymentMethodStatus,
 } from "../services/admin.paymentMethod.service"
 
@@ -87,20 +88,28 @@ export const handleListCountryPaymentMethods: RequestHandler = async (req, res, 
 export const handleConfigureCountryPaymentMethod: RequestHandler = async (req, res, next) => {
   try {
     const { adminUser, adminScope } = req as unknown as AdminRequest
-    const { countryId, paymentMethodId, direction, ourAccountDetails, verificationProvider, verificationConfig, displayOrder } = req.body as {
-      countryId?: string; paymentMethodId?: string; direction?: PaymentDirection
-      ourAccountDetails?: Record<string, unknown>; verificationProvider?: string
-      verificationConfig?: Record<string, unknown>; displayOrder?: number
+    const { countryId, paymentMethodId, direction, displayOrder } = req.body as {
+      countryId?: string; paymentMethodId?: string; direction?: PaymentDirection; displayOrder?: number
     }
     if (!countryId?.trim() || !paymentMethodId?.trim() || !direction) {
       throw new ApiError(400, "countryId, paymentMethodId, and direction are required", "MISSING_FIELDS")
     }
 
     const config = await configureCountryPaymentMethod(
-      { countryId, paymentMethodId, direction, ourAccountDetails, verificationProvider, verificationConfig, displayOrder },
+      { countryId, paymentMethodId, direction, displayOrder },
       adminUser.id, adminScope,
     )
     return sendSuccess(res, config, "Country payment method configured", 201)
+  } catch (err) { next(err) }
+}
+
+export const handleUpdateCountryPaymentMethod: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { id } = req.params as { id: string }
+    const { displayOrder } = req.body as { displayOrder?: number }
+    const config = await updateCountryPaymentMethod(id, { displayOrder }, adminUser.id, adminScope)
+    return sendSuccess(res, config, "Country payment method updated")
   } catch (err) { next(err) }
 }
 

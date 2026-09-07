@@ -18,12 +18,12 @@ import {
 import {
   handleGetCountryFinancialConfig,
   handleCreateCountryFinancialConfig,
-  handleSetConfigCurrency,
-  handleSetActiveProviderAccount,
+  handleSetBankVerificationProviderAccount,
   handleSetOperationalSwitches,
   handleActivateConfig,
   handleSuspendConfig,
   handleDisableConfig,
+  handleRestoreConfig,
 } from "../controllers/finance.countryConfig.controller"
 import {
   handleListProviderAccounts,
@@ -33,6 +33,8 @@ import {
   handleActivateProviderAccount,
   handleSuspendProviderAccount,
   handleDisableProviderAccount,
+  handleRestoreProviderAccount,
+  handleTestProviderAccountBankList,
 } from "../controllers/finance.providerAccount.controller"
 import {
   handleListCountryPaymentMethods,
@@ -82,6 +84,10 @@ financeAdminRouter.patch("/provider-accounts/:accountId", MANAGE, handleUpdatePr
 financeAdminRouter.post("/provider-accounts/:accountId/activate", MANAGE, handleActivateProviderAccount)
 financeAdminRouter.post("/provider-accounts/:accountId/suspend", MANAGE, handleSuspendProviderAccount)
 financeAdminRouter.post("/provider-accounts/:accountId/disable", MANAGE, handleDisableProviderAccount)
+financeAdminRouter.post("/provider-accounts/:accountId/restore", MANAGE, handleRestoreProviderAccount)
+// Pre-activation connectivity test — calls the provider's own bank
+// directory through the registered adapter and returns the normalized list.
+financeAdminRouter.post("/provider-accounts/:accountId/test-bank-list", MANAGE, handleTestProviderAccountBankList)
 
 //* ─── Per-country payment-method <-> provider-account wiring (Phase 1C) ───
 financeAdminRouter.get("/countries/:countryRef/payment-methods", READ, handleListCountryPaymentMethods)
@@ -94,11 +100,11 @@ financeAdminRouter.patch(
 //* ─── Per-country financial configuration ────────────────────────────────
 financeAdminRouter.get("/countries/:countryRef/financial-config", READ, handleGetCountryFinancialConfig)
 financeAdminRouter.post("/countries/:countryRef/financial-config", MANAGE, handleCreateCountryFinancialConfig)
-financeAdminRouter.patch("/countries/:countryRef/financial-config/currency", MANAGE, handleSetConfigCurrency)
-financeAdminRouter.patch("/countries/:countryRef/financial-config/provider-account", MANAGE, handleSetActiveProviderAccount)
+financeAdminRouter.patch("/countries/:countryRef/financial-config/bank-verification-account", MANAGE, handleSetBankVerificationProviderAccount)
 financeAdminRouter.patch("/countries/:countryRef/financial-config/switches", MANAGE, handleSetOperationalSwitches)
 financeAdminRouter.post("/countries/:countryRef/financial-config/activate", MANAGE, handleActivateConfig)
 financeAdminRouter.post("/countries/:countryRef/financial-config/suspend", MANAGE, handleSuspendConfig)
 financeAdminRouter.post("/countries/:countryRef/financial-config/disable", MANAGE, handleDisableConfig)
+financeAdminRouter.post("/countries/:countryRef/financial-config/restore", MANAGE, handleRestoreConfig)
 
 export default financeAdminRouter

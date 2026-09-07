@@ -22,7 +22,10 @@ export async function PATCH(
       body   : JSON.stringify(body),
     })
     const data = await res.json()
-    if (res.ok) revalidateTag("payment-methods", {})
+    if (res.ok) {
+      revalidateTag("payment-methods", {})
+      revalidateTag("finance-country-config", {})
+    }
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
     console.error("[country-payment-method-status]", err)

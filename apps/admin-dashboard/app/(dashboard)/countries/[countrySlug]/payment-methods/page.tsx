@@ -5,7 +5,7 @@ import { ArrowLeft, CreditCard, ArrowDownToLine, ArrowUpFromLine } from "lucide-
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { EmptyState } from "@/components/shared/EmptyState"
-import { ConfigureCountryPaymentMethodDialog } from "@/components/payment-methods/ConfigureCountryPaymentMethodDialog"
+import { CountryPaymentMethodSheet } from "@/components/payment-methods/CountryPaymentMethodSheet"
 import { CountryPaymentMethodStatusToggle } from "@/components/payment-methods/CountryPaymentMethodStatusToggle"
 import { AdminPermissions } from "@repo/types/admin-app"
 import type { Country } from "@repo/types/admin-app"
@@ -81,27 +81,39 @@ export default async function CountryPaymentMethodsPage({ params }: Props) {
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Payment Methods</h1>
             <p className="text-sm text-muted-foreground">
-              Which payment gateways {country.name} accepts from customers and pays out to vendors with.
+              Which methods {country.name} offers — inbound (customers pay with it) and outbound (vendors are paid
+              out with it). The provider that runs each is wired on the{" "}
+              <Link href={`/countries/${country.slug}/finance`} className="text-primary hover:underline">Finance</Link> page.
             </p>
           </div>
         </div>
-        {canManage && <ConfigureCountryPaymentMethodDialog countryId={country.id} methods={catalog} />}
+        {canManage && <CountryPaymentMethodSheet countryId={country.id} methods={catalog} />}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <PaymentMethodDirectionCard
+          direction="INBOUND"
           title="Inbound — Customer Payments"
+          caption="Money coming into DailyBread"
           icon={ArrowDownToLine}
           configs={inbound}
+          catalog={catalog}
+          countryId={country.id}
+          countrySlug={country.slug}
           canManage={canManage}
-          emptyDescription="No customer payment method configured yet — customer operations can't be marked ready for this country until one exists."
+          emptyDescription="No customer payment method yet — customer operations can't be marked ready for this country until one exists."
         />
         <PaymentMethodDirectionCard
+          direction="OUTBOUND"
           title="Outbound — Vendor Payouts"
+          caption="Money leaving DailyBread"
           icon={ArrowUpFromLine}
           configs={outbound}
+          catalog={catalog}
+          countryId={country.id}
+          countrySlug={country.slug}
           canManage={canManage}
-          emptyDescription="No vendor payout method configured yet — vendor onboarding can't be marked ready for this country until one exists."
+          emptyDescription="No vendor payout method yet — vendor onboarding can't be marked ready for this country until one exists."
         />
       </div>
     </div>
@@ -109,42 +121,81 @@ export default async function CountryPaymentMethodsPage({ params }: Props) {
 }
 
 function PaymentMethodDirectionCard({
-  title, icon: Icon, configs, canManage, emptyDescription,
+  direction, title, caption, icon: Icon, configs, catalog, countryId, countrySlug, canManage, emptyDescription,
 }: {
+  direction: "INBOUND" | "OUTBOUND"
   title: string
+  caption: string
   icon : typeof ArrowDownToLine
   configs: CountryPaymentMethodConfig[]
+  catalog: PaymentMethod[]
+  countryId: string
+  countrySlug: string
   canManage: boolean
   emptyDescription: string
 }) {
+  // Subtle directional treatment — INBOUND (collection) reads as success-toned,
+  // OUTBOUND (payout) as primary-toned. Left border + icon badge only; no
+  // heavy colour blocking (this is an ERP config surface, not a dashboard).
+  const tone = direction === "INBOUND"
+    ? { border: "border-l-2 border-l-success/60", badge: "icon-badge-success", chip: "badge-success" }
+    : { border: "border-l-2 border-l-primary/60", badge: "icon-badge-primary", chip: "badge-info" }
+
   return (
-    <div className="admin-card space-y-3">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+    <div className={`admin-card space-y-3 ${tone.border}`}>
+      <div className="flex items-center gap-2.5">
+        <div className={`icon-badge ${tone.badge} h-8 w-8`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <p className="text-[11px] text-muted-foreground">{caption}</p>
+        </div>
+        <span className={`ml-auto ${tone.chip}`}>{direction}</span>
       </div>
       {configs.length === 0 ? (
         <EmptyState icon={Icon} title="Not configured" description={emptyDescription} />
       ) : (
         <ul className="divide-y divide-border/60">
-          {configs.map((c) => (
-            <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">{c.paymentMethod.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {c.verificationProvider ?? "No verification provider set"}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <span className={c.status === "ACTIVE" ? "badge-success" : c.status === "DEPRECATED" ? "badge-warning" : "badge-neutral"}>
-                  {c.status}
-                </span>
-                {canManage && (
-                  <CountryPaymentMethodStatusToggle id={c.id} name={c.paymentMethod.name} status={c.status} />
-                )}
-              </div>
-            </li>
-          ))}
+          {configs.map((c) => {
+            const acct = c.countryProviderAccount
+            return (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{c.paymentMethod.name}</p>
+                  {acct ? (
+                    <p className="text-xs text-muted-foreground">
+                      Runs on {acct.paymentProvider.name}
+                      <span className="font-mono"> · {acct.environment}</span>
+                      {acct.status !== "ACTIVE" && <span className="text-warning"> · account {acct.status.toLowerCase()}</span>}
+                      {canManage && (
+                        <>
+                          {" · "}
+                          <Link href={`/countries/${countrySlug}/finance`} className="underline">change on Finance</Link>
+                        </>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-warning">
+                      Not assigned to a provider —{" "}
+                      <Link href={`/countries/${countrySlug}/finance`} className="underline">assign one on Finance</Link>
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={c.status === "ACTIVE" ? "badge-success" : c.status === "DEPRECATED" ? "badge-warning" : "badge-neutral"}>
+                    {c.status}
+                  </span>
+                  {canManage && (
+                    <>
+                      <CountryPaymentMethodSheet countryId={countryId} methods={catalog} existing={c} />
+                      <CountryPaymentMethodStatusToggle id={c.id} name={c.paymentMethod.name} status={c.status} />
+                    </>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

@@ -29,16 +29,21 @@ export interface PaymentMethodListResult {
 }
 
 export interface CountryPaymentMethodConfig {
-  id                   : string
-  countryId            : string
-  paymentMethodId      : string
-  direction            : PaymentDirection
-  status               : CountryPaymentMethodStatus
-  ourAccountDetails    : Record<string, unknown> | null
-  verificationProvider : string | null
-  verificationConfig   : Record<string, unknown> | null
-  displayOrder         : number
-  createdByAdminId     : string | null
-  createdAt            : string
+  id                       : string
+  countryId                : string
+  paymentMethodId          : string
+  direction                : PaymentDirection
+  status                   : CountryPaymentMethodStatus
+  displayOrder             : number
+  countryProviderAccountId : string | null
+  createdByAdminId         : string | null
+  createdAt                : string
   paymentMethod: { id: string; code: string; name: string; type: PaymentMethodType; logoUrl: string | null; isActive: boolean }
+  /** Which provider account executes this method — wired on the country Finance page. */
+  countryProviderAccount: {
+    id: string
+    environment: "TEST" | "LIVE"
+    status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "DISABLED"
+    paymentProvider: { code: string; name: string }
+  } | null
 }

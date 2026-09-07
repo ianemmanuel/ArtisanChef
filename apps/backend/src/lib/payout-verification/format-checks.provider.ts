@@ -38,6 +38,7 @@ export const formatChecksProvider: PayoutVerificationProvider = {
       return {
         status: "FAILED",
         method: "FORMAT_CHECKS",
+        failureCode: "INVALID_ACCOUNT",
         reason: "One or more account identifiers are structurally invalid.",
         fieldErrors,
         meta  : { checkedAt: new Date().toISOString() },

@@ -16,6 +16,7 @@ export type AdminNotificationType =
   | "ZONE_STATUS_CHANGED"
   | "ZONE_CAPABILITY_CHANGED"
   | "OUTLET_AUTO_SUSPENDED"
+  | "PAYOUT_ACCOUNT_NEEDS_REVIEW"
 
 export interface AdminNotification {
   id         : string

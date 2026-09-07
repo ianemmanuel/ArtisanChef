@@ -24,6 +24,16 @@ export interface ReadinessRequirement {
   href : string
 }
 
+/* Only VERIFIED satisfies readiness — every other state gets a specific
+ * call-to-action so the vendor knows exactly where they stand (§6). */
+const PAYOUT_TODO: Record<VendorGoLiveStatus["payoutAccountState"], string> = {
+  NONE           : "Add a payout account",
+  PENDING        : "Payout account verification pending",
+  REQUIRES_REVIEW: "Payout account requires review",
+  FAILED         : "Payout account verification failed — fix and try again",
+  VERIFIED       : "Payout account verified",
+}
+
 export function readinessRequirements(status: VendorGoLiveStatus): ReadinessRequirement[] {
   const profilePending = status.blockers.includes("PROFILE_UNDER_REVIEW")
 
@@ -34,7 +44,7 @@ export function readinessRequirements(status: VendorGoLiveStatus): ReadinessRequ
       met      : status.hasVerifiedPayoutAccount,
       href     : "/setup/payout",
       doneLabel: "Payout account verified",
-      todoLabel: "Verify your payout account",
+      todoLabel: PAYOUT_TODO[status.payoutAccountState],
       description: "Add a bank, mobile money, or wallet account and get it verified so we can pay you out.",
     },
     {

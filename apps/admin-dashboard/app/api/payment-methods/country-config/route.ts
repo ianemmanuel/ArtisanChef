@@ -6,7 +6,7 @@ const BACKEND = process.env.BACKEND_API_URL
 
 /**
  * POST /api/payment-methods/country-config
- * Body: { countryId, paymentMethodId, direction, ourAccountDetails?, verificationProvider?, verificationConfig?, displayOrder? }
+ * Body: { countryId, paymentMethodId, direction, displayOrder? }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -23,6 +23,9 @@ export async function POST(req: NextRequest) {
     const data = await res.json()
     if (res.ok) {
       revalidateTag("payment-methods", {})
+      // The Finance page's provider-assignment list is built from this same
+      // set of CountryPaymentMethod rows — keep it in step.
+      revalidateTag("finance-country-config", {})
       if (typeof body?.countryId === "string") revalidateTag(`country-payment-methods-${body.countryId}`, {})
     }
     return NextResponse.json(data, { status: res.status })

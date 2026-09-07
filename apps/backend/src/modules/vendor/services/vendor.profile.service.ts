@@ -180,9 +180,17 @@ export async function upsertVendorProfile(vendorId: string, input: UpsertVendorP
 //* stored (see VendorGoLiveStatus).
 
 export async function getVendorGoLiveStatus(vendorId: string): Promise<VendorGoLiveStatus> {
-  const [verifiedPayoutCount, activeOutletCount, profile] = await Promise.all([
+  const [verifiedPayoutCount, currentPayoutAccount, activeOutletCount, profile] = await Promise.all([
     prisma.vendorPayoutAccount.count({
       where: { vendorId, isActive: true, deletedAt: null, verificationStatus: PayoutVerificationStatus.VERIFIED },
+    }),
+    // The account the setup UI should describe — the default one, else the
+    // most recently added active one. Readiness still keys only off a
+    // VERIFIED count above; this is for the "why not done yet" wording.
+    prisma.vendorPayoutAccount.findFirst({
+      where  : { vendorId, isActive: true, deletedAt: null },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+      select : { verificationStatus: true },
     }),
     prisma.outlet.count({
       where: {
@@ -215,6 +223,7 @@ export async function getVendorGoLiveStatus(vendorId: string): Promise<VendorGoL
 
   return {
     hasVerifiedPayoutAccount,
+    payoutAccountState: currentPayoutAccount?.verificationStatus ?? "NONE",
     hasActiveOutlet,
     hasProfile,
     isProfileReviewClear,

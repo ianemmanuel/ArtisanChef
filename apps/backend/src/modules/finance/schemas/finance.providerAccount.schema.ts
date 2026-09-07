@@ -1,15 +1,19 @@
 import { z } from "zod"
-import { PROVIDER_CAPABILITIES } from "../providers/provider.capabilities"
+import { BUSINESS_CAPABILITIES } from "../providers/provider.capabilities"
 
-const capability = z.enum(PROVIDER_CAPABILITIES)
+// The admin only ever selects BUSINESS capabilities. Integration
+// capabilities (webhooks, bank directory, account verification) are merged
+// in by the service from the provider's adapter — never a request field.
+const businessCapability = z.enum(BUSINESS_CAPABILITIES)
 const environment = z.enum(["TEST", "LIVE"])
 
 export const createCountryProviderAccountSchema = z
   .object({
     paymentProviderId: z.string().uuid(),
     environment,
-    secretAlias: z.string().trim().min(2).max(120).regex(/^[a-z0-9_]+$/i, "letters, digits and underscores only"),
-    enabledCapabilities: z.array(capability).min(1),
+    // secretAlias is DERIVED (provider + country + environment) — see
+    // deriveProviderSecretAlias. Never entered by an admin.
+    enabledCapabilities: z.array(businessCapability).min(1),
     accountLabel: z.string().trim().max(120).optional(),
     externalAccountId: z.string().trim().max(200).optional(),
   })
@@ -17,11 +21,11 @@ export const createCountryProviderAccountSchema = z
 
 export const updateCountryProviderAccountSchema = z
   .object({
-    enabledCapabilities: z.array(capability).min(1).optional(),
+    enabledCapabilities: z.array(businessCapability).min(1).optional(),
     accountLabel: z.string().trim().max(120).optional(),
     externalAccountId: z.string().trim().max(200).optional(),
-    // Structural — the service requires GLOBAL scope for these.
-    secretAlias: z.string().trim().min(2).max(120).regex(/^[a-z0-9_]+$/i).optional(),
+    // Structural — the service requires GLOBAL scope. Changing it
+    // re-derives the secret alias.
     environment: environment.optional(),
   })
   .strict()

@@ -37,8 +37,9 @@ export async function resolveSupportedBanks(
     }
     if (err instanceof ApiError) {
       // resolveProviderGateway's "not configured for this yet" errors
-      // (financial config inactive, no active provider account, capability
-      // not enabled, credentials unresolved) — expected, not a failure.
+      // (financial config inactive, no bank-verification provider account
+      // bound, capability not enabled, credentials unresolved) — expected,
+      // not a failure.
       return { supported: false, banks: [] }
     }
     throw err

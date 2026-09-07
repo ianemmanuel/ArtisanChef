@@ -17,7 +17,7 @@ export type {
   UpdateCountryProviderAccountRequest,
   SuspendRequest,
   CountryFinancialConfig,
-  UpdateCountryFinancialConfigStructuralRequest,
+  SetBankVerificationProviderAccountRequest,
   SetOperationalSwitchesRequest,
   ReadinessCheck,
   FinancialReadiness,

@@ -17,10 +17,10 @@ interface Props {
  * Pre-activation checklist — a country needs at least one vendor type, one
  * document type, one vendor payout method, and one city before it can go
  * ACTIVE (see activateCountry in admin.country.service.ts). Shown even once
- * active, as a record of what unlocked activation. The payout-method and
- * cities rows link to real pages (unlike the other two's placeholder
- * anchors, kept as-is — vendor types/document types don't have a dedicated
- * country sub-page yet). The city row is deliberately just presence, not
+ * active, as a record of what unlocked activation. All four rows link to
+ * real country sub-pages (Countries + Finance IA restructuring fixed the
+ * vendor-types/document-types rows, which previously pointed at `#` anchor
+ * placeholders). The city row is deliberately just presence, not
  * boundary/service-area configuration — that's ongoing operational map
  * work, not a launch gate (see admin.country.service.ts's comment).
  *
@@ -31,8 +31,8 @@ interface Props {
  */
 export function CountryLaunchChecklist({ vendorTypeCount, documentTypeCount, outboundPaymentMethodCount, cityCount, readyToActivate, status, countrySlug, currency, currencySymbol }: Props) {
   const rows = [
-    { label: "Vendor types linked",    count: vendorTypeCount,            href: "#vendor-types" },
-    { label: "Document types created", count: documentTypeCount,         href: "#document-types" },
+    { label: "Vendor types linked",    count: vendorTypeCount,            href: `/countries/${countrySlug}/vendor-categories` },
+    { label: "Document types created", count: documentTypeCount,         href: `/countries/${countrySlug}/documents` },
     { label: "Vendor payout methods configured", count: outboundPaymentMethodCount, href: `/countries/${countrySlug}/payment-methods` },
     { label: "Cities added",           count: cityCount,                 href: `/countries/${countrySlug}/cities` },
   ]

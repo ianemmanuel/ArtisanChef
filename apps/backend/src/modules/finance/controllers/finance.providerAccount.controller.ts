@@ -10,12 +10,14 @@ import {
   activateProviderAccount,
   suspendProviderAccount,
   disableProviderAccount,
+  restoreProviderAccount,
 } from "../services/finance.providerAccount.service"
 import {
   createCountryProviderAccountSchema,
   updateCountryProviderAccountSchema,
   suspendSchema,
 } from "../schemas/finance.providerAccount.schema"
+import { testProviderAccountBankList } from "../services/finance.providerTest.service"
 
 function ctx(req: unknown) {
   const { adminUser, adminScope } = req as AdminRequest
@@ -80,5 +82,23 @@ export const handleDisableProviderAccount: RequestHandler = async (req, res, nex
     const { actorId, scope } = ctx(req)
     const data = await disableProviderAccount(req.params.accountId as string, actorId, scope)
     return sendSuccess(res, data, "Provider account disabled")
+  } catch (err) { next(err) }
+}
+
+export const handleRestoreProviderAccount: RequestHandler = async (req, res, next) => {
+  try {
+    const { actorId, scope } = ctx(req)
+    const data = await restoreProviderAccount(req.params.accountId as string, actorId, scope)
+    return sendSuccess(res, data, "Provider account restored")
+  } catch (err) { next(err) }
+}
+
+export const handleTestProviderAccountBankList: RequestHandler = async (req, res, next) => {
+  try {
+    const { scope } = ctx(req)
+    const data = await testProviderAccountBankList(req.params.accountId as string, scope, {
+      traceId: (req as { id?: string }).id,
+    })
+    return sendSuccess(res, data, "Provider connectivity test succeeded")
   } catch (err) { next(err) }
 }

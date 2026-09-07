@@ -195,6 +195,12 @@ export interface CreatePayoutInput {
     bankCode: string
     accountNumber: string
     accountName: string
+    /** Provider bank branch code — required by some provider/country/bank
+     *  combinations (e.g. Ghana), absent for most (e.g. Kenya). The adapter
+     *  includes it in the transfer request only when present. Branch
+     *  DISCOVERY (listing a bank's branches) is a separate capability,
+     *  deferred to the payout-execution phase — nothing populates this yet. */
+    branchCode?: string
   }
   narration?: string
 }
@@ -259,6 +265,17 @@ export interface WebhookCapability {
 export interface PaymentProviderAdapter {
   readonly code: string
   readonly capabilities: ReadonlySet<ProviderCapability>
+
+  /**
+   * The secret-bundle keys this adapter's credential reader needs to make
+   * ANY authenticated call (e.g. Flutterwave: clientId + clientSecret).
+   * Case-insensitive. The adapter owns this — it's the same knowledge its
+   * credential reader encodes — so the generic ProviderSecretsResolver never
+   * learns provider key names. Used for a no-network "are the resolved
+   * credentials actually complete?" check (finance.providerGateway.service):
+   * a partial bundle (only the id, say) must not read as "resolvable".
+   */
+  readonly requiredSecretKeys?: readonly string[]
 
   collection?: PaymentCollectionCapability
   refunds?: RefundCapability

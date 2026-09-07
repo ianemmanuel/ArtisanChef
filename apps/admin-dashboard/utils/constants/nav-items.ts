@@ -156,15 +156,16 @@ export const navSections: NavSection[] = [
     title: "Finance",
     items: [
       { label: "Home",             href: "/finance",                    icon: TrendingUp,  requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
-      // Finance Phase 1B — per-country financial configuration (currency,
-      // provider, provider accounts, collection/payout setup) that a
-      // country needs before it can be activated. Its own permission
-      // (finance:configuration:read); city-scoped admins never hold it.
-      { label: "Countries",        href: "/finance/countries",           icon: Landmark,    requiredPermission: AdminPermissions.FINANCE_CONFIGURATION_READ },
       { label: "Vendors",          href: "/finance/vendors",             icon: Store,       requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
       { label: "Outlets",          href: "/finance/outlets",             icon: MapPin,      requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
       { label: "Vendor Categories", href: "/finance/vendor-categories",  icon: Tag,         requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
       { label: "Needs Attention",  href: "/finance/needs-attention",     icon: ShieldAlert, requiredPermission: AdminPermissions.FINANCE_REPORTS_READ },
+      // The operational verification queue for vendor payout accounts —
+      // pending / failed / requires-review / verified / deactivated. Its own
+      // permission (finance:payouts:read, held by the finance role); acting
+      // on an account reuses vendors:payout_accounts:manage. Country-scoped
+      // finance admins only see their own country (enforced backend-side).
+      { label: "Vendor Payout Accounts", href: "/finance/payout-accounts", icon: Landmark, requiredPermission: AdminPermissions.FINANCE_PAYOUTS_READ },
       // Payment Gateways moved here from its own top-level section
       // (CLAUDE.md, 2026-08-27) — it's platform financial infrastructure,
       // same domain as everything else in this section, matching how

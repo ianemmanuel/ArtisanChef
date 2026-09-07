@@ -26,6 +26,103 @@ export const PROVIDER_CAPABILITIES = [
 
 export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number]
 
+/*
+ * Two kinds of capability, and the admin only ever decides one of them:
+ *
+ *  - BUSINESS: "does this country collect card payments / pay vendors by
+ *    bank / …" — a real country-operations decision the admin makes.
+ *  - INTEGRATION: webhook processing, the provider's bank directory, the
+ *    provider's account-verification mechanism — these are how the
+ *    integration works, not a business choice. They come automatically
+ *    from whatever the selected provider's adapter implements; the admin
+ *    never toggles them.
+ *
+ * Union === PROVIDER_CAPABILITIES (asserted in the test).
+ */
+export const INTEGRATION_CAPABILITIES = [
+  "WEBHOOKS",
+  "BANK_LIST",
+  "BANK_ACCOUNT_RESOLUTION",
+] as const satisfies readonly ProviderCapability[]
+
+export const BUSINESS_CAPABILITIES = [
+  "COLLECTION_CARD",
+  "COLLECTION_MOBILE_MONEY",
+  "COLLECTION_BANK_TRANSFER",
+  "REFUND",
+  "PAYOUT_BANK",
+  "PAYOUT_MOBILE_MONEY",
+] as const satisfies readonly ProviderCapability[]
+
+const INTEGRATION_SET: ReadonlySet<string> = new Set(INTEGRATION_CAPABILITIES)
+const BUSINESS_SET: ReadonlySet<string> = new Set(BUSINESS_CAPABILITIES)
+
+export function isIntegrationCapability(value: string): value is (typeof INTEGRATION_CAPABILITIES)[number] {
+  return INTEGRATION_SET.has(value)
+}
+
+export function isBusinessCapability(value: string): value is (typeof BUSINESS_CAPABILITIES)[number] {
+  return BUSINESS_SET.has(value)
+}
+
+/*
+ * How a capability is routed to a concrete CountryProviderAccount. Provider
+ * routing is capability-scoped and explicit — there is no "the country's
+ * active/primary account" and no fallback:
+ *
+ *  - "BANK_VERIFICATION": the two country-global bank-account capabilities
+ *    (resolution + directory) route through
+ *    CountryFinancialConfig.bankVerificationProviderAccountId. They are one
+ *    provider by nature (you pick a bank from provider X's directory, then
+ *    verify it with provider X), bound independently of collection/payout.
+ *  - "PAYMENT_METHOD": every method-specific business capability
+ *    (collection / payout / refund) routes through a specific
+ *    CountryPaymentMethod.countryProviderAccountId — the caller MUST supply
+ *    a countryPaymentMethodId; it is never guessed.
+ *  - "UNROUTABLE": WEBHOOKS is not a single-account concept — the inbound
+ *    webhook handler verifies a signature against every non-disabled account
+ *    for the provider, so it is not resolvable through the gateway.
+ */
+export type ProviderRouteClass = "BANK_VERIFICATION" | "PAYMENT_METHOD" | "UNROUTABLE"
+
+const BANK_VERIFICATION_ROUTE_CAPS: ReadonlySet<ProviderCapability> = new Set<ProviderCapability>([
+  "BANK_ACCOUNT_RESOLUTION",
+  "BANK_LIST",
+])
+
+export function providerRouteClassFor(capability: ProviderCapability): ProviderRouteClass {
+  if (capability === "WEBHOOKS") return "UNROUTABLE"
+  if (BANK_VERIFICATION_ROUTE_CAPS.has(capability)) return "BANK_VERIFICATION"
+  return "PAYMENT_METHOD"
+}
+
+/**
+ * The integration capabilities that come automatically for a provider,
+ * given what its catalog entry declares. The admin picks business
+ * capabilities; these are merged in by the backend so the resolved
+ * `enabledCapabilities` still contains everything the gateway checks for
+ * (BANK_LIST for vendor bank discovery, WEBHOOKS, BANK_ACCOUNT_RESOLUTION)
+ * without ever being a checkbox.
+ */
+export function autoEnabledIntegrationCapabilities(providerCapabilities: string[]): ProviderCapability[] {
+  const declared = new Set(providerCapabilities)
+  return INTEGRATION_CAPABILITIES.filter((c) => declared.has(c))
+}
+
+/**
+ * Resolve the full `enabledCapabilities` for a country provider account:
+ * the admin-chosen business capabilities, plus every integration
+ * capability the provider supports. Order-stable, de-duplicated.
+ */
+export function resolveEnabledCapabilities(
+  adminSelected: string[],
+  providerCapabilities: string[],
+): ProviderCapability[] {
+  const business = adminSelected.filter(isBusinessCapability)
+  const integration = autoEnabledIntegrationCapabilities(providerCapabilities)
+  return [...new Set<ProviderCapability>([...business, ...integration])]
+}
+
 export const PAYMENT_METHOD_TYPES = ["MOBILE_MONEY", "BANK", "DIGITAL_WALLET", "CARD"] as const
 export type PaymentMethodTypeToken = (typeof PAYMENT_METHOD_TYPES)[number]
 
@@ -109,6 +206,29 @@ export function methodProviderAccountProblem(input: {
   if (!needed) return "METHOD_NOT_PAYABLE"
   if (!input.account.enabledCapabilities.includes(needed)) return "CAPABILITY_NOT_ENABLED"
   return null
+}
+
+/**
+ * Vendor-facing rule: may a vendor be OFFERED this OUTBOUND payment method as
+ * a payout option right now? Stricter than methodProviderAccountProblem
+ * (which allows an unlinked method so an admin can clear a wiring): the
+ * method must be bound to a provider account that EXISTS, is ACTIVE, whose
+ * provider is ACTIVE, and that enables the payout capability the method type
+ * needs. An unwired or unusable method is never offered.
+ */
+export function isOutboundMethodPayable(input: {
+  methodType: string
+  account: { status: string; enabledCapabilities: string[]; providerStatus: string } | null
+}): boolean {
+  const a = input.account
+  if (!a || a.status !== "ACTIVE" || a.providerStatus !== "ACTIVE") return false
+  return (
+    methodProviderAccountProblem({
+      methodType: input.methodType,
+      direction: "OUTBOUND",
+      account: { status: a.status, enabledCapabilities: a.enabledCapabilities },
+    }) === null
+  )
 }
 
 /**

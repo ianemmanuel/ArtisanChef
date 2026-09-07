@@ -68,6 +68,12 @@ const CAPABILITIES: ProviderCapability[] = [
  *  not global/module-level. */
 const BANK_LIST_CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
+/* Currencies Flutterwave v4 /banks/account-resolve actually accepts. NGN
+ * only in practice today (USD needs an extra country field we don't send).
+ * A currency outside this set => UNSUPPORTED_CAPABILITY, so the vendor
+ * payout flow falls back to manual review rather than a false FAILED. */
+const ACCOUNT_RESOLVE_CURRENCIES = new Set(["NGN"])
+
 export interface FlutterwaveAdapterDeps {
   http?: FlutterwaveHttpClient
   tokenManager?: FlutterwaveTokenManager
@@ -103,24 +109,38 @@ const ERROR_TYPE_CATEGORY: Record<string, ProviderErrorCategory> = {
   CHARGE_FAILED: "TRANSACTION_DECLINED",
 }
 
+/* Flutterwave says "this currency / country isn't supported for this
+ * operation" as a 400 REQUEST_NOT_VALID — indistinguishable by type/code
+ * from a genuine bad-request. The message is the only signal. Verified
+ * against the sandbox: "Invalid value 'KES' for BankAccountCurrency",
+ * "Unsupported account currency/country.", "Invalid value 'null' for
+ * UsdBankCountry". This is a CAPABILITY gap, not evidence about the
+ * account — callers must degrade to manual review, never FAILED. */
+const UNSUPPORTED_MESSAGE_RE = /for [A-Za-z]*BankAccountCurrency|Unsupported account currency\/country|for [A-Za-z]*BankCountry/i
+
 function readErrorEnvelope(status: number, body: unknown): ProviderError {
   const b = (body ?? {}) as Record<string, unknown>
   const err = (b.error ?? {}) as Record<string, unknown>
   const type = typeof err.type === "string" ? err.type : undefined
+  const rawMessage = typeof err.message === "string" ? err.message : ""
   const parts: string[] = []
-  if (typeof err.message === "string" && err.message) parts.push(err.message)
+  if (rawMessage) parts.push(rawMessage)
   const ve = Array.isArray(err.validation_errors) ? (err.validation_errors as Array<Record<string, unknown>>) : []
-  for (const v of ve.slice(0, 3)) {
-    const f = typeof v.field_name === "string" ? v.field_name : "field"
-    const m = typeof v.message === "string" ? v.message : "invalid"
-    parts.push(`${f}: ${m}`)
+  const fieldErrors = ve.filter((v) => typeof v.field_name === "string" && v.field_name)
+  for (const v of fieldErrors.slice(0, 3)) {
+    parts.push(`${v.field_name as string}: ${typeof v.message === "string" ? v.message : "invalid"}`)
   }
   const providerMessage = parts.join("; ") || type || undefined
-  const category = (type && ERROR_TYPE_CATEGORY[type]) || categoryForHttpStatus(status)
+
+  let category = (type && ERROR_TYPE_CATEGORY[type]) || categoryForHttpStatus(status)
+  if (category === "INVALID_REQUEST" && UNSUPPORTED_MESSAGE_RE.test(rawMessage)) {
+    category = "UNSUPPORTED_CAPABILITY"
+  }
 
   return new ProviderError(category, `Flutterwave API error (${status})`, FLUTTERWAVE_PROVIDER_CODE, {
     httpStatus: status,
     providerMessage,
+    fieldValidation: fieldErrors.length > 0,
   })
 }
 
@@ -411,6 +431,10 @@ export function createFlutterwaveAdapter(deps: FlutterwaveAdapterDeps = {}): Pay
               bank: {
                 code: input.destination.bankCode,
                 account_number: input.destination.accountNumber,
+                // Only sent when the destination actually carries one — v4
+                // uses branch_code for markets that require branch-level
+                // routing (e.g. Ghana). Omitted entirely otherwise.
+                ...(input.destination.branchCode ? { branch_code: input.destination.branchCode } : {}),
               },
             },
           },
@@ -444,6 +468,21 @@ export function createFlutterwaveAdapter(deps: FlutterwaveAdapterDeps = {}): Pay
    */
   const bankResolution: BankAccountResolutionCapability = {
     async resolveBankAccount(ctx, input: ResolveBankAccountInput): Promise<NormalizedBankAccount> {
+      // Flutterwave v4 /banks/account-resolve (name enquiry) only accepts
+      // NGN today — verified live against the sandbox (KES/GHS/UGX/TZS all
+      // return "Invalid value '<CUR>' for BankAccountCurrency" /
+      // "Unsupported account currency/country."). USD is accepted but needs
+      // an extra `country` field this minimal request shape doesn't carry.
+      // Fail fast with UNSUPPORTED_CAPABILITY (not a network call, not a
+      // rejection of the account) so the caller degrades to manual review.
+      if (!ACCOUNT_RESOLVE_CURRENCIES.has(input.currency.toUpperCase())) {
+        throw new ProviderError(
+          "UNSUPPORTED_CAPABILITY",
+          `Flutterwave does not support bank account resolution for ${input.currency}`,
+          FLUTTERWAVE_PROVIDER_CODE,
+          { providerMessage: `account-resolve currency not supported: ${input.currency.toUpperCase()}` },
+        )
+      }
       const data = await client.call(ctx, {
         method: "POST",
         path: "/banks/account-resolve",
@@ -484,6 +523,9 @@ export function createFlutterwaveAdapter(deps: FlutterwaveAdapterDeps = {}): Pay
   return {
     code: FLUTTERWAVE_PROVIDER_CODE,
     capabilities: new Set<ProviderCapability>(CAPABILITIES),
+    // readFlutterwaveCredentials requires exactly these two for every call
+    // (encryptionKey / webhookSecretHash are per-flow, not per-call).
+    requiredSecretKeys: ["clientId", "clientSecret"],
     collection,
     refunds,
     payouts,

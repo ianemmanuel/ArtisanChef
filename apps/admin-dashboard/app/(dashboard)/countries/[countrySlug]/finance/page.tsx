@@ -10,7 +10,6 @@ import type {
   Country,
   CountryFinancialConfigView,
   PaymentProviderListResult,
-  Currency,
 } from "@repo/types/admin-app"
 
 export const revalidate = 30
@@ -19,9 +18,21 @@ interface Props { params: Promise<{ countrySlug: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { countrySlug } = await params
-  return { title: `Finance — ${countrySlug}` }
+  return { title: `Financial Configuration — ${countrySlug}` }
 }
 
+/*
+ * Country configuration, not financial activity/reporting — moved here from
+ * /finance/countries/[slug] (Countries + Finance IA restructuring). Reuses
+ * CountryFinancialConfigManager and the existing /api/finance/countries/*
+ * proxy routes unchanged; only the page's location and back-link moved.
+ * Deliberately gated on FINANCE_CONFIGURATION_READ, NOT the Country
+ * Command Center's SETTINGS_GEOGRAPHY_WRITE gate — nesting under
+ * /countries/[slug] must not turn into an authorization hierarchy. A
+ * finance-role global admin who lacks settings:geography:write continues
+ * to reach this page directly; they just won't see it linked from the
+ * Command Center (which stays gated as before).
+ */
 export default async function CountryFinancePage({ params }: Props) {
   const session = await getAdminSession()
   if (!session.permissions.includes(AdminPermissions.FINANCE_CONFIGURATION_READ)) redirect("/overview")
@@ -38,16 +49,17 @@ export default async function CountryFinancePage({ params }: Props) {
     throw err
   }
 
-  const [view, providers, currencies] = await Promise.all([
+  const [view, providers] = await Promise.all([
     adminFetch<CountryFinancialConfigView>(`/admin/v1/finance/countries/${countrySlug}/financial-config`, {
-      next: { revalidate: 30, tags: [`finance-country-config-${countrySlug}`] },
+      // The broad `finance-country-config` tag lets mutations that only know
+      // the country id (payment-method wiring / config on the Payment Methods
+      // page) invalidate this view without resolving the slug — the view
+      // embeds the payment-method list, so the two pages must not drift.
+      next: { revalidate: 30, tags: [`finance-country-config-${countrySlug}`, "finance-country-config"] },
     }).catch(() => null),
     adminFetch<PaymentProviderListResult>("/admin/v1/finance/providers?status=ACTIVE&pageSize=100", {
       next: { revalidate: 300, tags: ["finance-providers"] },
     }).then((r) => r.providers).catch(() => []),
-    adminFetch<Currency[]>("/admin/v1/finance/currencies?status=ACTIVE", {
-      next: { revalidate: 300, tags: ["finance-currencies"] },
-    }).catch(() => []),
   ])
 
   if (!view) notFound()
@@ -55,23 +67,21 @@ export default async function CountryFinancePage({ params }: Props) {
   return (
     <div className="page-content animate-slide-up">
       <Link
-        href="/finance/countries"
+        href={`/countries/${country.slug}`}
         className="group inline-flex w-fit items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-[var(--shadow-xs)] transition-all group-hover:-translate-x-0.5 group-hover:border-primary/40 group-hover:text-primary">
           <ArrowLeft className="h-4 w-4" />
         </span>
-        All countries
+        Back to {country.name}
       </Link>
 
       <CountryFinancialConfigManager
         countrySlug={countrySlug}
         countryName={country.name}
         countryStatus={country.status}
-        legacyCurrency={country.currency}
         view={view}
         providers={providers}
-        currencies={currencies}
       />
     </div>
   )

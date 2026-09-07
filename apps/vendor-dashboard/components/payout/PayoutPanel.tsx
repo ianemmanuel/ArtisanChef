@@ -30,6 +30,16 @@ const STATUS_BADGE: Record<VendorPayoutAccount["verificationStatus"], { label: s
   REQUIRES_REVIEW: { label: "Under review", className: "bg-warning-bg text-warning" },
 }
 
+// §16 — one clear sentence about what state the account is in and what (if
+// anything) the vendor should do. Backend state is authoritative; this only
+// renders it.
+const STATUS_MESSAGE: Record<VendorPayoutAccount["verificationStatus"], string> = {
+  VERIFIED       : "This account is verified and ready to receive payouts.",
+  PENDING        : "We're verifying this account. You can keep setting up in the meantime — it can't receive payouts until it's verified.",
+  REQUIRES_REVIEW: "This account needs a manual review before it can be used. We'll let you know once it's done.",
+  FAILED         : "We couldn't verify this bank account. Check the bank and account details, then remove it and add it again.",
+}
+
 function accountIdentifier(a: VendorPayoutAccount): string {
   return (
     a.masked?.mobileNumber ??
@@ -50,7 +60,10 @@ export function PayoutPanel() {
   const [adding, setAdding] = React.useState(false)
 
   const hasAccounts = !!accounts?.length
-  const showForm = adding || !hasAccounts
+  const hasVerified = !!accounts?.some((a) => a.verificationStatus === "VERIFIED")
+  // Show the add form whenever there's no verified account yet — so a vendor
+  // stuck on a FAILED / PENDING account has an obvious way forward (§7/§16).
+  const showForm = adding || !hasVerified
 
   async function handleSetDefault(id: string) {
     try {
@@ -85,7 +98,7 @@ export function PayoutPanel() {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-foreground">Your payout accounts</h2>
-          {hasAccounts && !adding && (
+          {hasVerified && !adding && (
             <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
               <Plus className="size-3.5" /> Add account
             </Button>
@@ -126,9 +139,16 @@ export function PayoutPanel() {
                         {badge.label}
                       </span>
                     </div>
-                    {a.verificationStatus === "FAILED" && a.failureReason && (
-                      <p className="mt-1 text-xs text-destructive">{a.failureReason}</p>
-                    )}
+                    <p className={cn(
+                      "mt-1 text-xs",
+                      a.verificationStatus === "FAILED" ? "text-destructive"
+                        : a.verificationStatus === "VERIFIED" ? "text-success"
+                          : "text-muted-foreground",
+                    )}>
+                      {a.failureReason && a.verificationStatus !== "VERIFIED"
+                        ? a.failureReason
+                        : STATUS_MESSAGE[a.verificationStatus]}
+                    </p>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -168,7 +188,7 @@ export function PayoutPanel() {
           <PayoutForm
             methods={methods ?? []}
             onSuccess={() => setAdding(false)}
-            onCancel={hasAccounts ? () => setAdding(false) : undefined}
+            onCancel={hasVerified ? () => setAdding(false) : undefined}
           />
         </section>
       )}

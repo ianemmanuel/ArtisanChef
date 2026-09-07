@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AdminNotificationType" ADD VALUE 'PAYOUT_ACCOUNT_NEEDS_REVIEW';

@@ -29,6 +29,11 @@ export interface ProviderErrorContext {
   providerMessage?: string
   /** Correlation id we sent / the provider returned. */
   traceId?: string
+  /** The provider rejected a specific FIELD in our request (it returned
+   *  field-level validation errors) — as opposed to a bare "bad request".
+   *  Lets a caller tell "the vendor's account number is the wrong shape"
+   *  (actionable, FAILED) apart from an ambiguous rejection (REQUIRES_REVIEW). */
+  fieldValidation?: boolean
 }
 
 export class ProviderError extends Error {

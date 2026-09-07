@@ -36,10 +36,16 @@ export const PAYMENT_PROVIDERS: PaymentProviderSeedRow[] = [
       "PAYOUT_BANK",
       "PAYOUT_MOBILE_MONEY",
       "WEBHOOKS",
+      // Integration capability — the adapter implements GET /banks?country=
+      // (flutterwave.adapter.ts). Must be declared here or the country
+      // provider account never gets it merged in, the ERP "Test provider"
+      // control hides itself, and vendor bank discovery (Vendor 1E) fails
+      // with PROVIDER_CAPABILITY_NOT_ENABLED.
+      "BANK_LIST",
     ],
     methodTypes: ["CARD", "MOBILE_MONEY", "BANK"],
     supportedCurrencies: ["KES", "UGX", "TZS", "RWF", "NGN", "GHS", "XOF", "XAF", "ZAR", "USD"],
-    description: "Pan-African payment provider — card, mobile money and bank rails for both collection and payout. No adapter implemented yet.",
+    description: "Pan-African payment provider — card, mobile money and bank rails for both collection and payout, plus bank-directory and account-verification integration.",
   },
   {
     code: "STRIPE",

@@ -5,16 +5,15 @@ import { resolveCountryIdInScope } from "../lib/resolve-country"
 import {
   getOrCreateConfig,
   getCountryFinancialConfigView,
-  setConfigCurrency,
-  setActiveProviderAccount,
+  setBankVerificationProviderAccount,
   setOperationalSwitches,
   activateConfig,
   suspendConfig,
   disableConfig,
+  restoreConfig,
 } from "../services/finance.countryConfig.service"
 import {
-  setConfigCurrencySchema,
-  setActiveProviderAccountSchema,
+  setBankVerificationProviderAccountSchema,
   setOperationalSwitchesSchema,
 } from "../schemas/finance.countryConfig.schema"
 import { suspendSchema } from "../schemas/finance.providerAccount.schema"
@@ -42,23 +41,13 @@ export const handleCreateCountryFinancialConfig: RequestHandler = async (req, re
   } catch (err) { next(err) }
 }
 
-export const handleSetConfigCurrency: RequestHandler = async (req, res, next) => {
+export const handleSetBankVerificationProviderAccount: RequestHandler = async (req, res, next) => {
   try {
     const { actorId, scope } = ctx(req)
     const countryId = await resolveCountryIdInScope(req.params.countryRef as string, scope)
-    const { currencyCode } = setConfigCurrencySchema.parse(req.body)
-    const data = await setConfigCurrency(countryId, currencyCode, actorId, scope)
-    return sendSuccess(res, data, "Currency updated")
-  } catch (err) { next(err) }
-}
-
-export const handleSetActiveProviderAccount: RequestHandler = async (req, res, next) => {
-  try {
-    const { actorId, scope } = ctx(req)
-    const countryId = await resolveCountryIdInScope(req.params.countryRef as string, scope)
-    const { activeProviderAccountId } = setActiveProviderAccountSchema.parse(req.body)
-    const data = await setActiveProviderAccount(countryId, activeProviderAccountId, actorId, scope)
-    return sendSuccess(res, data, "Active provider account updated")
+    const { providerAccountId } = setBankVerificationProviderAccountSchema.parse(req.body)
+    const data = await setBankVerificationProviderAccount(countryId, providerAccountId, actorId, scope)
+    return sendSuccess(res, data, "Bank-verification provider account updated")
   } catch (err) { next(err) }
 }
 
@@ -97,5 +86,14 @@ export const handleDisableConfig: RequestHandler = async (req, res, next) => {
     const countryId = await resolveCountryIdInScope(req.params.countryRef as string, scope)
     const data = await disableConfig(countryId, actorId, scope)
     return sendSuccess(res, data, "Financial configuration disabled")
+  } catch (err) { next(err) }
+}
+
+export const handleRestoreConfig: RequestHandler = async (req, res, next) => {
+  try {
+    const { actorId, scope } = ctx(req)
+    const countryId = await resolveCountryIdInScope(req.params.countryRef as string, scope)
+    const data = await restoreConfig(countryId, actorId, scope)
+    return sendSuccess(res, data, "Financial configuration restored")
   } catch (err) { next(err) }
 }

@@ -9,6 +9,8 @@
  * explicit precedence rule. See the payout verification brief §11.
  */
 
+import type { PayoutVerificationFailureCode } from "@/lib/payout-verification/types"
+
 export type PayoutRiskFlag = "NAME_MISMATCH" | "ADD_VELOCITY" | "DUPLICATE_IDENTIFIER"
 
 export type NameMatchClassification = "MATCH" | "PARTIAL_MATCH" | "MISMATCH" | "UNAVAILABLE"
@@ -70,4 +72,28 @@ export function decidePayoutAccountStatus(
   if (providerStatus === "FAILED") return "FAILED"
   if (riskFlags.length > 0) return "REQUIRES_REVIEW"
   return providerStatus
+}
+
+/**
+ * The safe internal code stored on VendorPayoutAccount.verificationFailureCode,
+ * for the ERP review surface. Risk-driven review reasons take precedence over
+ * a provider one when the final status is REQUIRES_REVIEW (that's why it's in
+ * review); a provider FAILED keeps the provider's own code. VERIFIED => null.
+ * A PENDING account may still carry a provider "unsupported" tag (the offline
+ * fallback path) so the ERP knows it's awaiting a human by design.
+ */
+export function resolvePayoutFailureCode(
+  finalStatus: PayoutVerificationOutcomeStatus,
+  providerFailureCode: PayoutVerificationFailureCode | null | undefined,
+  riskFlags: PayoutRiskFlag[],
+): PayoutVerificationFailureCode | null {
+  if (finalStatus === "VERIFIED") return null
+  if (finalStatus === "FAILED") return providerFailureCode ?? "PROVIDER_REJECTED"
+  if (finalStatus === "REQUIRES_REVIEW") {
+    if (riskFlags.includes("NAME_MISMATCH")) return "NAME_MISMATCH"
+    if (riskFlags.includes("DUPLICATE_IDENTIFIER")) return "DUPLICATE_ACCOUNT"
+    if (riskFlags.includes("ADD_VELOCITY")) return "ADD_VELOCITY"
+    return providerFailureCode ?? "PROVIDER_REJECTED"
+  }
+  return providerFailureCode ?? null // PENDING
 }

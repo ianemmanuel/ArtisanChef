@@ -27,6 +27,10 @@ export async function PATCH(req: NextRequest, { params }: P) {
     const data = await res.json()
     if (res.ok) {
       revalidateTag(`finance-country-config-${countryRef}`, {})
+      revalidateTag("finance-country-config", {})
+      // The Payment Methods page shows "Runs on <provider>" per method — it
+      // reads the same wiring, so refresh it too.
+      revalidateTag("payment-methods", {})
       revalidateTag(`country-${countryRef}`, {})
       revalidateTag("countries", {})
     }

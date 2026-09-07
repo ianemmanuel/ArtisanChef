@@ -336,6 +336,11 @@ export type VendorGoLiveBlocker =
 
 export interface VendorGoLiveStatus {
   hasVerifiedPayoutAccount: boolean
+  /** The state of the vendor's current payout account (default one, else the
+   *  most recent active one) — lets the setup UI say "verification pending"
+   *  / "failed" / "requires review" rather than just "not done". "NONE" =
+   *  no active payout account at all. Only VERIFIED satisfies readiness. */
+  payoutAccountState      : "NONE" | PayoutVerificationStatus
   hasActiveOutlet         : boolean
   hasProfile               : boolean
   isProfileReviewClear    : boolean
@@ -915,6 +920,11 @@ export interface AddPayoutAccountRequest {
   bankName?       : string
   branchName?     : string
   bankCode?       : string
+  /** Provider bank branch code — only some provider/country/bank combos need
+   *  it (e.g. Ghana), not others (e.g. Kenya). Populated by branch selection
+   *  in a later phase; the model/contract carry it now so that work needs no
+   *  migration. */
+  branchCode?     : string
   accountNumber?  : string
   swiftCode?      : string
   iban?           : string
@@ -939,10 +949,24 @@ export interface AvailablePayoutMethod {
 
 export type PayoutVerificationStatus = "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
 
+/** Safe, stable internal code for *why* a payout account isn't VERIFIED —
+ *  shown (as a friendly label) on the ERP review surface. Mirrors the
+ *  backend PayoutVerificationFailureCode. Never a raw provider string. */
+export type PayoutVerificationFailureCode =
+  | "PROVIDER_UNSUPPORTED"
+  | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_REJECTED"
+  | "INVALID_ACCOUNT"
+  | "NAME_MISMATCH"
+  | "DUPLICATE_ACCOUNT"
+  | "ADD_VELOCITY"
+  | "MANUAL_REJECTION"
+
 // CLAUDE.md #7 — the sensitive banking identifiers are AES-256-GCM encrypted
 // at rest and are never returned in the clear. Clients get masked forms only.
 export interface PayoutMaskedDetails {
   bankCode?     : string
+  branchCode?   : string
   accountNumber?: string
   swiftCode?    : string
   iban?         : string
@@ -972,6 +996,8 @@ export interface VendorPayoutAccount {
   nameMatchScore?       : number | null
   verificationStatus    : PayoutVerificationStatus
   verificationMethod    : string | null
+  /** Safe code for why it's not VERIFIED — see PayoutVerificationFailureCode. */
+  verificationFailureCode: PayoutVerificationFailureCode | null
   failureReason         : string | null
   verifiedAt            : string | null
   createdAt             : string

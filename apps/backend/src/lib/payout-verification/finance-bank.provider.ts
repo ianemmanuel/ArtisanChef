@@ -41,22 +41,54 @@ function checkedAt(): string {
 function outcomeForGatewayError(err: unknown, fallback: PayoutVerificationOutcome): PayoutVerificationOutcome {
   if (isProviderError(err)) {
     switch (err.category) {
-      case "TRANSACTION_DECLINED":
+      case "UNSUPPORTED_CAPABILITY":
+        // The configured provider can't verify an account in this currency
+        // at all (e.g. Flutterwave has no name-enquiry for KES/GHS/UGX/TZS),
+        // or no resolution provider is configured. NOT evidence about the
+        // account — it stays PENDING for a human, but tagged so the ERP
+        // knows this is a "provider can't, review manually" country, not a
+        // transient glitch.
+        return {
+          ...fallback, // keeps method: "FORMAT_CHECKS" — the structural check IS what ran
+          failureCode: "PROVIDER_UNSUPPORTED",
+          reason     : "Your bank details look right. Automatic bank verification isn't available for your country yet — our team will review this account.",
+          meta       : { ...(fallback.meta ?? {}), checkedAt: checkedAt(), providerUnsupported: true },
+        }
+
       case "INVALID_REQUEST":
-        // The provider looked the account up and it's not real / doesn't
-        // match — a confirmed fact, not a maybe. This is the one case an
-        // automatic FAILED (not just REQUIRES_REVIEW) is warranted.
+        // The provider rejected a FIELD in the request (the account number
+        // is the wrong shape, etc.) — actionable, the vendor can fix it.
+        if (err.context.fieldValidation) {
+          return {
+            status: "FAILED",
+            method: "FINANCE_BANK_RESOLUTION",
+            failureCode: "INVALID_ACCOUNT",
+            reason: "We couldn't verify this bank account with the provider — double-check the bank and account number.",
+            meta  : { checkedAt: checkedAt() },
+          }
+        }
+        // A bare rejection with no field detail — ambiguous (could be a bad
+        // account, could be our request). A human decides rather than an
+        // automatic FAILED.
+        return {
+          status: "REQUIRES_REVIEW",
+          method: "FINANCE_BANK_RESOLUTION",
+          failureCode: "PROVIDER_REJECTED",
+          reason: "Your payout account needs a manual review before it can be used.",
+          meta  : { checkedAt: checkedAt() },
+        }
+
+      case "TRANSACTION_DECLINED":
+        // The provider looked and would not confirm the account — a
+        // confirmed negative.
         return {
           status: "FAILED",
           method: "FINANCE_BANK_RESOLUTION",
+          failureCode: "PROVIDER_REJECTED",
           reason: "We couldn't verify this bank account with the provider — double-check the bank and account number.",
           meta  : { checkedAt: checkedAt() },
         }
-      case "UNSUPPORTED_CAPABILITY":
-        // The configured provider for this country can't do bank
-        // resolution (or none is configured yet) — not evidence about the
-        // account at all. Same behavior as before this provider existed.
-        return fallback
+
       default:
         // AUTHENTICATION / PROVIDER_UNAVAILABLE / TIMEOUT / RATE_LIMIT /
         // UNKNOWN — a transport/config problem on our side, not the
@@ -65,6 +97,7 @@ function outcomeForGatewayError(err: unknown, fallback: PayoutVerificationOutcom
         return {
           status: "REQUIRES_REVIEW",
           method: "FINANCE_BANK_RESOLUTION",
+          failureCode: "PROVIDER_UNAVAILABLE",
           reason: "Automatic verification is temporarily unavailable — this account will be reviewed manually.",
           meta  : { checkedAt: checkedAt(), providerErrorCategory: err.category },
         }
@@ -75,7 +108,7 @@ function outcomeForGatewayError(err: unknown, fallback: PayoutVerificationOutcom
     // config inactive, no active provider account, capability not enabled,
     // credentials unresolved) — a country simply not set up for this yet.
     // Degrade to the existing offline path rather than failing the vendor.
-    return fallback
+    return { ...fallback, failureCode: "PROVIDER_UNSUPPORTED" }
   }
   throw err // genuinely unexpected — don't hide it behind a false PENDING
 }

@@ -67,7 +67,7 @@ export const handleAddPayoutAccount = async (req: Request, res: Response, next: 
     const {
       countryPaymentMethodId, accountHolderName,
       mobileNetwork, mobileNumber,
-      bankName, branchName, bankCode, accountNumber, swiftCode, iban, routingNumber,
+      bankName, branchName, bankCode, branchCode, accountNumber, swiftCode, iban, routingNumber,
       paypalEmail, stripeAccountId,
     } = req.body
 
@@ -78,7 +78,7 @@ export const handleAddPayoutAccount = async (req: Request, res: Response, next: 
     const input: AddPayoutAccountRequest = {
       countryPaymentMethodId, accountHolderName,
       mobileNetwork, mobileNumber,
-      bankName, branchName, bankCode, accountNumber, swiftCode, iban, routingNumber,
+      bankName, branchName, bankCode, branchCode, accountNumber, swiftCode, iban, routingNumber,
       paypalEmail, stripeAccountId,
     }
 

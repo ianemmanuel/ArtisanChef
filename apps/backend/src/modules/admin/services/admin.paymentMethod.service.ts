@@ -1,4 +1,4 @@
-import { prisma, Prisma, PaymentMethodType, PaymentDirection, CountryPaymentMethodStatus } from "@repo/db"
+import { prisma, PaymentMethodType, PaymentDirection, CountryPaymentMethodStatus } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/errors/ApiError"
 import { UUID_RE } from "@/constants/system"
@@ -55,10 +55,6 @@ async function resolveCountryId(idOrSlug: string): Promise<string> {
   })
   if (!country) throw new ApiError(404, "Country not found", "NOT_FOUND")
   return country.id
-}
-
-function toJsonInput(value: Record<string, unknown> | undefined): Prisma.InputJsonValue | undefined {
-  return value ? (JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue) : undefined
 }
 
 //* ─── Global catalog ─────────────────────────────────────────────────────
@@ -236,19 +232,29 @@ export async function listCountryPaymentMethods(countryIdOrSlug: string, scope: 
 
   return prisma.countryPaymentMethod.findMany({
     where  : { countryId, ...(direction ? { direction } : {}) },
-    include: { paymentMethod: { select: { id: true, code: true, name: true, type: true, logoUrl: true, isActive: true } } },
+    include: {
+      paymentMethod: { select: { id: true, code: true, name: true, type: true, logoUrl: true, isActive: true } },
+      // Which provider account executes this method — wired on the country
+      // Finance page. A method not wired to the country's ACTIVE account
+      // doesn't count toward financial readiness.
+      countryProviderAccount: {
+        select: {
+          id: true,
+          environment: true,
+          status: true,
+          paymentProvider: { select: { code: true, name: true } },
+        },
+      },
+    },
     orderBy: [{ direction: "asc" }, { displayOrder: "asc" }],
   })
 }
 
 export interface ConfigureCountryPaymentMethodInput {
-  countryId            : string
-  paymentMethodId      : string
-  direction            : PaymentDirection
-  ourAccountDetails?    : Record<string, unknown>
-  verificationProvider? : string
-  verificationConfig?   : Record<string, unknown>
-  displayOrder?         : number
+  countryId       : string
+  paymentMethodId : string
+  direction       : PaymentDirection
+  displayOrder?   : number
 }
 
 /*
@@ -256,6 +262,12 @@ export interface ConfigureCountryPaymentMethodInput {
  * @@unique([countryId, paymentMethodId, direction]) constraint means a
  * prior DEPRECATED/INACTIVE row for this exact combination is reactivated
  * in place rather than duplicated.
+ *
+ * This is deliberately a THIN toggle. It records "this country offers this
+ * method in this direction" and its display order — nothing else. The
+ * provider that executes it is wired separately on the Finance page
+ * (countryProviderAccountId); credentials/settlement/verification are
+ * provider-owned (adapter + secrets manager), never entered here.
  */
 export async function configureCountryPaymentMethod(input: ConfigureCountryPaymentMethodInput, actorId: string, scope: AdminScopeContext) {
   assertGlobalScope(scope)
@@ -275,17 +287,13 @@ export async function configureCountryPaymentMethod(input: ConfigureCountryPayme
     where: { countryId_paymentMethodId_direction: { countryId: input.countryId, paymentMethodId: input.paymentMethodId, direction: input.direction } },
   })
 
-  const configData = {
-    ourAccountDetails   : toJsonInput(input.ourAccountDetails),
-    verificationProvider: input.verificationProvider || null,
-    verificationConfig  : toJsonInput(input.verificationConfig),
-    displayOrder        : input.displayOrder ?? 0,
-  }
-
   if (existing) {
     const updated = await prisma.countryPaymentMethod.update({
       where: { id: existing.id },
-      data : { ...configData, status: CountryPaymentMethodStatus.ACTIVE },
+      data : {
+        status: CountryPaymentMethodStatus.ACTIVE,
+        ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {}),
+      },
     })
     serviceLog.info({ countryPaymentMethodId: existing.id, actorId }, "Country payment method reconfigured")
     auditService.log({
@@ -300,7 +308,13 @@ export async function configureCountryPaymentMethod(input: ConfigureCountryPayme
   }
 
   const created = await prisma.countryPaymentMethod.create({
-    data: { countryId: input.countryId, paymentMethodId: input.paymentMethodId, direction: input.direction, createdByAdminId: actorId, ...configData },
+    data: {
+      countryId: input.countryId,
+      paymentMethodId: input.paymentMethodId,
+      direction: input.direction,
+      displayOrder: input.displayOrder ?? 0,
+      createdByAdminId: actorId,
+    },
   })
 
   serviceLog.info({ countryPaymentMethodId: created.id, actorId }, "Country payment method configured")
@@ -313,6 +327,42 @@ export async function configureCountryPaymentMethod(input: ConfigureCountryPayme
   })
 
   return created
+}
+
+/**
+ * Edit the mutable business config of an already-configured method — only
+ * the display order. Method + direction are immutable (they're the unique
+ * key and vendors' payout accounts reference a specific (method, direction)
+ * row); to change direction, deactivate this row and configure the other
+ * direction separately. Status has its own toggle; provider wiring lives on
+ * the Finance page.
+ */
+export async function updateCountryPaymentMethod(
+  id: string,
+  input: { displayOrder?: number },
+  actorId: string,
+  scope: AdminScopeContext,
+) {
+  assertGlobalScope(scope)
+  const existing = await prisma.countryPaymentMethod.findUnique({ where: { id } })
+  if (!existing) throw new ApiError(404, "Country payment method not found", "NOT_FOUND")
+
+  const updated = await prisma.countryPaymentMethod.update({
+    where: { id },
+    data: { ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {}) },
+  })
+
+  serviceLog.info({ countryPaymentMethodId: id, actorId }, "Country payment method updated")
+  auditService.log({
+    adminUserId: actorId,
+    action     : "country_payment_method.updated",
+    entityType : "CountryPaymentMethod",
+    entityId   : id,
+    changes    : { before: { displayOrder: existing.displayOrder }, after: { displayOrder: updated.displayOrder } },
+    metadata   : { countryId: existing.countryId },
+  })
+
+  return updated
 }
 
 export async function setCountryPaymentMethodStatus(

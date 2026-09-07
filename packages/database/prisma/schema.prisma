@@ -110,6 +110,11 @@ enum AdminNotificationType {
   //* expired past its grace window. Sent to VENDORS_OUTLETS_MODERATE holders
   //* scoped to the outlet's country/city (never global).
   OUTLET_AUTO_SUSPENDED
+  //* A vendor's new payout account landed in FAILED / REQUIRES_REVIEW at
+  //* creation. Sent to VENDORS_PAYOUT_ACCOUNTS_MANAGE holders who are
+  //* GLOBAL-scoped or COUNTRY-scoped to the vendor's country. Deep-links to
+  //* the Finance → Vendor Payout Accounts review page.
+  PAYOUT_ACCOUNT_NEEDS_REVIEW
 }
 
 model AdminRole {
@@ -669,9 +674,17 @@ model PaymentProvider {
 //*
 //* Append-only by policy: never hard-deleted (historical financial
 //* records will attribute to a specific account id) — retired via
-//* status = DISABLED only. A country may have many; at most ONE may be
-//* ACTIVE at a time (enforced in the service layer inside a transaction —
-//* Prisma has no partial-unique-index support).
+//* status = DISABLED only.
+//*
+//* A country may have MANY ACTIVE accounts at once — one per capability
+//* domain (e.g. collection via Provider A, payout via Provider B,
+//* bank-account verification via Provider C). There is no "the country's
+//* active/primary account": every runtime provider call resolves a
+//* specific account by explicit routing context —
+//* CountryPaymentMethod.countryProviderAccountId for method-specific
+//* business capabilities, CountryFinancialConfig.bankVerificationProviderAccountId
+//* for the country-global bank-account-resolution/verification capability.
+//* See finance.providerGateway.service.ts (resolveProviderGateway).
 //*
 //* Secrets (API keys, webhook signing secrets) are NEVER stored here.
 //* `secretAlias` is a non-secret pointer resolved by ProviderSecretsResolver.
@@ -705,9 +718,15 @@ model CountryProviderAccount {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  country         Country                 @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  paymentProvider PaymentProvider         @relation(fields: [paymentProviderId], references: [id])
-  activeForConfig CountryFinancialConfig? @relation("ActiveProviderAccount")
+  country         Country         @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  paymentProvider PaymentProvider @relation(fields: [paymentProviderId], references: [id])
+  //* The country-global bank-account verification/resolution bindings that
+  //* point at this account. Keyed on (id, countryId) — same DB-enforced
+  //* same-country guarantee as paymentMethods below. Modelled as a list for
+  //* Prisma's sake (many-to-one, like paymentMethods); in practice at most
+  //* one row, since CountryFinancialConfig is 1:1 with Country and the FK is
+  //* same-country.
+  bankVerificationForConfigs CountryFinancialConfig[] @relation("BankVerificationProviderAccount")
   //* Finance Phase 1C — the country payment methods routed through this
   //* account. The relation is keyed on (id, countryId) so a method can
   //* NEVER be wired to another country's provider account (DB-enforced, not
@@ -726,23 +745,39 @@ model CountryProviderAccount {
 //* they occurred under, and by provider accounts never being deleted.
 //*
 //* "Config row exists" != "country is financially operational". Operational
-//* requires status = ACTIVE, an ACTIVE activeProviderAccount, an ACTIVE
-//* currency, the relevant enabled switch, and a matching CountryPaymentMethod
-//* — see the readiness predicates in finance.readiness.service.ts.
+//* requires status = ACTIVE, an ACTIVE currency, the relevant enabled
+//* switch, and — per capability — a usable CountryProviderAccount reachable
+//* through explicit routing (method wiring for collection/payout,
+//* bankVerificationProviderAccountId for bank-account verification). See the
+//* readiness predicates in finance.readiness.service.ts.
 //*
-//* V1: a single activeProviderAccountId serves BOTH collection and payout
-//* (approved decision). Split into separate fields later if needed.
+//* Provider routing is capability-scoped and explicit — there is no single
+//* "active provider account" for the country. Method-specific business
+//* capabilities (collection/payout) route via
+//* CountryPaymentMethod.countryProviderAccountId; the country-global
+//* bank-account-resolution/verification capability routes via
+//* bankVerificationProviderAccountId below. A country may use the same
+//* provider for all of them, or a different provider for each.
 model CountryFinancialConfig {
-  id                      String                       @id @default(uuid())
-  countryId               String                       @unique
-  currencyCode            String?
-  activeProviderAccountId String?                      @unique
+  id           String  @id @default(uuid())
+  countryId    String  @unique
+  currencyCode String?
+  //* Country-global routing binding for the BANK_ACCOUNT_RESOLUTION /
+  //* BANK_LIST capability (automatic vendor payout-account verification +
+  //* the bank directory the vendor picks from — one provider by nature).
+  //* Independent of collection/payout routing: NEVER inferred from a
+  //* payment method's provider account. Nullable — unset means the country
+  //* has no automatic bank verification yet (vendor payout accounts fall to
+  //* the offline structural-check + manual-review path, unchanged). The FK
+  //* is composite — (id, countryId) → (id, countryId) — so it can NEVER
+  //* point at another country's provider account (DB-enforced).
+  bankVerificationProviderAccountId String?
   //* Operational switches — the admin's deliberate "we are collecting /
   //* paying out here" decision, distinct from "the provider can technically
   //* do it". Mutable while ACTIVE (validated + audited).
-  collectionsEnabled      Boolean                      @default(false)
-  payoutsEnabled          Boolean                      @default(false)
-  status                  CountryFinancialConfigStatus @default(DRAFT)
+  collectionsEnabled Boolean                      @default(false)
+  payoutsEnabled     Boolean                      @default(false)
+  status             CountryFinancialConfigStatus @default(DRAFT)
 
   activatedAt        DateTime?
   activatedByAdminId String?
@@ -756,12 +791,17 @@ model CountryFinancialConfig {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  country               Country                 @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  currency              Currency?               @relation(fields: [currencyCode], references: [code])
-  activeProviderAccount CountryProviderAccount? @relation("ActiveProviderAccount", fields: [activeProviderAccountId], references: [id])
+  country  Country   @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  currency Currency? @relation(fields: [currencyCode], references: [code])
+  //* NoAction (not SetNull): Prisma forbids SetNull on a composite FK whose
+  //* countryId leg is non-nullable — same reason CountryPaymentMethod uses
+  //* NoAction. A provider account is never hard-deleted (retired via
+  //* DISABLED), and disableProviderAccount explicitly nulls this pointer.
+  bankVerificationProviderAccount CountryProviderAccount? @relation("BankVerificationProviderAccount", fields: [bankVerificationProviderAccountId, countryId], references: [id, countryId], onDelete: NoAction, onUpdate: NoAction, map: "CountryFinancialConfig_bankVerification_fkey")
 
   @@index([status])
   @@index([currencyCode])
+  @@index([bankVerificationProviderAccountId])
 }
 
 //* =========PAYMENT CONFIGURATION==========
@@ -1525,6 +1565,12 @@ model VendorPayoutAccount {
   bankName          String?
   branchName        String?
   bankCode          String? // encrypted
+  // Provider bank BRANCH code — required by some provider/country/bank
+  // combinations (e.g. Ghana) for bank transfers, not by others (e.g.
+  // Kenya). Nullable and encrypted, alongside bankCode. The data model is
+  // branch-aware; branch DISCOVERY (listing a bank's branches) is deferred
+  // to the payout-execution phase — see provider.types.ts / CLAUDE.md.
+  branchCode        String? // encrypted
   accountNumber     String? // encrypted
   swiftCode         String? // encrypted
   iban              String? // encrypted
@@ -1547,12 +1593,16 @@ model VendorPayoutAccount {
 
   // Verification
   verificationStatus PayoutVerificationStatus @default(PENDING)
-  verificationMethod String? // "API" | "MANUAL" | "FORMAT_CHECKS"
+  verificationMethod String? // "FINANCE_BANK_RESOLUTION" | "MANUAL" | "FORMAT_CHECKS"
   verificationRef    String? // external reference from verification API
-  verificationMeta   Json? // full API response, for audit
+  verificationMeta   Json? // safe derived detail (never raw identifiers), for audit
   verifiedAt         DateTime?
   verifiedBy         String? // adminUserId if MANUAL
-  failureReason      String?
+  failureReason      String? // human-readable, safe (never account data)
+  // Safe internal code for the ERP review surface — see
+  // PayoutVerificationFailureCode (lib/payout-verification/types.ts). Null
+  // when VERIFIED, or a plain PENDING that just needs a look.
+  verificationFailureCode String?
 
   deletedAt DateTime?
   createdAt DateTime  @default(now())

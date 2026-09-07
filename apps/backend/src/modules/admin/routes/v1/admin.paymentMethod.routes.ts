@@ -9,6 +9,7 @@ import {
   handleSetPaymentMethodActive,
   handleListCountryPaymentMethods,
   handleConfigureCountryPaymentMethod,
+  handleUpdateCountryPaymentMethod,
   handleSetCountryPaymentMethodStatus,
 } from "../../controllers/admin.paymentMethod.controller"
 
@@ -34,6 +35,7 @@ router.patch("/:idOrCode/active", MANAGE, handleSetPaymentMethodActive)
 
 router.get("/countries/:countryIdOrSlug", READ, handleListCountryPaymentMethods)
 router.post("/country-config", MANAGE, handleConfigureCountryPaymentMethod)
+router.patch("/country-config/:id", MANAGE, handleUpdateCountryPaymentMethod)
 router.patch("/country-config/:id/status", MANAGE, handleSetCountryPaymentMethodStatus)
 
 export default router

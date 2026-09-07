@@ -10,11 +10,12 @@
 
 // The banking identifiers stored as ciphertext. paypalEmail / stripeAccountId
 // are contact identifiers, not bank credentials — left in the clear.
-export type SensitiveField = "bankCode" | "accountNumber" | "swiftCode" | "iban" | "routingNumber" | "mobileNumber"
-export const SENSITIVE_FIELDS: SensitiveField[] = ["bankCode", "accountNumber", "swiftCode", "iban", "routingNumber", "mobileNumber"]
+export type SensitiveField = "bankCode" | "branchCode" | "accountNumber" | "swiftCode" | "iban" | "routingNumber" | "mobileNumber"
+export const SENSITIVE_FIELDS: SensitiveField[] = ["bankCode", "branchCode", "accountNumber", "swiftCode", "iban", "routingNumber", "mobileNumber"]
 
 export interface PayoutMaskedDetails {
   bankCode?     : string
+  branchCode?   : string
   accountNumber?: string
   swiftCode?    : string
   iban?         : string

@@ -234,7 +234,24 @@ describe("Flutterwave adapter — payout (POST /direct-transfers)", () => {
     const pi = body.payment_instruction as Record<string, unknown>
     expect((pi.amount as Record<string, unknown>).value).toBe(5000)
     expect(pi.source_currency).toBe("KES")
-    expect(((pi.recipient as Record<string, unknown>).bank as Record<string, unknown>).code).toBe("044")
+    const bank = (pi.recipient as Record<string, unknown>).bank as Record<string, unknown>
+    expect(bank.code).toBe("044")
+    expect("branch_code" in bank).toBe(false) // none supplied -> key omitted
+  })
+
+  it("includes recipient.bank.branch_code only when the destination carries one", async () => {
+    const { http, adapter } = build([
+      tokenOk,
+      { match: (r) => r.url.endsWith("/direct-transfers") && r.method === "POST", respond: { status: 201, body: { data: { id: "trf_b", status: "NEW" } } } },
+    ])
+    await adapter.payouts!.createPayout(CTX, {
+      amount: money(500000, "GHS"),
+      reference: "po-branch",
+      destination: { bankCode: "030100", accountNumber: "1234567890", accountName: "Kofi Mensah", branchCode: "030101" },
+    })
+    const body = http.calls.find((c) => c.url.endsWith("/direct-transfers"))!.json as Record<string, unknown>
+    const bank = ((body.payment_instruction as Record<string, unknown>).recipient as Record<string, unknown>).bank as Record<string, unknown>
+    expect(bank.branch_code).toBe("030101")
   })
 
   it("verifyPayout (GET /transfers/{id}) maps SUCCESSFUL -> PAID and reads amount.value", async () => {
@@ -267,15 +284,24 @@ describe("Flutterwave adapter — bank account resolution (POST /banks/account-r
         respond: { status: 200, body: { status: "success", message: "ok", data: { bank_code: "044", account_number: "0690000031", account_name: "JANE WANJIKU" } } },
       },
     ])
-    const result = await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "0690000031", currency: "KES" })
+    const result = await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "0690000031", currency: "NGN" })
 
     const call = http.calls.find((c) => c.url.includes(RESOLVE_PATH))!
     const body = call.json as Record<string, unknown>
-    expect(body.currency).toBe("KES")
+    expect(body.currency).toBe("NGN")
     expect((body.account as Record<string, unknown>).code).toBe("044")
     expect((body.account as Record<string, unknown>).number).toBe("0690000031")
 
     expect(result).toEqual({ accountNumber: "0690000031", accountName: "JANE WANJIKU", bankCode: "044" })
+  })
+
+  it("fails fast (no network call) with UNSUPPORTED_CAPABILITY for a currency Flutterwave can't resolve (KES/GHS/…)", async () => {
+    const { http, adapter } = build([tokenOk])
+    await expect(
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "68", accountNumber: "1234567890", currency: "KES" }),
+    ).rejects.toMatchObject({ name: "ProviderError", category: "UNSUPPORTED_CAPABILITY" })
+    // never even hit the endpoint
+    expect(http.calls.some((c) => c.url.includes(RESOLVE_PATH))).toBe(false)
   })
 
   it("authenticates the same way as every other endpoint (bearer token + trace id)", async () => {
@@ -283,7 +309,7 @@ describe("Flutterwave adapter — bank account resolution (POST /banks/account-r
       tokenOk,
       { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 200, body: { data: { bank_code: "044", account_number: "1", account_name: "A" } } } },
     ])
-    await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "KES" })
+    await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "NGN" })
     const call = http.calls.find((c) => c.url.includes(RESOLVE_PATH))!
     expect(call.headers.authorization).toBe("Bearer tok_abc")
     expect(call.headers["x-trace-id"]).toBe("verify-trace-1234")
@@ -298,8 +324,21 @@ describe("Flutterwave adapter — bank account resolution (POST /banks/account-r
       },
     ])
     await expect(
-      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "0000000000", currency: "KES" }),
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "0000000000", currency: "NGN" }),
     ).rejects.toMatchObject({ name: "ProviderError", category: "INVALID_REQUEST" })
+  })
+
+  it("flags a field-level validation error so callers can tell a bad account from an ambiguous rejection", async () => {
+    const { adapter } = build([
+      tokenOk,
+      {
+        match: (r) => r.url.includes(RESOLVE_PATH),
+        respond: { status: 400, body: { status: "failed", error: { type: "REQUEST_NOT_VALID", message: "Request is not valid", validation_errors: [{ field_name: "account.number", message: "size must be between 10 and 10" }] } } },
+      },
+    ])
+    await expect(
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "123", currency: "NGN" }),
+    ).rejects.toMatchObject({ category: "INVALID_REQUEST", context: { fieldValidation: true } })
   })
 
   it("maps a provider outage (5xx) to PROVIDER_UNAVAILABLE", async () => {
@@ -308,7 +347,7 @@ describe("Flutterwave adapter — bank account resolution (POST /banks/account-r
       { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 503, body: {} } },
     ])
     await expect(
-      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "KES" }),
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "NGN" }),
     ).rejects.toMatchObject({ category: "PROVIDER_UNAVAILABLE" })
   })
 
@@ -318,7 +357,7 @@ describe("Flutterwave adapter — bank account resolution (POST /banks/account-r
       { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 401, body: fwError("UNAUTHORIZED", "Invalid credentials") } },
     ])
     await expect(
-      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "KES" }),
+      adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "1", currency: "NGN" }),
     ).rejects.toMatchObject({ category: "AUTHENTICATION" })
   })
 
@@ -328,7 +367,7 @@ describe("Flutterwave adapter — bank account resolution (POST /banks/account-r
       { match: (r) => r.url.includes(RESOLVE_PATH), respond: { status: 400, body: fwError("REQUEST_NOT_VALID", "Invalid account") } },
     ])
     try {
-      await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "9999999999", currency: "KES" })
+      await adapter.bankResolution!.resolveBankAccount(CTX, { bankCode: "044", accountNumber: "9999999999", currency: "NGN" })
       throw new Error("expected rejection")
     } catch (err) {
       expect(String((err as Error).message)).not.toContain("9999999999")
@@ -415,6 +454,11 @@ describe("Flutterwave adapter — capability set", () => {
     const { adapter } = build([])
     expect(adapter.bankResolution).toBeDefined()
     expect(adapter.bankList).toBeDefined()
+  })
+
+  it("declares the secret keys its credential reader requires (clientId + clientSecret)", () => {
+    const { adapter } = build([])
+    expect(adapter.requiredSecretKeys).toEqual(["clientId", "clientSecret"])
   })
 })
 

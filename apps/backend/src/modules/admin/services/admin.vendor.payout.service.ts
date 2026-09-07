@@ -17,49 +17,97 @@ const serviceLog = logger.child({ module: "admin-vendor-payout-service" })
  * later decision, not blocking this fix.
  */
 
-async function loadOwnedAccount(vendorId: string, accountId: string, actorScope: AdminScopeContext) {
+/*
+ * Load a payout account addressed by its own (opaque, unique) id, constrained
+ * to the actor's admin scope. A country-scoped admin acting on an account
+ * outside their scope gets a 404 identical to a genuinely missing one — the
+ * id space can't be probed. `expectedVendorId` is an optional extra assertion
+ * for routes that carry a vendor id in the path (the vendor-detail-page
+ * routes do; the Finance queue routes don't).
+ */
+async function loadPayoutAccountInScope(
+  accountId: string,
+  actorScope: AdminScopeContext,
+  expectedVendorId?: string,
+) {
   const account = await prisma.vendorPayoutAccount.findUnique({
     where  : { id: accountId },
     include: { vendor: { select: { id: true, countryId: true, legalBusinessName: true } } },
   })
   if (!account || account.deletedAt) throw new ApiError(404, "Payout account not found", "NOT_FOUND")
-  if (account.vendorId !== vendorId) throw new ApiError(400, "Payout account does not belong to this vendor", "VENDOR_MISMATCH")
+  if (expectedVendorId && account.vendorId !== expectedVendorId) {
+    throw new ApiError(400, "Payout account does not belong to this vendor", "VENDOR_MISMATCH")
+  }
   if (!actorScope.isGlobal && !actorScope.countryIds.includes(account.vendor.countryId)) {
-    throw new ApiError(403, "This vendor is outside your scope", "SCOPE_FORBIDDEN")
+    // 404, not 403 — an opaque id must never confirm a record exists in a
+    // country the caller can't see.
+    throw new ApiError(404, "Payout account not found", "NOT_FOUND")
   }
   return account
 }
 
+/*
+ * §12 — an admin may resolve a REQUIRES_REVIEW account or verify a PENDING
+ * one (risk / uncertainty / a country the provider can't auto-verify), but
+ * MUST NOT flip a definitive provider rejection to VERIFIED "because they
+ * want to". A FAILED account whose failure came from the provider looking at
+ * it and rejecting a field / the account itself (INVALID_ACCOUNT /
+ * PROVIDER_REJECTED via the automatic path) is not manually verifiable —
+ * the vendor has to fix and re-add. A MANUAL_REJECTION, or a legacy FAILED
+ * with no code, stays admin discretion.
+ */
+const PROVIDER_DEFINITIVE_CODES = new Set(["INVALID_ACCOUNT", "PROVIDER_REJECTED"])
+
+export function canManuallyVerify(account: {
+  verificationStatus: string
+  verificationMethod: string | null
+  verificationFailureCode: string | null
+}): { ok: true } | { ok: false; reason: string } {
+  if (account.verificationStatus === "VERIFIED") return { ok: false, reason: "Payout account is already verified" }
+  if (
+    account.verificationStatus === "FAILED" &&
+    account.verificationMethod === "FINANCE_BANK_RESOLUTION" &&
+    account.verificationFailureCode != null &&
+    PROVIDER_DEFINITIVE_CODES.has(account.verificationFailureCode)
+  ) {
+    return {
+      ok: false,
+      reason: "The payment provider rejected this account — it can't be verified manually. The vendor must correct and re-add it.",
+    }
+  }
+  return { ok: true }
+}
+
 export async function verifyPayoutAccount(
-  vendorId  : string,
   accountId : string,
   actorId   : string,
   actorScope: AdminScopeContext,
+  expectedVendorId?: string,
 ) {
-  const account = await loadOwnedAccount(vendorId, accountId, actorScope)
-  if (account.verificationStatus === PayoutVerificationStatus.VERIFIED) {
-    throw new ApiError(400, "Payout account is already verified", "ALREADY_VERIFIED")
-  }
+  const account = await loadPayoutAccountInScope(accountId, actorScope, expectedVendorId)
+  const gate = canManuallyVerify(account)
+  if (!gate.ok) throw new ApiError(400, gate.reason, "VERIFY_NOT_ALLOWED")
 
   const updated = await prisma.vendorPayoutAccount.update({
     where: { id: accountId },
     data : {
-      verificationStatus: PayoutVerificationStatus.VERIFIED,
-      verificationMethod: "MANUAL",
-      verifiedAt        : new Date(),
-      verifiedBy        : actorId,
-      failureReason     : null,
+      verificationStatus     : PayoutVerificationStatus.VERIFIED,
+      verificationMethod     : "MANUAL",
+      verificationFailureCode: null,
+      verifiedAt             : new Date(),
+      verifiedBy             : actorId,
+      failureReason          : null,
     },
   })
 
-  serviceLog.info({ vendorId, accountId, actorId }, "Payout account manually verified")
+  serviceLog.info({ vendorId: account.vendorId, accountId, actorId }, "Payout account manually verified")
   auditService.log({
     adminUserId: actorId,
     action     : "vendor_payout_account.verified",
     entityType : "VendorPayoutAccount",
     entityId   : accountId,
     changes    : { before: { verificationStatus: account.verificationStatus }, after: { verificationStatus: "VERIFIED" } },
-    metadata   : { vendorId, method: "MANUAL" },
+    metadata   : { vendorId: account.vendorId, method: "MANUAL" },
   })
 
   return updated
@@ -199,15 +247,15 @@ export async function releasePayoutHold(
 }
 
 export async function rejectPayoutAccount(
-  vendorId  : string,
   accountId : string,
   reason    : string,
   actorId   : string,
   actorScope: AdminScopeContext,
+  expectedVendorId?: string,
 ) {
   if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
 
-  const account = await loadOwnedAccount(vendorId, accountId, actorScope)
+  const account = await loadPayoutAccountInScope(accountId, actorScope, expectedVendorId)
   if (account.verificationStatus === PayoutVerificationStatus.FAILED) {
     throw new ApiError(400, "Payout account is already marked as failed", "ALREADY_FAILED")
   }
@@ -215,23 +263,24 @@ export async function rejectPayoutAccount(
   const updated = await prisma.vendorPayoutAccount.update({
     where: { id: accountId },
     data : {
-      verificationStatus: PayoutVerificationStatus.FAILED,
-      verificationMethod: "MANUAL",
-      failureReason     : reason.trim(),
+      verificationStatus     : PayoutVerificationStatus.FAILED,
+      verificationMethod     : "MANUAL",
+      verificationFailureCode: "MANUAL_REJECTION",
+      failureReason          : reason.trim(),
       // A previous verifiedAt/verifiedBy (if this was VERIFIED and is now
       // being revoked) stays as historical fact, not cleared — the audit
       // log entry (with before/after) is the authoritative timeline.
     },
   })
 
-  serviceLog.info({ vendorId, accountId, actorId, reason }, "Payout account rejected")
+  serviceLog.info({ vendorId: account.vendorId, accountId, actorId, reason }, "Payout account rejected")
   auditService.log({
     adminUserId: actorId,
     action     : "vendor_payout_account.rejected",
     entityType : "VendorPayoutAccount",
     entityId   : accountId,
     changes    : { before: { verificationStatus: account.verificationStatus }, after: { verificationStatus: "FAILED", failureReason: reason.trim() } },
-    metadata   : { vendorId },
+    metadata   : { vendorId: account.vendorId },
   })
 
   return updated

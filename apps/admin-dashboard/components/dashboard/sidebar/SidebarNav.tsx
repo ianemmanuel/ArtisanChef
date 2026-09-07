@@ -89,8 +89,7 @@ export function SidebarNav({ collapsed = false, isMobile = false }: SidebarNavPr
                     !pathname.startsWith("/finance/outlets") &&
                     !pathname.startsWith("/finance/vendor-categories") &&
                     !pathname.startsWith("/finance/needs-attention") &&
-                    !pathname.startsWith("/finance/providers") &&
-                    !pathname.startsWith("/finance/countries"))
+                    !pathname.startsWith("/finance/providers"))
                 : pathname.startsWith(href)
 
   // Subtle "something in here needs your attention" nudge — never shown

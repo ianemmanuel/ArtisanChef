@@ -9,7 +9,7 @@ export const handleVerifyPayoutAccount: RequestHandler = async (req, res, next) 
     const { adminUser, adminScope } = req as unknown as AdminRequest
     const { id: vendorId, accountId } = req.params as { id: string; accountId: string }
 
-    const account = await verifyPayoutAccount(vendorId, accountId, adminUser.id, adminScope)
+    const account = await verifyPayoutAccount(accountId, adminUser.id, adminScope, vendorId)
     return sendSuccess(res, account, "Payout account verified")
   } catch (err) { next(err) }
 }
@@ -22,7 +22,7 @@ export const handleRejectPayoutAccount: RequestHandler = async (req, res, next) 
 
     if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
 
-    const account = await rejectPayoutAccount(vendorId, accountId, reason, adminUser.id, adminScope)
+    const account = await rejectPayoutAccount(accountId, reason, adminUser.id, adminScope, vendorId)
     return sendSuccess(res, account, "Payout account rejected")
   } catch (err) { next(err) }
 }

@@ -17,6 +17,7 @@ import type {
   ProviderWebhookEventStatus,
   NormalizedWebhookEventType,
 } from "../enums/finance"
+import type { PayoutVerificationFailureCode, PayoutRiskFlag } from "./vendor"
 
 //* ─── Money ──────────────────────────────────────────────────────────────
 //* The canonical representation of a monetary amount everywhere in the
@@ -128,24 +129,40 @@ export interface CountryProviderAccount {
     status: FinanceReferenceStatus
     capabilities: PaymentProviderCapability[]
   }
+  /**
+   * Whether this account's provider lists the country's currency among its
+   * supported currencies. Present only on the ERP financial-config view —
+   * computed per account, since a country may route different capabilities
+   * through different providers with different currency support.
+   */
+  currencySupported?: boolean
 }
 
 export interface CreateCountryProviderAccountRequest {
   paymentProviderId: string
   environment: PaymentEnvironment
-  secretAlias: string
+  /** Business capabilities only — integration ones are merged in server-side. */
   enabledCapabilities: PaymentProviderCapability[]
   accountLabel?: string
   externalAccountId?: string
 }
 
 export interface UpdateCountryProviderAccountRequest {
+  /** Business capabilities only — integration ones are merged in server-side. */
   enabledCapabilities?: PaymentProviderCapability[]
   accountLabel?: string
   externalAccountId?: string
-  /** Structural — global-scope only. */
-  secretAlias?: string
+  /** Structural — global-scope only. Re-derives the (non-secret) secret alias. */
   environment?: PaymentEnvironment
+}
+
+/** Result of a pre-activation provider connectivity test (bank directory). */
+export interface ProviderBankListTestResult {
+  provider: string
+  environment: PaymentEnvironment
+  countryCode: string
+  banks: { code: string; name: string }[]
+  count: number
 }
 
 export interface SuspendRequest {
@@ -158,7 +175,14 @@ export interface CountryFinancialConfig {
   id: string
   countryId: string
   currencyCode: string | null
-  activeProviderAccountId: string | null
+  /**
+   * Explicit country-global routing binding for the bank-account
+   * verification / resolution capability (BANK_ACCOUNT_RESOLUTION +
+   * BANK_LIST). Independent of collection/payout routing — never inferred
+   * from a payment method's provider account. Null = no automatic bank
+   * verification configured for this country yet.
+   */
+  bankVerificationProviderAccountId: string | null
   collectionsEnabled: boolean
   payoutsEnabled: boolean
   status: CountryFinancialConfigStatus
@@ -170,13 +194,12 @@ export interface CountryFinancialConfig {
   createdAt: string
   updatedAt: string
   currency?: Currency | null
-  activeProviderAccount?: CountryProviderAccount | null
+  bankVerificationProviderAccount?: CountryProviderAccount | null
 }
 
-export interface UpdateCountryFinancialConfigStructuralRequest {
-  /** Structural change — controlled action, global-scope for an ACTIVE config. */
-  currencyCode?: string
-  activeProviderAccountId?: string | null
+/** Set (or clear, with null) the country's bank-verification routing binding. */
+export interface SetBankVerificationProviderAccountRequest {
+  providerAccountId: string | null
 }
 
 export interface SetOperationalSwitchesRequest {
@@ -201,14 +224,34 @@ export interface FinancialReadiness {
   reasons: FinancialReadinessReason[]
 }
 
+/**
+ * How a payment provider represents the country's currency, and whether it
+ * supports it. Computed in the finance/provider layer — the admin never
+ * picks a provider-specific currency. Currency support is per provider
+ * account (see CountryProviderAccount.currencySupported on the config view).
+ */
+export interface ProviderCurrencyInfo {
+  /** ISO-4217 alpha code (the country's canonical currency). */
+  iso: string
+  /** The exact token sent to the provider's API (pass-through for every current provider). */
+  providerRepresentation: string
+  /** Whether the provider's catalog lists this currency (empty list = unrestricted). */
+  supported: boolean
+  /** Display name of the provider. */
+  providerName: string
+}
+
 export interface CountryFinancialConfigView {
   config: CountryFinancialConfig | null
+  /** Every provider account for the country. `currencySupported` is populated per account. */
   providerAccounts: CountryProviderAccount[]
   readiness: FinancialReadiness
-  /** Phase 1C — can this country actually reach its provider (no network check). */
+  /** Phase 1C — can this country reach its bank-verification provider (no network check). */
   providerGateway: ProviderGatewayStatus
   /** Phase 1C — payment methods and which provider account (if any) executes each. */
   paymentMethods: CountryPaymentMethodWithProvider[]
+  /** The country's currency string — shown read-only; config.currency is the resolved reference row. */
+  countryCurrency: string
   /** What the current admin may do, given permission + scope. */
   canManageDraft: boolean
   canManageLifecycle: boolean
@@ -216,6 +259,12 @@ export interface CountryFinancialConfigView {
 
 //* ─── Phase 1C — provider wiring ────────────────────────────────────────
 
+/**
+ * No-network status of the country's BANK-ACCOUNT-VERIFICATION provider
+ * route (CountryFinancialConfig.bankVerificationProviderAccountId) — the
+ * one country-global provider integration surfaced on the ERP config view.
+ * `configured: false` means no bank-verification account is bound yet.
+ */
 export interface ProviderGatewayStatus {
   configured: boolean
   providerCode: string | null
@@ -267,4 +316,64 @@ export interface ProviderWebhookEvent {
   status: ProviderWebhookEventStatus
   receivedAt: string
   processedAt: string | null
+}
+
+//* ─── Finance → Vendor Payout Accounts (operational verification queue) ──
+//* Safe, cross-vendor view of a vendor payout account for a finance/
+//* compliance admin. Never carries a full account number or any encrypted /
+//* raw-provider value — the backend masks before this leaves it.
+
+export type AdminPayoutAccountStatusFilter =
+  | "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW" | "DEACTIVATED"
+
+export interface AdminPayoutAccountListItem {
+  id                : string
+  vendorId          : string
+  vendorName        : string
+  countryName       : string
+  countryCode       : string
+  currency          : string
+  methodType        : string
+  methodName        : string
+  providerName      : string | null
+  environment       : string | null
+  bankName          : string | null
+  branchName        : string | null
+  accountHolderName : string | null
+  maskedAccount     : string
+  verificationStatus: "PENDING" | "VERIFIED" | "FAILED" | "REQUIRES_REVIEW"
+  verificationFailureCode: PayoutVerificationFailureCode | null
+  verificationMethod: string | null
+  failureReason     : string | null
+  riskFlags         : PayoutRiskFlag[]
+  nameMatchScore    : number | null
+  isActive          : boolean
+  isDefault         : boolean
+  verifiedAt        : string | null
+  createdAt         : string
+  updatedAt         : string
+}
+
+export interface AdminPayoutAccountListResult {
+  accounts : AdminPayoutAccountListItem[]
+  total    : number
+  page     : number
+  pageSize : number
+  counts   : { pending: number; failed: number; requiresReview: number; verified: number; deactivated: number }
+}
+
+export interface AdminPayoutAccountAuditEntry {
+  id       : string
+  action   : string
+  actor    : string | null
+  createdAt: string
+  changes  : unknown
+  metadata : unknown
+}
+
+export interface AdminPayoutAccountDetail {
+  account            : AdminPayoutAccountListItem
+  canVerify          : boolean
+  verifyBlockedReason: string | null
+  audit              : AdminPayoutAccountAuditEntry[]
 }

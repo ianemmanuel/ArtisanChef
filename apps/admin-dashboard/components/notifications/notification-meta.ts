@@ -1,4 +1,4 @@
-import { ShieldAlert, Scale, Flag, Map as MapIcon, Store, type LucideIcon } from "lucide-react"
+import { ShieldAlert, Scale, Flag, Map as MapIcon, Store, Landmark, type LucideIcon } from "lucide-react"
 import type { AdminNotification, AdminNotificationType } from "@/types"
 
 /*
@@ -20,6 +20,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   { value: "profiles",   label: "Profiles",   types: ["PROFILE_FLAGGED", "PROFILE_STALE_FLAGGED"] },
   { value: "zones",      label: "Zones",      types: ["ZONE_STATUS_CHANGED", "ZONE_CAPABILITY_CHANGED"] },
   { value: "outlets",    label: "Outlets",    types: ["OUTLET_AUTO_SUSPENDED"] },
+  { value: "payouts",    label: "Payouts",    types: ["PAYOUT_ACCOUNT_NEEDS_REVIEW"] },
 ]
 
 export const NOTIFICATION_ICON: Record<AdminNotificationType, LucideIcon> = {
@@ -32,6 +33,7 @@ export const NOTIFICATION_ICON: Record<AdminNotificationType, LucideIcon> = {
   ZONE_STATUS_CHANGED    : MapIcon,
   ZONE_CAPABILITY_CHANGED: MapIcon,
   OUTLET_AUTO_SUSPENDED  : Store,
+  PAYOUT_ACCOUNT_NEEDS_REVIEW: Landmark,
 }
 
 export const NOTIFICATION_ACCENT: Record<AdminNotificationType, string> = {
@@ -44,6 +46,7 @@ export const NOTIFICATION_ACCENT: Record<AdminNotificationType, string> = {
   ZONE_STATUS_CHANGED    : "icon-badge-warning",
   ZONE_CAPABILITY_CHANGED: "icon-badge-info",
   OUTLET_AUTO_SUSPENDED  : "icon-badge-danger",
+  PAYOUT_ACCOUNT_NEEDS_REVIEW: "icon-badge-warning",
 }
 
 /** A notification's metadata may carry a vendorId/appealId/citySlug/outletId to deep-link into. */
@@ -51,8 +54,11 @@ export function deepLinkFor(n: AdminNotification): string | null {
   const vendorId = typeof n.metadata?.vendorId === "string" ? n.metadata.vendorId : null
   const citySlug = typeof n.metadata?.citySlug === "string" ? n.metadata.citySlug : null
   const outletId = typeof n.metadata?.outletId === "string" ? n.metadata.outletId : null
+  const payoutAccountId = typeof n.metadata?.payoutAccountId === "string" ? n.metadata.payoutAccountId : null
 
   switch (n.type) {
+    case "PAYOUT_ACCOUNT_NEEDS_REVIEW":
+      return payoutAccountId ? `/finance/payout-accounts/${payoutAccountId}` : "/finance/payout-accounts"
     case "OUTLET_AUTO_SUSPENDED":
       return outletId ? `/vendors/outlets/${outletId}` : "/vendors/outlets"
     case "COMPLIANCE_CASE_STALE":

@@ -27,6 +27,28 @@ export enum PaymentProviderCapability {
 export const PAYMENT_PROVIDER_CAPABILITIES: PaymentProviderCapability[] =
   Object.values(PaymentProviderCapability)
 
+/*
+ * BUSINESS vs INTEGRATION capabilities — mirrors
+ * apps/backend/.../providers/provider.capabilities.ts (hand-synced, same
+ * convention as the enum itself). The admin only ever selects BUSINESS
+ * ones; INTEGRATION ones (webhooks, bank directory, account verification)
+ * are determined by the provider's adapter and shown read-only.
+ */
+export const INTEGRATION_PROVIDER_CAPABILITIES: PaymentProviderCapability[] = [
+  PaymentProviderCapability.WEBHOOKS,
+  PaymentProviderCapability.BANK_LIST,
+  PaymentProviderCapability.BANK_ACCOUNT_RESOLUTION,
+]
+
+export const BUSINESS_PROVIDER_CAPABILITIES: PaymentProviderCapability[] = [
+  PaymentProviderCapability.COLLECTION_CARD,
+  PaymentProviderCapability.COLLECTION_MOBILE_MONEY,
+  PaymentProviderCapability.COLLECTION_BANK_TRANSFER,
+  PaymentProviderCapability.REFUND,
+  PaymentProviderCapability.PAYOUT_BANK,
+  PaymentProviderCapability.PAYOUT_MOBILE_MONEY,
+]
+
 //* ─── Phase 1B ───────────────────────────────────────────────────────────
 
 export enum PaymentEnvironment {

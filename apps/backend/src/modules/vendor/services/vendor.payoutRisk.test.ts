@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { classifyNameMatch, computePayoutRiskFlags, decidePayoutAccountStatus } from "./vendor.payoutRisk"
+import { classifyNameMatch, computePayoutRiskFlags, decidePayoutAccountStatus, resolvePayoutFailureCode } from "./vendor.payoutRisk"
 
 describe("classifyNameMatch", () => {
   it("null score is UNAVAILABLE", () => {
@@ -74,5 +74,29 @@ describe("decidePayoutAccountStatus", () => {
   })
   it("provider FAILED is never downgraded to REQUIRES_REVIEW by a risk flag", () => {
     expect(decidePayoutAccountStatus("FAILED", ["NAME_MISMATCH", "DUPLICATE_IDENTIFIER"])).toBe("FAILED")
+  })
+})
+
+describe("resolvePayoutFailureCode", () => {
+  it("VERIFIED -> null", () => {
+    expect(resolvePayoutFailureCode("VERIFIED", null, [])).toBeNull()
+    expect(resolvePayoutFailureCode("VERIFIED", "PROVIDER_UNSUPPORTED", ["NAME_MISMATCH"])).toBeNull()
+  })
+  it("PENDING keeps a provider 'unsupported' tag so the ERP knows it's awaiting a human by design", () => {
+    expect(resolvePayoutFailureCode("PENDING", "PROVIDER_UNSUPPORTED", [])).toBe("PROVIDER_UNSUPPORTED")
+    expect(resolvePayoutFailureCode("PENDING", null, [])).toBeNull()
+  })
+  it("FAILED uses the provider's own code", () => {
+    expect(resolvePayoutFailureCode("FAILED", "INVALID_ACCOUNT", [])).toBe("INVALID_ACCOUNT")
+    expect(resolvePayoutFailureCode("FAILED", "PROVIDER_REJECTED", ["NAME_MISMATCH"])).toBe("PROVIDER_REJECTED")
+    expect(resolvePayoutFailureCode("FAILED", null, [])).toBe("PROVIDER_REJECTED")
+  })
+  it("REQUIRES_REVIEW: a risk flag takes precedence over a provider code", () => {
+    expect(resolvePayoutFailureCode("REQUIRES_REVIEW", "PROVIDER_UNAVAILABLE", ["NAME_MISMATCH"])).toBe("NAME_MISMATCH")
+    expect(resolvePayoutFailureCode("REQUIRES_REVIEW", null, ["DUPLICATE_IDENTIFIER"])).toBe("DUPLICATE_ACCOUNT")
+    expect(resolvePayoutFailureCode("REQUIRES_REVIEW", null, ["ADD_VELOCITY"])).toBe("ADD_VELOCITY")
+  })
+  it("REQUIRES_REVIEW with no risk flag falls back to the provider code", () => {
+    expect(resolvePayoutFailureCode("REQUIRES_REVIEW", "PROVIDER_UNAVAILABLE", [])).toBe("PROVIDER_UNAVAILABLE")
   })
 })

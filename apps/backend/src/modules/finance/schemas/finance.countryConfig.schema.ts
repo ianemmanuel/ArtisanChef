@@ -1,11 +1,11 @@
 import { z } from "zod"
 
-export const setConfigCurrencySchema = z
-  .object({ currencyCode: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "3-letter ISO-4217 code") })
-  .strict()
+// Currency is not set here — it is derived from Country.currencyCode.
 
-export const setActiveProviderAccountSchema = z
-  .object({ activeProviderAccountId: z.string().uuid().nullable() })
+// The country-global bank-account verification/resolution routing binding.
+// null clears it (the country stops offering automatic bank verification).
+export const setBankVerificationProviderAccountSchema = z
+  .object({ providerAccountId: z.string().uuid().nullable() })
   .strict()
 
 export const setOperationalSwitchesSchema = z
@@ -18,6 +18,5 @@ export const setOperationalSwitchesSchema = z
     message: "Provide collectionsEnabled and/or payoutsEnabled",
   })
 
-export type SetConfigCurrencyInput = z.infer<typeof setConfigCurrencySchema>
-export type SetActiveProviderAccountInput = z.infer<typeof setActiveProviderAccountSchema>
+export type SetBankVerificationProviderAccountInput = z.infer<typeof setBankVerificationProviderAccountSchema>
 export type SetOperationalSwitchesInput = z.infer<typeof setOperationalSwitchesSchema>

@@ -27,7 +27,14 @@ export interface ProviderSecretsResolver {
    *              e.g. "flutterwave_ke_primary"
    */
   resolve(alias: string): Promise<ProviderSecrets>
-  /** True if the alias resolves to a complete secret bundle right now. */
+  /**
+   * True if the alias resolves to AT LEAST ONE key right now. This stays
+   * deliberately provider-agnostic — "is anything configured for this
+   * alias". Whether the bundle is COMPLETE for a given provider (has the
+   * keys that provider's credential reader needs) is asked of the adapter,
+   * not here (finance.providerGateway.service → resolvedCredentialsComplete),
+   * so the resolver never learns provider-specific key names.
+   */
   has(alias: string): Promise<boolean>
 }
 
@@ -36,6 +43,28 @@ export class ProviderSecretsError extends Error {
     super(message)
     this.name = "ProviderSecretsError"
   }
+}
+
+/**
+ * The non-secret alias for a country provider account is DERIVED, never
+ * entered by an admin — it's a deterministic function of what the admin
+ * already chose (provider + country + environment). The real credentials
+ * live in the secret manager / .env under this alias (see the env
+ * convention on EnvProviderSecretsResolver).
+ *
+ *   deriveProviderSecretAlias("FLUTTERWAVE", "KE", "TEST") -> "flutterwave_ke_test"
+ *     -> FINANCE_PROVIDER_SECRET__FLUTTERWAVE_KE_TEST__CLIENTID = ...
+ */
+export function deriveProviderSecretAlias(
+  providerCode: string,
+  countryCode: string,
+  environment: "TEST" | "LIVE",
+): string {
+  return [providerCode, countryCode, environment]
+    .join("_")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
 }
 
 /**

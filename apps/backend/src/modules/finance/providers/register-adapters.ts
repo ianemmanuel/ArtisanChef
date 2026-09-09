@@ -11,14 +11,18 @@
 import { logger } from "@/lib/pino/logger"
 import { registerProviderAdapter, _resetProviderRegistry } from "./provider.registry"
 import { createFlutterwaveAdapter } from "./flutterwave"
+import { createDlocalAdapter } from "./dlocal"
 
 let registered = false
 
 export function registerProviderAdapters(): void {
   if (registered) return
   registerProviderAdapter(createFlutterwaveAdapter())
+  // dLocal — bank-account resolution only (dLocal's account-validation
+  // endpoint); its collection/payout rails are separate future phases.
+  registerProviderAdapter(createDlocalAdapter())
   registered = true
-  logger.info({ providers: ["FLUTTERWAVE"] }, "Payment-provider adapters registered")
+  logger.info({ providers: ["FLUTTERWAVE", "DLOCAL"] }, "Payment-provider adapters registered")
 }
 
 /** Test helper — clears the registry and the once-guard. */

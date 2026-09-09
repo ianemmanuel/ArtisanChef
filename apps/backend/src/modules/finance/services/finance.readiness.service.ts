@@ -125,6 +125,7 @@ export async function loadReadinessInputs(countryId: string): Promise<ReadinessI
           currencyCode: effectiveCurrencyCode,
           collectionsEnabled: config.collectionsEnabled,
           payoutsEnabled: config.payoutsEnabled,
+          bankVerificationMode: config.bankVerificationMode,
         }
       : null,
     currency: effectiveCurrency ? { status: effectiveCurrency.status } : null,

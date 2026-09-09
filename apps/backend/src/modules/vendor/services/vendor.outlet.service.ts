@@ -1,4 +1,4 @@
-import { prisma, OutletReviewStatus, OutletAdminStatus } from "@repo/db"
+import { prisma, Prisma, OutletReviewStatus, OutletAdminStatus } from "@repo/db"
 import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
@@ -462,26 +462,83 @@ export async function listOutletInspectionsForVendor(vendorId: string, outletId:
 
 //* List outlets
 
-export async function listOutlets(vendorId: string) {
-  const outlets = await prisma.outlet.findMany({
-    where  : { vendorId, deletedAt: null },
-    orderBy: [{ isMainOutlet: "desc" }, { createdAt: "asc" }],
-    include: {
-      cuisines: { include: { cuisine: { select: { id: true, name: true, code: true } } } },
-      _count  : { select: { meals: true } },
-    },
+export interface ListOutletsParams {
+  /** Free text over outlet name and address. */
+  search?: string
+  /** Outlet.adminStatus — ACTIVE | SUSPENDED | SUSPENDED_COMPLIANCE | BANNED. */
+  status?: string
+  cityId?: string
+  page?  : number
+  pageSize?: number
+}
+
+/**
+ * A vendor's own outlets, paginated and filterable server-side.
+ *
+ * Previously returned every outlet in one unbounded array. That was fine
+ * while a vendor had two or three, but the list page is the landing surface
+ * for outlet management and has to hold up for a vendor running dozens —
+ * filtering and slicing belong in the query, not in the page component.
+ */
+export async function listOutlets(vendorId: string, params: ListOutletsParams = {}) {
+  const page     = Math.max(1, params.page ?? 1)
+  const pageSize = Math.min(50, Math.max(1, params.pageSize ?? 12))
+
+  const where: Prisma.OutletWhereInput = { vendorId, deletedAt: null }
+  if (params.cityId) where.cityId = params.cityId
+  if (params.status) where.adminStatus = params.status as Prisma.OutletWhereInput["adminStatus"]
+  if (params.search?.trim()) {
+    const q = params.search.trim()
+    where.OR = [
+      { name: { contains: q, mode: "insensitive" } },
+      { addressLine1: { contains: q, mode: "insensitive" } },
+    ]
+  }
+
+  const [outlets, total] = await Promise.all([
+    prisma.outlet.findMany({
+      where,
+      orderBy: [{ isMainOutlet: "desc" }, { createdAt: "asc" }],
+      skip   : (page - 1) * pageSize,
+      take   : pageSize,
+      include: {
+        cuisines: { include: { cuisine: { select: { id: true, name: true, code: true } } } },
+        _count  : { select: { meals: true } },
+      },
+    }),
+    prisma.outlet.count({ where }),
+  ])
+
+  // Outlet.cityId is a plain scalar FK, not a Prisma relation (see
+  // CLAUDE.md) — city names come from a second batched query, never an
+  // include.
+  const cityIds = [...new Set(outlets.map((o) => o.cityId))]
+  const cities  = cityIds.length
+    ? await prisma.city.findMany({ where: { id: { in: cityIds } }, select: { id: true, name: true } })
+    : []
+  const cityMap = new Map(cities.map((c) => [c.id, c]))
+
+  return {
+    outlets: outlets.map((o) => ({ ...o, city: cityMap.get(o.cityId) ?? null })),
+    total,
+    page,
+    pageSize,
+  }
+}
+
+/** The vendor's cities, for the list page's city filter. */
+export async function listOutletCities(vendorId: string) {
+  const rows = await prisma.outlet.findMany({
+    where : { vendorId, deletedAt: null },
+    select: { cityId: true },
+    distinct: ["cityId"],
   })
-
-  if (outlets.length === 0) return []
-
-  const cityIds = [...new Set(outlets.map(o => o.cityId))]
-  const cities  = await prisma.city.findMany({
-    where : { id: { in: cityIds } },
-    select: { id: true, name: true },
+  if (rows.length === 0) return []
+  return prisma.city.findMany({
+    where  : { id: { in: rows.map((r) => r.cityId) } },
+    select : { id: true, name: true },
+    orderBy: { name: "asc" },
   })
-  const cityMap = new Map(cities.map(c => [c.id, c]))
-
-  return outlets.map(o => ({ ...o, city: cityMap.get(o.cityId) ?? null }))
 }
 
 //* Deactivate outlet

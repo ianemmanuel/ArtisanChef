@@ -3,7 +3,10 @@ import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/errors/ApiError"
 import { resolveCountryIdInScope } from "@/modules/admin/lib/scope/resolve-country-id"
 import { presentPayoutAccount } from "@/modules/vendor/services/vendor.payoutPresentation"
+import { R2Service } from "@/lib/r2/r2.service"
+import { decryptOptional } from "@/lib/crypto/field-encryption"
 import { canManuallyVerify } from "./admin.vendor.payout.service"
+import { payoutReviewState } from "./admin.payoutReview.state"
 
 /*
  * Finance-domain, cross-vendor view of vendor payout accounts and their
@@ -125,18 +128,25 @@ export async function listVendorPayoutAccounts(filters: ListPayoutAccountsFilter
     if (filters.status) where.verificationStatus = filters.status
   }
 
-  if (filters.search?.trim()) {
-    const q = filters.search.trim()
-    // baseWhere.vendor still ANDs against every branch — search only widens
-    // *within* the caller's country scope, never past it.
-    where.OR = [
-      { vendor: { legalBusinessName: { contains: q, mode: "insensitive" } } },
-      { bankName: { contains: q, mode: "insensitive" } },
-      { accountHolderName: { contains: q, mode: "insensitive" } },
-    ]
-  }
+  /*
+   * Search matches vendor name, bank name or account-holder name. Built
+   * once and applied to BOTH the page query and the per-status tab counts:
+   * a search that only narrowed the rows made the tabs lie about where the
+   * matches were, so searching a vendor whose account sits under a
+   * different status than the current tab looked like "search is broken".
+   * baseWhere still ANDs against every branch — search only widens WITHIN
+   * the caller's country scope, never past it.
+   */
+  const searchOr = filters.search?.trim()
+    ? [
+        { vendor: { legalBusinessName: { contains: filters.search.trim(), mode: "insensitive" as const } } },
+        { bankName: { contains: filters.search.trim(), mode: "insensitive" as const } },
+        { accountHolderName: { contains: filters.search.trim(), mode: "insensitive" as const } },
+      ]
+    : null
+  if (searchOr) where.OR = searchOr
 
-  const countWhere = baseWhere
+  const countWhere: Prisma.VendorPayoutAccountWhereInput = searchOr ? { ...baseWhere, OR: searchOr } : baseWhere
 
   const [rows, total, pending, failed, requiresReview, verified, deactivated] = await Promise.all([
     prisma.vendorPayoutAccount.findMany({
@@ -188,10 +198,88 @@ export async function getVendorPayoutAccountForReview(accountId: string, scope: 
     include: { adminUser: { select: { firstName: true, lastName: true, email: true } } },
   })
 
+  const assignee = row.assignedReviewerId
+    ? await prisma.adminUser.findUnique({
+        where : { id: row.assignedReviewerId },
+        select: { firstName: true, lastName: true, email: true },
+      })
+    : null
+
+  const reviewer = row.reviewedById
+    ? await prisma.adminUser.findUnique({
+        where : { id: row.reviewedById },
+        select: { firstName: true, lastName: true, email: true },
+      })
+    : null
+
   const gate = canManuallyVerify(row)
+
+  /*
+   * Proof of bank-account ownership — the MANUAL verification path. In
+   * markets with no bank-resolution provider (Kenya/KES) this document IS
+   * the evidence the reviewer decides on: it must show the account holder's
+   * name and number, and be stamped by the bank. Surfaced inline with a
+   * short-lived signed URL, same mechanism as every other admin document
+   * preview. Empty for PROVIDER-mode countries, which never ask for one.
+   */
+  const proofRows = await prisma.vendorDocument.findMany({
+    where  : { payoutAccountId: accountId },
+    orderBy: { uploadedAt: "desc" },
+    include: { documentType: { select: { name: true, instructions: true } } },
+  })
+  const proofDocuments = await Promise.all(
+    proofRows.map(async (d) => ({
+      id          : d.id,
+      documentName: d.documentName,
+      typeName    : d.documentType.name,
+      instructions: d.documentType.instructions,
+      mimeType    : d.mimeType,
+      fileSize    : d.fileSize,
+      status      : d.status,
+      uploadedAt  : d.uploadedAt.toISOString(),
+      viewUrl     : await R2Service.generateViewUrl(d.storageKey),
+    })),
+  )
 
   return {
     account: toListItem(row),
+    /*
+     * The provider bank code, decrypted for the reviewer.
+     *
+     * It is stored encrypted only because it sits alongside the genuinely
+     * sensitive identifiers — but a bank code names the BANK, not the
+     * account (e.g. "068" is Equity), and the bank NAME is already shown
+     * in plaintext right next to it. Surfacing it adds no disclosure a
+     * reviewer doesn't already have, and it is the exact value that will
+     * be handed to the payout provider, so it has to be checkable. The
+     * account NUMBER stays masked — that is the part worth protecting.
+     * Detail view only; never in the cross-vendor list.
+     */
+    bankCode: decryptOptional(row.bankCode),
+    /*
+     * Who last approved or rejected this account, resolved to a name.
+     * The audit log has always had it, but "who turned this down?"
+     * shouldn't require reading an audit trail — same reviewer-on-the-
+     * record convention as vendor applications.
+     */
+    reviewedBy: reviewer
+      ? `${reviewer.firstName} ${reviewer.lastName}`.trim() || reviewer.email
+      : null,
+    reviewedAt: row.reviewedAt?.toISOString() ?? null,
+    /*
+     * Review workflow — derived, never stored (see payoutReviewState).
+     * assignedTo is resolved to a name so the queue can say WHO holds it
+     * rather than showing an opaque id.
+     */
+    reviewState       : payoutReviewState(row),
+    assignedReviewerId: row.assignedReviewerId,
+    assignedTo        : assignee
+      ? `${assignee.firstName} ${assignee.lastName}`.trim() || assignee.email
+      : null,
+    escalatedAt       : row.escalatedAt?.toISOString() ?? null,
+    escalationReason  : row.escalationReason,
+    claimedFromEscalation: row.claimedFromEscalation,
+    proofDocuments,
     canVerify: gate.ok,
     verifyBlockedReason: gate.ok ? null : gate.reason,
     audit: auditRows.map((a) => ({

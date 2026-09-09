@@ -73,6 +73,8 @@ export type {
   UpdateOutletRequest,
   OperatingHoursEntry,
   AddPayoutAccountRequest,
+  PayoutVerificationRequirement,
+  PayoutProofDocumentType,
   AvailablePayoutMethod,
   VendorPayoutAccount,
   VendorPayoutBankOption,

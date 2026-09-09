@@ -5,7 +5,8 @@ import { R2Service } from "@/lib/r2"
 import { ensureApplicationEditable } from "./vendor.application.guards"
 import type { VendorApplication, VendorApplicationStatus } from "@repo/db"
 
-const ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"]
+//* Shared with vendor.payoutProof.ts — one allow-list for every vendor upload.
+export const ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"]
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10MB — adjust to your actual requirement docs
 
 interface PresignInput {

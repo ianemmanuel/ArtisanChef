@@ -7,6 +7,7 @@ import {
   updateOutlet,
   getOutlet,
   listOutlets,
+  listOutletCities,
   deactivateOutlet,
   reactivateOutlet,
   closeOutletTemporarily,
@@ -24,7 +25,12 @@ export const handleListOutlets = async (req: Request, res: Response, next: NextF
   try {
     const auth = await getVendorAccount(req)
 
-    const outlets = await listOutlets(auth.vendorAccount.id)
+    const { search, status, cityId, page, pageSize } = req.query as Record<string, string>
+    const outlets = await listOutlets(auth.vendorAccount.id, {
+      search, status, cityId,
+      page    : page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    })
     return sendSuccess(res, outlets, "Outlets fetched successfully")
   } catch (err) { 
       next(err) 
@@ -190,5 +196,15 @@ export const handleSetOperatingHours = async (req: Request, res: Response, next:
 
     const result = await setOperatingHours(auth.vendorAccount.id, id, hours as OperatingHoursEntry[])
     return sendSuccess(res, result, "Operating hours updated successfully")
+  } catch (err) { next(err) }
+}
+
+//* GET the distinct cities this vendor has outlets in — powers the list
+//* page's city filter without a second full outlet fetch.
+export const handleListOutletCities = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await getVendorAccount(req)
+    const cities = await listOutletCities(auth.vendorAccount.id)
+    return sendSuccess(res, cities, "Outlet cities fetched")
   } catch (err) { next(err) }
 }

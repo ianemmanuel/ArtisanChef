@@ -213,9 +213,17 @@ export interface PayoutCapability {
 export interface ResolveBankAccountInput {
   bankCode: string
   accountNumber: string
-  /** ISO 4217 alpha code — the provider's bank-account-resolve request is
-   *  currency-discriminated (field shape differs NGN vs GBP vs USD etc.). */
+  /** ISO 4217 alpha code — some providers' bank-account-resolve request is
+   *  currency-discriminated (Flutterwave: field shape differs NGN vs GBP vs
+   *  USD). */
   currency: string
+  /** ISO 3166-1 alpha-2 of the account's country. Provider-agnostic (it's
+   *  the vendor's own country); the Finance gateway fills it from the routed
+   *  provider account's country. Some providers key their account-validation
+   *  request on country rather than currency (dLocal: `country` is a required
+   *  field and each country has its own field/format requirements) — those
+   *  adapters read this; Flutterwave ignores it. */
+  countryCode: string
 }
 
 export interface BankAccountResolutionCapability {

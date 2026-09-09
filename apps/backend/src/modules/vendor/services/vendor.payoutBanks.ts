@@ -17,16 +17,22 @@ import type { VendorPayoutBankOption, VendorSupportedBanks } from "@repo/types/b
  */
 
 export interface BankListGateway {
-  listBanks(countryId: string, countryCode: string): Promise<VendorPayoutBankOption[]>
+  listBanks(
+    countryId             : string,
+    countryCode           : string,
+    /** Routing context — BANK_LIST resolves through the payout provider. */
+    countryPaymentMethodId: string,
+  ): Promise<VendorPayoutBankOption[]>
 }
 
 export async function resolveSupportedBanks(
   gateway    : BankListGateway,
   countryId  : string,
   countryCode: string,
+  countryPaymentMethodId: string,
 ): Promise<VendorSupportedBanks> {
   try {
-    const banks = await gateway.listBanks(countryId, countryCode)
+    const banks = await gateway.listBanks(countryId, countryCode, countryPaymentMethodId)
     return { supported: true, banks }
   } catch (err) {
     if (isProviderError(err)) {

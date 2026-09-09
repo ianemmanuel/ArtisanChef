@@ -36,6 +36,39 @@ export const R2Service = {
     return `vendors/${vendorUserId}/documents/${documentTypeId}/${uuid}.${extension}`
   },
 
+  /*
+   * Payout-account proof documents live under their own short, readable
+   * prefix, grouped by WHAT KIND of payout account they prove:
+   *
+   *   payout-docs/bank-account/<vendorId>/<uuid>.pdf
+   *   payout-docs/mobile-money/<vendorId>/<uuid>.jpg
+   *
+   * Deliberately different from generateStorageKey above:
+   *   - keyed on the VENDOR ACCOUNT id (unique per vendor) rather than the
+   *     vendorUser id — a payout account belongs to the business, and this
+   *     is the id every admin surface already shows;
+   *   - NOT country-scoped, matching how vendor application documents are
+   *     stored (the vendor id already implies the country);
+   *   - no documentTypeId segment — the method-type folder already says what
+   *     the document is, and it keeps the path short.
+   *
+   * The filename stays a uuid rather than a fixed `document.pdf`: a vendor
+   * whose account is rejected re-submits a new one, and every VendorDocument
+   * row is versioned rather than overwritten. A fixed name would silently
+   * destroy the previous proof — exactly the audit trail a manual
+   * verification decision rests on.
+   */
+  generatePayoutProofKey(
+    methodSlug: string,
+    vendorId  : string,
+    extension : string,
+  ) {
+    const uuid = crypto.randomUUID()
+    const ext = extension ? `.${extension}` : ""
+
+    return `payout-docs/${methodSlug}/${vendorId}/${uuid}${ext}`
+  },
+
   async generateUploadUrl(storageKey: string, contentType: string) {
     const command = new PutObjectCommand({
       Bucket: BUCKET,

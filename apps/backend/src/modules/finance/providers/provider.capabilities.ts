@@ -70,11 +70,20 @@ export function isBusinessCapability(value: string): value is (typeof BUSINESS_C
  * routing is capability-scoped and explicit — there is no "the country's
  * active/primary account" and no fallback:
  *
- *  - "BANK_VERIFICATION": the two country-global bank-account capabilities
- *    (resolution + directory) route through
- *    CountryFinancialConfig.bankVerificationProviderAccountId. They are one
- *    provider by nature (you pick a bank from provider X's directory, then
- *    verify it with provider X), bound independently of collection/payout.
+ *  - "BANK_VERIFICATION": BANK_ACCOUNT_RESOLUTION only — the country-global
+ *    "confirm this account exists and read back its holder name" capability,
+ *    bound via CountryFinancialConfig.bankVerificationProviderAccountId,
+ *    independently of collection/payout.
+ *
+ *    BANK_LIST is deliberately NOT here. The bank directory decides which
+ *    bankCode gets STORED on a VendorPayoutAccount, and that code must be
+ *    correct at money-movement time — a wrong code at verification is a
+ *    recoverable annoyance, a wrong code at payout is money that does not
+ *    move. So the directory belongs to whoever EXECUTES the payout, and
+ *    BANK_LIST routes as PAYMENT_METHOD like every other payout capability.
+ *    This is also what makes a bank picker possible at all in a MANUAL
+ *    verification country (Kenya), which has no bank-verification account
+ *    bound to route through.
  *  - "PAYMENT_METHOD": every method-specific business capability
  *    (collection / payout / refund) routes through a specific
  *    CountryPaymentMethod.countryProviderAccountId — the caller MUST supply
@@ -87,7 +96,6 @@ export type ProviderRouteClass = "BANK_VERIFICATION" | "PAYMENT_METHOD" | "UNROU
 
 const BANK_VERIFICATION_ROUTE_CAPS: ReadonlySet<ProviderCapability> = new Set<ProviderCapability>([
   "BANK_ACCOUNT_RESOLUTION",
-  "BANK_LIST",
 ])
 
 export function providerRouteClassFor(capability: ProviderCapability): ProviderRouteClass {

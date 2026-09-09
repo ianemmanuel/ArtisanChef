@@ -198,6 +198,56 @@ export function CountryFinancialConfigManager({
             isBusy={isBusy}
           />
 
+          {/*
+            How this country verifies vendor bank payout accounts. Separate
+            from the routing binding above: that says WHO verifies, this says
+            whether an automated verifier is expected at all.
+
+            MANUAL exists because some markets have no payment provider that
+            can resolve a bank account (Kenya/KES — confirmed against dLocal,
+            Flutterwave, Paystack and Fincra). There, the vendor uploads a
+            proof document and an admin verifies it by hand, exactly as
+            marketplaces operating in those markets do. Readiness treats it
+            as a legitimate operating mode, not a gap.
+
+            The two paths never mix — a PROVIDER country never asks for a
+            document, a MANUAL country never calls a provider.
+          */}
+          <div className="admin-card space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">Bank-account verification</h2>
+            <p className="text-xs text-muted-foreground">
+              How vendors&apos; bank payout accounts are verified in this country. Switch to manual only where no
+              payment provider can resolve a bank account — vendors then upload proof of ownership for an admin to
+              review. Automatic requires a bank-verification provider account to be bound above.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {(["PROVIDER", "MANUAL"] as const).map((mode) => {
+                const active = config.bankVerificationMode === mode
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={!canManageDraft || configStatus === "DISABLED" || isBusy("verification-mode") || active}
+                    onClick={() => call(`${base}/bank-verification-mode`, "PATCH", { mode }, "verification-mode")}
+                    className={
+                      active
+                        ? "rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary"
+                        : "rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                    }
+                  >
+                    {mode === "PROVIDER" ? "Automatic (provider)" : "Manual (document review)"}
+                  </button>
+                )
+              })}
+            </div>
+            {config.bankVerificationMode === "MANUAL" && (
+              <p className="text-xs text-muted-foreground">
+                Configure a <span className="font-medium">payout-account</span> scoped document type for this country
+                so vendors know what to upload — otherwise accounts still go to manual review, just without a document.
+              </p>
+            )}
+          </div>
+
           {/* Operational switches */}
           <div className="admin-card space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Operational switches</h2>

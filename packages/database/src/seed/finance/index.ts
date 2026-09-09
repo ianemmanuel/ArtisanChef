@@ -30,29 +30,34 @@ import { backfillCountryCurrency } from './backfill-country-currency.seed'
 import { seedPaymentMethods } from './payment-methods.seed'
 import { seedPaymentProviders } from './payment-providers.seed'
 import { seedCountryFinancialConfig } from './country-financial-config.seed'
+import { seedPayoutVerificationMode } from './payout-verification.seed'
 
 export async function seedFinance() {
   console.log("🌱 Seeding DailyBread finance reference data...\n")
 
-  console.log("  [1/5] Currencies...")
+  console.log("  [1/6] Currencies...")
   const currencyCount = await seedCurrencies()
   console.log(`        ✓ ${currencyCount} currencies`)
 
-  console.log("  [2/5] Country → currency backfill...")
+  console.log("  [2/6] Country → currency backfill...")
   const linked = await backfillCountryCurrency()
   console.log(`        ✓ ${linked} country(ies) linked to a Currency row`)
 
-  console.log("  [3/5] Payment methods...")
+  console.log("  [3/6] Payment methods...")
   const paymentMethodCount = await seedPaymentMethods()
   console.log(`        ✓ ${paymentMethodCount} payment methods`)
 
-  console.log("  [4/5] Payment providers (catalog)...")
+  console.log("  [4/6] Payment providers (catalog)...")
   const providerCount = await seedPaymentProviders()
   console.log(`        ✓ ${providerCount} payment providers`)
 
-  console.log("  [5/5] Launch-country financial config (DRAFT, not activated)...")
+  console.log("  [5/6] Launch-country financial config (DRAFT, not activated)...")
   const cfg = await seedCountryFinancialConfig()
   console.log(`        ${cfg.created ? "✓" : "•"} ${cfg.note}`)
+
+  console.log("  [6/6] Bank-verification mode + payout proof document type...")
+  const bv = await seedPayoutVerificationMode()
+  console.log(`        • ${bv.note}`)
 
   console.log("\n✅ Finance seed complete.")
 }

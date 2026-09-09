@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Landmark, Clock, ShieldAlert, ShieldX, CheckCircle2 } from "lucide-react"
+import { ArrowLeft, Landmark, Clock, ShieldAlert, ShieldX, CheckCircle2, ChevronRight } from "lucide-react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@repo/ui/components/table"
@@ -19,7 +19,7 @@ import type { AdminPayoutAccountListResult } from "@repo/types/admin-app"
 export const metadata: Metadata = { title: "Vendor Payout Accounts" }
 export const revalidate = 30
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 10
 
 const TABS = [
   { value: "REQUIRES_REVIEW", label: "Requires review" },
@@ -137,7 +137,42 @@ export default async function VendorPayoutAccountsPage({ searchParams }: PagePro
       />
 
       {!result || result.accounts.length === 0 ? (
-        <EmptyState icon={Landmark} title="No payout accounts to show" description="Nothing matches these filters right now." />
+        (() => {
+          /*
+           * The counts are search-aware, so when a search finds nothing in
+           * THIS tab we can say where it did match instead of a dead end.
+           * The status tabs default to a work queue (Requires review), so a
+           * plain "no results" here is usually the status filter hiding a
+           * real match, not an absent vendor.
+           */
+          const elsewhere = Object.entries({
+            REQUIRES_REVIEW: counts.requiresReview,
+            PENDING        : counts.pending,
+            FAILED         : counts.failed,
+            VERIFIED       : counts.verified,
+            DEACTIVATED    : counts.deactivated,
+          }).filter(([tab, n]) => tab !== status && n > 0)
+
+          if (search && elsewhere.length > 0) {
+            const total = elsewhere.reduce((sum, [, n]) => sum + n, 0)
+            return (
+              <EmptyState
+                icon={Landmark}
+                title={`No match under "${TABS.find((t) => t.value === status)?.label ?? "this filter"}"`}
+                description={`${total} account${total === 1 ? "" : "s"} match "${search}" under another status.`}
+                actionLabel="Search all statuses"
+                actionHref={`?status=&search=${encodeURIComponent(search)}`}
+              />
+            )
+          }
+          return (
+            <EmptyState
+              icon={Landmark}
+              title="No payout accounts to show"
+              description="Nothing matches these filters right now."
+            />
+          )
+        })()
       ) : (
         <div className="admin-card overflow-hidden p-0">
           <div className="overflow-x-auto">
@@ -148,8 +183,7 @@ export default async function VendorPayoutAccountsPage({ searchParams }: PagePro
                   <TableHead className="hidden text-xs uppercase tracking-wide md:table-cell">Country</TableHead>
                   <TableHead className="text-xs uppercase tracking-wide">Method / account</TableHead>
                   <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-                  <TableHead className="hidden text-xs uppercase tracking-wide lg:table-cell">Reason</TableHead>
-                  <TableHead className="text-right text-xs uppercase tracking-wide">Added</TableHead>
+                  <TableHead className="text-right text-xs uppercase tracking-wide">View</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -176,11 +210,17 @@ export default async function VendorPayoutAccountsPage({ searchParams }: PagePro
                         {a.isDefault && a.isActive && <span className="badge-info">Default</span>}
                       </div>
                     </TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
-                      {a.verificationFailureCode ? PAYOUT_FAILURE_LABEL[a.verificationFailureCode] : "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">
-                      {new Date(a.createdAt).toLocaleDateString()}
+                    <TableCell className="text-right">
+                      {/* Reason and Added moved to the detail page — the list
+                          is a queue, and one obvious way in beats a row that
+                          is subtly clickable in two different places. */}
+                      <Link
+                        href={`/finance/payout-accounts/${a.id}`}
+                        className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                      >
+                        View
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

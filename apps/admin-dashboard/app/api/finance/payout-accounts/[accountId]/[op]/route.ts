@@ -6,7 +6,10 @@ const BACKEND = process.env.BACKEND_API_URL
 
 type P = { params: Promise<{ accountId: string; op: string }> }
 
-const OPS = new Set(["verify", "reject"])
+// Decision actions plus the review-workflow hand-offs. escalate/reassign
+// carry a body; claim/release/verify don't.
+const OPS = new Set(["verify", "reject", "claim", "release", "escalate", "reassign"])
+const OPS_WITH_BODY = new Set(["reject", "escalate", "reassign"])
 
 export async function POST(req: NextRequest, { params }: P) {
   const { accountId, op } = await params
@@ -16,7 +19,7 @@ export async function POST(req: NextRequest, { params }: P) {
     const token = await getToken()
     if (!token) return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
 
-    const body = op === "reject" ? await req.text() : undefined
+    const body = OPS_WITH_BODY.has(op) ? await req.text() : undefined
     const res = await fetch(`${BACKEND}/admin/v1/finance/payout-accounts/${accountId}/${op}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },

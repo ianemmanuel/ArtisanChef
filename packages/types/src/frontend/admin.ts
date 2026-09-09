@@ -141,6 +141,7 @@ export type {
   SuspendRequest,
   CountryFinancialConfig,
   SetBankVerificationProviderAccountRequest,
+  SetBankVerificationModeRequest,
   SetOperationalSwitchesRequest,
   ReadinessCheck,
   FinancialReadiness,
@@ -156,6 +157,7 @@ export type {
   AdminPayoutAccountListResult,
   AdminPayoutAccountAuditEntry,
   AdminPayoutAccountDetail,
+  AdminPayoutProofDocument,
 } from "../domain/finance"
 export type { PayoutVerificationFailureCode, PayoutRiskFlag } from "../domain/vendor"
 export {
@@ -166,6 +168,7 @@ export {
   BUSINESS_PROVIDER_CAPABILITIES,
   PaymentEnvironment,
   CountryFinancialConfigStatus,
+  BankVerificationMode,
   CountryProviderAccountStatus,
   ProviderWebhookEventStatus,
   FINANCIAL_READINESS_REASON_LABELS,

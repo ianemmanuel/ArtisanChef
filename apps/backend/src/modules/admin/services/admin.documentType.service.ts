@@ -1,4 +1,4 @@
-import { prisma, DocumentTypeStatus } from "@repo/db"
+import { prisma, DocumentTypeStatus, type DocumentScope } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/middleware/error"
 import { logger } from "@/lib/pino/logger"
@@ -50,7 +50,7 @@ export async function listDocumentTypesForCountry(
     pageSize?  : number
     search?    : string
     isRequired?: boolean
-    docScope?  : "VENDOR" | "OUTLET" | "CITY"
+    docScope?  : DocumentScope
     status?    : (typeof DocumentTypeStatus)[keyof typeof DocumentTypeStatus]
   } = {},
 ) {
@@ -138,7 +138,7 @@ export async function getDocumentType(id: string, scope: AdminScopeContext) {
  * and exists when required.
  */
 async function resolveCityForScope(
-  docScope : "VENDOR" | "OUTLET" | "CITY",
+  docScope : DocumentScope,
   cityId   : string | undefined,
   countryId: string,
 ): Promise<string | null> {
@@ -157,7 +157,7 @@ export async function createDocumentType(
   input: {
     name: string
     description?: string
-    scope: "VENDOR" | "OUTLET" | "CITY"
+    scope: DocumentScope
     countryId: string
     cityId?: string
     isRequired?: boolean
@@ -222,7 +222,7 @@ export async function updateDocumentType(
   input: {
     name?: string
     description?: string
-    scope?: "VENDOR" | "OUTLET" | "CITY"
+    scope?: DocumentScope
     cityId?: string
     isRequired?: boolean
     requiresExpiry?: boolean

@@ -31,14 +31,67 @@ const base = z.object({
 
 export type PayoutFormValues = z.infer<typeof base>
 
-export function payoutSchemaFor(methodType: PayoutMethodType | undefined) {
+/*
+ * Which fields this method type actually requires — the ONE place the form
+ * and the schema agree on it, so a field marked required in the UI is
+ * exactly a field the schema rejects when empty (they used to be two
+ * separate hand-maintained lists, which is how a required field can end up
+ * looking optional).
+ *
+ * `proofDocument` is required only where the vendor's country verifies bank
+ * accounts MANUALLY — see PayoutVerificationRequirement. Everything not
+ * listed here is genuinely optional and is labelled so in the form.
+ */
+export function requiredPayoutFields(
+  methodType: PayoutMethodType | undefined,
+  requiresProof = false,
+): ReadonlySet<string> {
+  const req = new Set<string>(["countryPaymentMethodId", "accountHolderName"])
+  if (methodType === "MOBILE_MONEY") {
+    req.add("mobileNetwork")
+    req.add("mobileNumber")
+  }
+  if (methodType === "BANK") {
+    req.add("bankName")
+    req.add("accountNumber")
+    if (requiresProof) req.add("proofDocument")
+  }
+  if (methodType === "DIGITAL_WALLET") req.add("paypalEmail")
+  return req
+}
+
+export interface PayoutSchemaOptions {
+  /** MANUAL-verification country: proof of bank-account ownership is required. */
+  requiresProof?: boolean
+  /** True once a proof file has finished uploading. */
+  hasProof?: boolean
+}
+
+export function payoutSchemaFor(
+  methodType: PayoutMethodType | undefined,
+  opts: PayoutSchemaOptions = {},
+) {
   return base.superRefine((val, ctx) => {
-    if (methodType === "MOBILE_MONEY" && !val.mobileNumber) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["mobileNumber"], message: "Mobile number is required" })
+    if (methodType === "MOBILE_MONEY") {
+      if (!val.mobileNetwork) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["mobileNetwork"], message: "Mobile network is required" })
+      }
+      if (!val.mobileNumber) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["mobileNumber"], message: "Mobile number is required" })
+      }
     }
     if (methodType === "BANK") {
-      if (!val.bankName) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bankName"], message: "Bank name is required" })
+      if (!val.bankName) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bankName"], message: "Select or enter your bank" })
       if (!val.accountNumber) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["accountNumber"], message: "Account number is required" })
+      // The backend enforces this too (PROOF_DOCUMENT_REQUIRED) and stays
+      // authoritative — this only stops a pointless round trip.
+      if (opts.requiresProof && !opts.hasProof) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["proofDocument"],
+          message: "Upload proof of bank-account ownership to continue",
+        })
+      }
     }
     if (methodType === "DIGITAL_WALLET" && !val.paypalEmail && !val.stripeAccountId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paypalEmail"], message: "Enter a PayPal email or Stripe account ID" })

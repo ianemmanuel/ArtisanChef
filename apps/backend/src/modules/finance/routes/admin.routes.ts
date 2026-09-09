@@ -19,6 +19,7 @@ import {
   handleGetCountryFinancialConfig,
   handleCreateCountryFinancialConfig,
   handleSetBankVerificationProviderAccount,
+  handleSetBankVerificationMode,
   handleSetOperationalSwitches,
   handleActivateConfig,
   handleSuspendConfig,
@@ -101,6 +102,7 @@ financeAdminRouter.patch(
 financeAdminRouter.get("/countries/:countryRef/financial-config", READ, handleGetCountryFinancialConfig)
 financeAdminRouter.post("/countries/:countryRef/financial-config", MANAGE, handleCreateCountryFinancialConfig)
 financeAdminRouter.patch("/countries/:countryRef/financial-config/bank-verification-account", MANAGE, handleSetBankVerificationProviderAccount)
+financeAdminRouter.patch("/countries/:countryRef/financial-config/bank-verification-mode", MANAGE, handleSetBankVerificationMode)
 financeAdminRouter.patch("/countries/:countryRef/financial-config/switches", MANAGE, handleSetOperationalSwitches)
 financeAdminRouter.post("/countries/:countryRef/financial-config/activate", MANAGE, handleActivateConfig)
 financeAdminRouter.post("/countries/:countryRef/financial-config/suspend", MANAGE, handleSuspendConfig)

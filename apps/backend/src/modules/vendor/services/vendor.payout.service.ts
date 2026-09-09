@@ -10,7 +10,13 @@ import {
   blindIndexOptional,
   maskTail,
 } from "@/lib/crypto/field-encryption"
-import { getPayoutVerificationProvider, bestNameMatch } from "@/lib/payout-verification"
+import { getPayoutVerificationProvider, formatChecksProvider, bestNameMatch } from "@/lib/payout-verification"
+import {
+  getPayoutVerificationRequirement,
+  resolveProofForCreate,
+  createProofDocument,
+  presignPayoutProofUpload,
+} from "./vendor.payoutProof"
 import { resolveProviderGateway } from "@/modules/finance"
 import { isOutboundMethodPayable } from "@/modules/finance/providers/provider.capabilities"
 import { resolveSupportedBanks, type BankListGateway } from "./vendor.payoutBanks"
@@ -108,7 +114,7 @@ export async function addPayoutAccount(
   // not configured yet) the manual bankName/bankCode fallback stays allowed.
   // On a match we also canonicalise the display name from the provider list.
   if (type === "BANK") {
-    const supported = await listSupportedBanks(vendorId)
+    const supported = await listSupportedBanks(vendorId, input.countryPaymentMethodId)
     if (supported.supported && supported.banks.length > 0) {
       const match = input.bankCode
         ? supported.banks.find((b) => b.code === input.bankCode)
@@ -123,6 +129,14 @@ export async function addPayoutAccount(
     throw new ApiError(400, "A wallet identifier is required", "MISSING_FIELDS")
   }
 
+  // How this country verifies bank accounts, and — in MANUAL mode — the
+  // proof document that must accompany the submission. Validated BEFORE any
+  // row is written, so an account is never stored without the proof its
+  // country requires. PROVIDER and MANUAL are mutually exclusive here: a
+  // document sent to a PROVIDER-mode country is a 400, not a silent ignore.
+  const verificationRequirement = await getPayoutVerificationRequirement(vendor.countryId)
+  const proof = await resolveProofForCreate(vendor.countryId, type, input.proofDocument)
+
   // BANK is the only method type with a provider verification capability
   // today (BANK_ACCOUNT_RESOLUTION) — its request is currency-discriminated,
   // so resolve the vendor's country currency once, up front. Absent (country
@@ -135,13 +149,19 @@ export async function addPayoutAccount(
       }))?.currencyCode ?? null
     : null
 
-  // Automatic verification. For BANK, this calls Finance's provider gateway
-  // (getPayoutVerificationProvider() -> finance-bank.provider.ts); every
-  // other method type — and any BANK account whose country isn't configured
-  // for it yet — still runs the offline structural checks it always did. A
-  // malformed identifier (bad IBAN checksum, an implausible phone number)
-  // never reaches the database either way.
-  const outcome = await getPayoutVerificationProvider().verify({
+  // Verification. In PROVIDER-mode countries this calls Finance's provider
+  // gateway (getPayoutVerificationProvider() -> finance-bank.provider.ts).
+  // In MANUAL-mode countries no provider is contacted at all — the country
+  // has none that can resolve a bank account — so only the offline
+  // structural checks run and the account lands PENDING for an admin to
+  // review against the uploaded proof. Every other method type takes the
+  // offline path as it always did. A malformed identifier (bad IBAN
+  // checksum, an implausible phone number) never reaches the database on any
+  // path, because formatChecksProvider runs first in all of them.
+  const verifier = verificationRequirement.mode === "MANUAL"
+    ? formatChecksProvider
+    : getPayoutVerificationProvider()
+  const outcome = await verifier.verify({
     methodType       : type,
     accountHolderName: input.accountHolderName,
     bankName         : input.bankName,
@@ -230,11 +250,16 @@ export async function addPayoutAccount(
       where: { vendorId, isActive: true, deletedAt: null },
     })
 
-    return tx.vendorPayoutAccount.create({
+    const created = await tx.vendorPayoutAccount.create({
       data: {
         vendorId,
         countryPaymentMethodId: input.countryPaymentMethodId,
-        isDefault             : existingActive === 0,
+        // The payout DESTINATION, and only a verified account may be it.
+        // setDefaultPayoutAccount already refuses anything unverified;
+        // this implicit "first account wins" path used to bypass that and
+        // could leave a PENDING account marked as where money goes.
+        // An account that verifies later is promoted by verifyPayoutAccount.
+        isDefault             : existingActive === 0 && verificationStatus === PayoutVerificationStatus.VERIFIED,
         accountHolderName     : input.accountHolderName,
         mobileNetwork         : input.mobileNetwork ?? null,
         bankName              : input.bankName      ?? null,
@@ -280,6 +305,11 @@ export async function addPayoutAccount(
         },
       },
     })
+
+    // Same transaction as the account itself — a MANUAL-mode account can
+    // never exist without the proof it was accepted on.
+    if (proof) await createProofDocument(tx, created.id, proof)
+    return created
   })
 
   serviceLog.info(
@@ -567,8 +597,15 @@ export async function getAvailablePayoutMethods(vendorId: string) {
 // resolution verification capability (finance-bank.provider.ts) expects.
 
 const bankListGateway: BankListGateway = {
-  async listBanks(countryId, countryCode) {
-    const { adapter, ctx } = await resolveProviderGateway(countryId, "BANK_LIST")
+  async listBanks(countryId, countryCode, countryPaymentMethodId) {
+    // BANK_LIST is PAYMENT_METHOD-routed: the directory comes from whoever
+    // will EXECUTE the payout, because the bankCode the vendor picks here is
+    // the one stored on the account and later handed to that provider to
+    // move money. Routing it through the bank-VERIFICATION binding instead
+    // would hand the payout provider a code from another vocabulary — and
+    // would leave a MANUAL-verification country (no binding at all) with no
+    // bank picker whatsoever.
+    const { adapter, ctx } = await resolveProviderGateway(countryId, "BANK_LIST", { countryPaymentMethodId })
     // resolveProviderGateway already asserts the adapter implements the
     // capability it validated before returning — bankList is guaranteed
     // present here (same guarantee finance-bank.provider.ts relies on for
@@ -577,14 +614,21 @@ const bankListGateway: BankListGateway = {
   },
 }
 
-export async function listSupportedBanks(vendorId: string): Promise<VendorSupportedBanks> {
+export async function listSupportedBanks(
+  vendorId              : string,
+  countryPaymentMethodId: string,
+): Promise<VendorSupportedBanks> {
   const vendor = await prisma.vendorAccount.findUnique({
     where : { id: vendorId },
     select: { countryId: true, country: { select: { code: true } } },
   })
   if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
 
-  return resolveSupportedBanks(bankListGateway, vendor.countryId, vendor.country.code)
+  // Validates the method is this country's, ACTIVE and OUTBOUND before it is
+  // used as routing context — a method id from elsewhere cannot widen access.
+  await assertValidPayoutMethod(countryPaymentMethodId, vendor.countryId)
+
+  return resolveSupportedBanks(bankListGateway, vendor.countryId, vendor.country.code, countryPaymentMethodId)
 }
 
 /**
@@ -605,4 +649,96 @@ export async function decryptPayoutIdentifiers(accountId: string) {
     routingNumber: decryptOptional(a.routingNumber),
     mobileNumber : decryptOptional(a.mobileNumber),
   }
+}
+
+//* ─── Manual verification: proof-document endpoints ──────────────────────
+
+/** Country-driven: which verification path applies, and what to upload. */
+export async function getVendorPayoutVerificationRequirement(vendorId: string) {
+  const vendor = await prisma.vendorAccount.findUnique({
+    where : { id: vendorId },
+    select: { countryId: true },
+  })
+  if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  return getPayoutVerificationRequirement(vendor.countryId)
+}
+
+/**
+ * Presign a proof upload. Refuses outright in a PROVIDER-mode country —
+ * the two paths are separate, so there is no "upload a document anyway".
+ */
+export async function presignVendorPayoutProof(
+  vendorId    : string,
+  input       : { countryPaymentMethodId: string; documentTypeId: string; fileName: string; mimeType: string },
+) {
+  const vendor = await prisma.vendorAccount.findUnique({
+    where : { id: vendorId },
+    select: { countryId: true, status: true },
+  })
+  if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  if (vendor.status !== "ACTIVE") throw new ApiError(403, "Your account has been deactivated", "ACCOUNT_INACTIVE")
+
+  const requirement = await getPayoutVerificationRequirement(vendor.countryId)
+  if (requirement.mode !== "MANUAL") {
+    throw new ApiError(
+      400,
+      "Bank accounts in your country are verified automatically — no document is needed",
+      "PROOF_NOT_REQUIRED",
+    )
+  }
+
+  // The method decides the storage folder (payout-docs/<method>/<vendorId>/…)
+  // and is validated as this country's own, ACTIVE and OUTBOUND first — a
+  // method id from elsewhere can never steer the key.
+  const method = await assertValidPayoutMethod(input.countryPaymentMethodId, vendor.countryId)
+
+  return presignPayoutProofUpload(vendorId, vendor.countryId, method.paymentMethod.type, {
+    documentTypeId: input.documentTypeId,
+    fileName      : input.fileName,
+    mimeType      : input.mimeType,
+  })
+}
+
+//* ─── Payout destination ────────────────────────────────────────────────
+
+/**
+ * WHERE a vendor's money actually goes — the single resolver every future
+ * payout run must call, so "which account?" is answered in one place rather
+ * than re-derived per caller.
+ *
+ * The model matches how marketplaces actually work (Stripe Connect's
+ * `default_for_currency`, Jumia's "preferred payment instrument"): a vendor
+ * may keep SEVERAL payout accounts on file, but exactly one is the live
+ * destination. Uber Eats / DoorDash present the same thing with the list
+ * hidden — one bank account per store, replaceable.
+ *
+ * Returns null when there is no payable destination (none added, none
+ * verified yet, or the vendor is on payout hold) — callers must treat that
+ * as "cannot pay", never as "pay the first row you find".
+ */
+export async function resolvePayoutDestination(vendorId: string) {
+  const vendor = await prisma.vendorAccount.findUnique({
+    where : { id: vendorId },
+    select: { payoutHoldStatus: true },
+  })
+  if (!vendor) throw new ApiError(404, "Vendor account not found", "NOT_FOUND")
+  // A vendor-level hold blocks every account, not just the default one.
+  if (vendor.payoutHoldStatus === "HELD") return null
+
+  return prisma.vendorPayoutAccount.findFirst({
+    where: {
+      vendorId,
+      isActive          : true,
+      deletedAt         : null,
+      verificationStatus: PayoutVerificationStatus.VERIFIED,
+    },
+    // isDefault first; a verified account with no default set (possible only
+    // transiently) still resolves rather than blocking a payout.
+    orderBy: [{ isDefault: "desc" }, { verifiedAt: "asc" }],
+    include: {
+      countryPaymentMethod: {
+        include: { paymentMethod: { select: { type: true, code: true, name: true } } },
+      },
+    },
+  })
 }

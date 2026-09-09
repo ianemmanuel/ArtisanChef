@@ -57,6 +57,8 @@ export type {
   OutletMealPlanBlocker,
   OutletMealPlanReadiness,
   AddPayoutAccountRequest,
+  PayoutVerificationRequirement,
+  PayoutProofDocumentType,
   AvailablePayoutMethod,
   VendorPayoutAccount,
   VendorPayoutBankOption,

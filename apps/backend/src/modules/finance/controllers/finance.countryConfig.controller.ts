@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express"
+import type { BankVerificationMode } from "@repo/db"
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { resolveCountryIdInScope } from "../lib/resolve-country"
@@ -6,6 +7,7 @@ import {
   getOrCreateConfig,
   getCountryFinancialConfigView,
   setBankVerificationProviderAccount,
+  setBankVerificationMode,
   setOperationalSwitches,
   activateConfig,
   suspendConfig,
@@ -14,6 +16,7 @@ import {
 } from "../services/finance.countryConfig.service"
 import {
   setBankVerificationProviderAccountSchema,
+  setBankVerificationModeSchema,
   setOperationalSwitchesSchema,
 } from "../schemas/finance.countryConfig.schema"
 import { suspendSchema } from "../schemas/finance.providerAccount.schema"
@@ -48,6 +51,16 @@ export const handleSetBankVerificationProviderAccount: RequestHandler = async (r
     const { providerAccountId } = setBankVerificationProviderAccountSchema.parse(req.body)
     const data = await setBankVerificationProviderAccount(countryId, providerAccountId, actorId, scope)
     return sendSuccess(res, data, "Bank-verification provider account updated")
+  } catch (err) { next(err) }
+}
+
+export const handleSetBankVerificationMode: RequestHandler = async (req, res, next) => {
+  try {
+    const { actorId, scope } = ctx(req)
+    const countryId = await resolveCountryIdInScope(req.params.countryRef as string, scope)
+    const { mode } = setBankVerificationModeSchema.parse(req.body)
+    const data = await setBankVerificationMode(countryId, mode as BankVerificationMode, actorId, scope)
+    return sendSuccess(res, data, "Bank-verification mode updated")
   } catch (err) { next(err) }
 }
 

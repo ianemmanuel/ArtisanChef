@@ -56,7 +56,7 @@ export function RecentOrders() {
             <span className="text-xs font-medium text-muted-foreground">Live</span>
           </div>
           <Button variant="outline" size="sm" className="group h-8 gap-1 rounded-xl text-xs" asChild>
-            <Link href="/dashboard/orders">
+            <Link href="/orders">
               View all
               <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </Link>

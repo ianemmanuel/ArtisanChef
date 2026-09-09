@@ -4,6 +4,13 @@ import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/errors/ApiError"
 import { listOutletsForFinance, listCitiesForFinance } from "../services/admin.finance.service"
 import { listVendorPayoutAccounts, getVendorPayoutAccountForReview } from "../services/admin.financePayout.service"
+import {
+  claimPayoutAccountReview,
+  releasePayoutAccountReview,
+  escalatePayoutAccountReview,
+  reassignPayoutAccountReview,
+  listEligiblePayoutReviewTargets,
+} from "../services/admin.payoutReview.service"
 import { verifyPayoutAccount, rejectPayoutAccount } from "../services/admin.vendor.payout.service"
 import type { PayoutVerificationStatus } from "@repo/db"
 
@@ -79,5 +86,58 @@ export const handleFinanceRejectPayoutAccount: RequestHandler = async (req, res,
     if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
     const account = await rejectPayoutAccount(req.params.accountId as string, reason, adminUser.id, adminScope)
     return sendSuccess(res, account, "Payout account rejected")
+  } catch (err) { next(err) }
+}
+
+
+//* ─── Payout-account review workflow (claim / escalate / reassign) ──────
+//* Same shape as the appeal + compliance-case handlers.
+
+export const handleClaimPayoutReview: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope, adminPermissions } = req as unknown as AdminRequest
+    const data = await claimPayoutAccountReview(
+      req.params.accountId as string, adminUser.id, adminScope, adminPermissions,
+    )
+    return sendSuccess(res, data, "Payout account claimed")
+  } catch (err) { next(err) }
+}
+
+export const handleReleasePayoutReview: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const data = await releasePayoutAccountReview(req.params.accountId as string, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Payout account released")
+  } catch (err) { next(err) }
+}
+
+export const handleEscalatePayoutReview: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { reason } = req.body ?? {}
+    const data = await escalatePayoutAccountReview(req.params.accountId as string, reason, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Payout account escalated")
+  } catch (err) { next(err) }
+}
+
+export const handleReassignPayoutReview: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const { targetAdminId, reason } = req.body ?? {}
+    if (typeof targetAdminId !== "string" || !targetAdminId) {
+      throw new ApiError(400, "targetAdminId is required", "MISSING_FIELDS")
+    }
+    const data = await reassignPayoutAccountReview(
+      req.params.accountId as string, targetAdminId, reason, adminUser.id, adminScope,
+    )
+    return sendSuccess(res, data, "Payout account reassigned")
+  } catch (err) { next(err) }
+}
+
+export const handleListPayoutReviewTargets: RequestHandler = async (req, res, next) => {
+  try {
+    const { adminUser, adminScope } = req as unknown as AdminRequest
+    const data = await listEligiblePayoutReviewTargets(req.params.accountId as string, adminUser.id, adminScope)
+    return sendSuccess(res, data, "Eligible reviewers fetched")
   } catch (err) { next(err) }
 }

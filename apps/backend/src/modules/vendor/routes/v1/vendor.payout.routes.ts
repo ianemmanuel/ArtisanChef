@@ -7,6 +7,8 @@ import {
   handleSetDefaultPayoutAccount,
   handleRemovePayoutAccount,
   handleListSupportedBanks,
+  handleGetPayoutVerificationRequirement,
+  handlePresignPayoutProof,
 } from "../../controllers/vendor.payout.controller"
 
 const payoutRouter: Router = Router()
@@ -18,6 +20,12 @@ payoutRouter.get("/methods", handleGetAvailablePayoutMethods)
 
 //* Supported banks for the vendor's own country/active provider (Vendor 1E)
 payoutRouter.get("/banks", handleListSupportedBanks)
+
+//* How this vendor's country verifies bank accounts (PROVIDER vs MANUAL) and,
+//* in MANUAL mode, the proof document to upload + the presign for it. The two
+//* verification paths are separate — presign refuses in a PROVIDER country.
+payoutRouter.get("/verification-requirement", handleGetPayoutVerificationRequirement)
+payoutRouter.post("/proof/presign",           handlePresignPayoutProof)
 
 //* Vendor's registered payout accounts
 payoutRouter.get("/accounts",     handleListPayoutAccounts)

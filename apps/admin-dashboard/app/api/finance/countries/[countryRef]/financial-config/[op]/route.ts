@@ -6,7 +6,7 @@ const BACKEND = process.env.BACKEND_API_URL
 
 type P = { params: Promise<{ countryRef: string; op: string }> }
 
-const PATCH_OPS = new Set(["bank-verification-account", "switches"])
+const PATCH_OPS = new Set(["bank-verification-account", "bank-verification-mode", "switches"])
 const POST_OPS = new Set(["activate", "suspend", "disable", "restore"])
 
 async function proxy(req: NextRequest, countryRef: string, op: string, method: "PATCH" | "POST") {

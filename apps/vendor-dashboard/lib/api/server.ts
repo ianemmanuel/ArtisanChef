@@ -46,7 +46,7 @@ export class BackendApiError extends Error {
  */
 export async function backendFetch<T>(
   path: string,
-  init?: RequestInit & { revalidate?: number },
+  init?: RequestInit & { revalidate?: number; tags?: string[] },
 ): Promise<T> {
   const { getToken } = await auth()
   const token = await getToken()
@@ -55,7 +55,7 @@ export async function backendFetch<T>(
     throw new BackendApiError(401, "UNAUTHENTICATED", "Not signed in")
   }
 
-  const { revalidate, ...rest } = init ?? {}
+  const { revalidate, tags, ...rest } = init ?? {}
 
   const res = await fetch(`${BACKEND_API_URL}${path}`, {
     ...rest,
@@ -64,7 +64,13 @@ export async function backendFetch<T>(
       Authorization: `Bearer ${token}`,
       ...rest.headers,
     },
-    ...(revalidate !== undefined ? { next: { revalidate } } : { cache: "no-store" }),
+    // revalidate and tags travel together: a caller that opts into ISR
+    // usually also wants a tag to invalidate it precisely on mutation.
+    // Building one `next` object avoids the earlier bug where passing
+    // both silently dropped the tags.
+    ...(revalidate !== undefined || tags
+      ? { next: { ...(revalidate !== undefined ? { revalidate } : {}), ...(tags ? { tags } : {}) } }
+      : { cache: "no-store" }),
   })
 
   const body = (await res.json().catch(() => null)) as ApiEnvelope<T> | null

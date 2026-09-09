@@ -36,9 +36,16 @@ export function uploadToPresignedUrl(
       }
     }
 
+    /*
+     * Include the HTTP status. Storage-side failures (a missing/misnamed
+     * bucket, an expired or malformed presigned URL, a bucket the API token
+     * isn't scoped to) all surface here as a plain non-2xx, and a bare
+     * "Upload failed" makes them indistinguishable from a network blip —
+     * which is exactly how an R2 NoSuchBucket once read as a code bug.
+     */
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(new Error("Upload failed — please try again."))
+      else reject(new Error(`Upload failed (storage returned HTTP ${xhr.status}). Please try again.`))
     }
     xhr.onerror = () => reject(new Error("Upload failed — check your connection and try again."))
 

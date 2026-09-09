@@ -15,7 +15,7 @@ import { PayoutForm } from "./PayoutForm"
 import type { VendorPayoutAccount } from "@repo/types/vendor-app"
 
 /*
- * The /setup/payout body. Lists the vendor's existing payout accounts
+ * The /settings/payouts body. Lists the vendor's existing payout accounts
  * (masked identifiers only — the backend never returns the real numbers)
  * and hosts the add-account form inline on the page. Supports exactly what
  * the backend supports today: add, set-default (verified accounts only),

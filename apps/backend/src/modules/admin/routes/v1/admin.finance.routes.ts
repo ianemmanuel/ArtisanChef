@@ -8,6 +8,11 @@ import {
   handleGetVendorPayoutAccountForReview,
   handleFinanceVerifyPayoutAccount,
   handleFinanceRejectPayoutAccount,
+  handleClaimPayoutReview,
+  handleReleasePayoutReview,
+  handleEscalatePayoutReview,
+  handleReassignPayoutReview,
+  handleListPayoutReviewTargets,
 } from "../../controllers/admin.finance.controller"
 
 const financeRouter: Router = Router()
@@ -42,6 +47,35 @@ financeRouter.post(
   "/payout-accounts/:accountId/reject",
   requirePermission(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_MANAGE),
   handleFinanceRejectPayoutAccount,
+)
+
+// Review workflow — claim before deciding, escalate to the open in-country
+// pool, or reassign to a named admin. Same permission split and the same two
+// distinct hand-offs the application/appeal queues use.
+financeRouter.post(
+  "/payout-accounts/:accountId/claim",
+  requirePermission(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_CLAIM),
+  handleClaimPayoutReview,
+)
+financeRouter.post(
+  "/payout-accounts/:accountId/release",
+  requirePermission(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_CLAIM),
+  handleReleasePayoutReview,
+)
+financeRouter.post(
+  "/payout-accounts/:accountId/escalate",
+  requirePermission(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_ESCALATE),
+  handleEscalatePayoutReview,
+)
+financeRouter.post(
+  "/payout-accounts/:accountId/reassign",
+  requirePermission(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_REASSIGN),
+  handleReassignPayoutReview,
+)
+financeRouter.get(
+  "/payout-accounts/:accountId/eligible-targets",
+  requirePermission(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_REASSIGN),
+  handleListPayoutReviewTargets,
 )
 
 export default financeRouter

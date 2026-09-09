@@ -56,6 +56,22 @@ export enum PaymentEnvironment {
   LIVE = "LIVE",
 }
 
+/*
+ * How a country verifies vendor bank payout accounts —
+ * CountryFinancialConfig.bankVerificationMode.
+ *   PROVIDER — an automated verifier is expected; a usable
+ *     bankVerificationProviderAccount is required and readiness fails
+ *     without one (e.g. Nigeria via dLocal).
+ *   MANUAL   — no payment provider can resolve a bank account in this
+ *     market (e.g. Kenya/KES). The vendor uploads a proof document and an
+ *     admin verifies by hand. A legitimate operating mode, not a gap.
+ * The two paths are deliberately separate — no fallback between them.
+ */
+export enum BankVerificationMode {
+  PROVIDER = "PROVIDER",
+  MANUAL   = "MANUAL",
+}
+
 export enum CountryFinancialConfigStatus {
   DRAFT     = "DRAFT",
   ACTIVE    = "ACTIVE",

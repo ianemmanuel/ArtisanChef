@@ -89,6 +89,12 @@ enum AdminNotificationType {
   APPEAL_STALE_UNCLAIMED
   APPEAL_ESCALATED
   APPEAL_RESOLVED
+  //* Payout-account review workflow (2026-09-09) — the same escalate/assign
+  //* pair the appeal queue uses. ESCALATED goes to every in-country
+  //* RECEIVE_ESCALATION holder (open pool); ASSIGNED goes to one named
+  //* admin after a supervisory reassignment.
+  PAYOUT_ACCOUNT_ESCALATED
+  PAYOUT_ACCOUNT_ASSIGNED
   //* A vendor public profile was just flagged by the automated content
   //* checks (profanity / impersonation / duplicate name) — fired at flag
   //* time on both create and edit, to VENDORS_PROFILES_MODERATE holders
@@ -772,6 +778,20 @@ model CountryFinancialConfig {
   //* is composite — (id, countryId) → (id, countryId) — so it can NEVER
   //* point at another country's provider account (DB-enforced).
   bankVerificationProviderAccountId String?
+  //* HOW this country verifies a vendor's bank payout account. Distinct from
+  //* the routing binding above: that says WHO verifies, this says WHETHER an
+  //* automated verifier is expected at all.
+  //*   PROVIDER — a usable bankVerificationProviderAccount is required, and
+  //*     readiness fails without one (e.g. Nigeria via dLocal).
+  //*   MANUAL   — no provider can verify bank accounts in this market (e.g.
+  //*     Kenya: no PSP offers KES name enquiry). The vendor uploads a proof
+  //*     document (a PAYOUT_ACCOUNT-scoped DocumentTypeConfig) and an admin
+  //*     verifies it by hand. A legitimate operating mode, not a gap —
+  //*     readiness passes without a bound provider account.
+  //* The two paths are deliberately SEPARATE: a PROVIDER-mode country never
+  //* offers a manual document fallback, and a MANUAL-mode country never
+  //* calls a provider. (A failure-driven fallback is a later decision.)
+  bankVerificationMode BankVerificationMode @default(PROVIDER)
   //* Operational switches — the admin's deliberate "we are collecting /
   //* paying out here" decision, distinct from "the provider can technically
   //* do it". Mutable while ACTIVE (validated + audited).
@@ -1511,10 +1531,19 @@ enum AppealStatus {
   OVERTURNED
 }
 
+//* One document model, several possible anchors — the same "one row, two
+//* possible anchors" convention VendorDocument already used for
+//* application-time vs. account-time documents, extended with a third for
+//* payout-account proof. Exactly one anchor is set per row:
+//*   applicationId  — uploaded while applying (moves to vendorId on approval)
+//*   vendorId       — an account-level vendor document
+//*   payoutAccountId— proof of ownership for ONE bank payout account
+//*                    (DocumentScope.PAYOUT_ACCOUNT, MANUAL-mode countries)
 model VendorDocument {
   id              String         @id @default(uuid())
   applicationId   String?
   vendorId        String?
+  payoutAccountId String?
   documentTypeId  String
   documentNumber  String?
   storageKey      String
@@ -1539,10 +1568,12 @@ model VendorDocument {
   application       VendorApplication?          @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   documentType      DocumentTypeConfig          @relation(fields: [documentTypeId], references: [id])
   vendor            VendorAccount?              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  payoutAccount     VendorPayoutAccount?        @relation(fields: [payoutAccountId], references: [id], onDelete: Cascade)
   inheritedByStores OutletDocumentInheritance[]
 
   @@index([applicationId])
   @@index([vendorId])
+  @@index([payoutAccountId])
   @@index([documentTypeId])
   @@index([status])
   @@index([expiryDate])
@@ -1598,6 +1629,39 @@ model VendorPayoutAccount {
   verificationMeta   Json? // safe derived detail (never raw identifiers), for audit
   verifiedAt         DateTime?
   verifiedBy         String? // adminUserId if MANUAL
+  //* Who performed the latest review action (approve OR reject) and when —
+  //* same convention as VendorApplication.reviewedById/reviewedAt. Distinct
+  //* from verifiedBy/verifiedAt, which record the moment the account BECAME
+  //* verified: a rejection previously left no reviewer on the row at all, so
+  //* "who turned this down?" was only answerable from the audit log.
+  //* Plain ids, not Prisma relations to AdminUser — same as every other
+  //* reviewer field in this schema.
+  reviewedById       String?
+  reviewedAt         DateTime?
+
+  //* Review workflow — identical shape to VendorAppeal / VendorComplianceCase.
+  //* A payout decision moves real money, so it gets the same claim ->
+  //* escalate -> reassign ordering the application review has, rather than
+  //* letting two admins act on one account at once.
+  //*
+  //* There is deliberately NO separate review-status enum: the workflow
+  //* state is derived from these columns plus verificationStatus (see
+  //* payoutReviewState) — adding one would give "is this resolved?" two
+  //* sources of truth, since verificationStatus already answers it.
+  //*
+  //* assignedReviewerId    = current owner (null = unclaimed / in the pool)
+  //* escalatedByAdminId    = permanent historical marker; also that admin's
+  //*                         own lockout from acting on this account again
+  //* claimedFromEscalation = true only while the CURRENT assignment came
+  //*                         from self-claiming out of the open pool — that
+  //*                         admin is the end of the line and cannot escalate
+  //*                         again. A reassignment resets it to false.
+  assignedReviewerId    String?
+  assignedAt            DateTime?
+  escalatedByAdminId    String?
+  escalatedAt           DateTime?
+  escalationReason      String?
+  claimedFromEscalation Boolean   @default(false)
   failureReason      String? // human-readable, safe (never account data)
   // Safe internal code for the ERP review surface — see
   // PayoutVerificationFailureCode (lib/payout-verification/types.ts). Null
@@ -1610,11 +1674,17 @@ model VendorPayoutAccount {
 
   vendor               VendorAccount        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   countryPaymentMethod CountryPaymentMethod @relation(fields: [countryPaymentMethodId], references: [id])
+  //* Proof-of-ownership documents for THIS account (MANUAL-mode countries).
+  //* A list because a rejected+resubmitted account supersedes its previous
+  //* proof rather than overwriting it — same versioning convention as every
+  //* other VendorDocument.
+  proofDocuments       VendorDocument[]
 
   @@index([vendorId])
   @@index([countryPaymentMethodId])
   @@index([isActive])
   @@index([verificationStatus])
+  @@index([assignedReviewerId])
   @@index([accountNumberHash])
   @@index([mobileNumberHash])
 }
@@ -2147,6 +2217,22 @@ enum DocumentScope {
   VENDOR // required once per vendor account, countrywide (optionally restricted to specific vendor categories)
   OUTLET // required once per outlet, countrywide — every outlet in every city needs its own upload
   CITY // tied to one specific city (cityId required) — uploaded once per vendor per city, inherited by that vendor's outlets there
+  //* Proof of bank-account ownership, uploaded once per PAYOUT ACCOUNT (not
+  //* per vendor) — a stamped bank confirmation letter or recent statement
+  //* showing the account holder's name and number. Only meaningful where
+  //* CountryFinancialConfig.bankVerificationMode = MANUAL; a PROVIDER-mode
+  //* country configures no type of this scope and never asks for one.
+  //* Never part of vendor onboarding requirements (getAllowedDocumentTypes
+  //* excludes it) — it belongs to a payout account, which only exists after
+  //* approval.
+  PAYOUT_ACCOUNT
+}
+
+//* How a country verifies vendor bank payout accounts. See
+//* CountryFinancialConfig.bankVerificationMode.
+enum BankVerificationMode {
+  PROVIDER
+  MANUAL
 }
 
 enum DocumentStatus {

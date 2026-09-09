@@ -8,7 +8,7 @@ import { ClientApiError } from "@/lib/api/client"
 
 /*
  * The publish / unpublish control. The ONLY "go live" affordance in the app —
- * shared by GoLiveCard (/setup/profile) and SetupOverview (/setup). It calls
+ * shared by GoLiveCard (/settings/profile) and SetupOverview (/setup). It calls
  * the existing publish/unpublish endpoints; publishVendorProfile enforces
  * getVendorGoLiveStatus server-side, so the disabled state here is UX only.
  */

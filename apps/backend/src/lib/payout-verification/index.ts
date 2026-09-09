@@ -21,11 +21,15 @@ export { createFinanceBankVerificationProvider, type BankResolutionGateway } fro
  */
 const financeGateway: BankResolutionGateway = {
   async resolveBankAccount(countryId, input) {
-    const { adapter, ctx } = await resolveProviderGateway(countryId, "BANK_ACCOUNT_RESOLUTION")
+    const { adapter, ctx, account } = await resolveProviderGateway(countryId, "BANK_ACCOUNT_RESOLUTION")
     // resolveProviderGateway already asserts the adapter implements the
     // capability it validated (adapterSurfaceFor + the has()/undefined
     // check) before returning — bankResolution is guaranteed present here.
-    return adapter.bankResolution!.resolveBankAccount(ctx, input)
+    // The ISO country code comes from the routed provider account's own
+    // country (Finance's concern, never threaded through the vendor domain)
+    // — a country-keyed adapter (dLocal) needs it; a currency-keyed one
+    // (Flutterwave) ignores it.
+    return adapter.bankResolution!.resolveBankAccount(ctx, { ...input, countryCode: account.countryCode })
   },
 }
 

@@ -143,7 +143,7 @@ export function CreateOutletForm({ cities }: Props) {
         router.refresh() after push is redundant — it causes a second
         server round-trip to the same new page. Removed.
       */
-      router.push(`/setup/outlets/${data.data.id}`)
+      router.push(`/outlets/${data.data.id}`)
     },
   })
 

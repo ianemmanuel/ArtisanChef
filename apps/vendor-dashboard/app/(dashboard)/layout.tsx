@@ -1,6 +1,7 @@
 import { Sidebar } from '@/components/dashboard/sidebar/Sidebar'
 import { Navbar } from '@/components/dashboard/navbar/Navbar'
 import { DashboardFooter } from '@/components/dashboard/layout'
+import { NotLiveBanner } from '@/components/dashboard/layout/NotLiveBanner'
 import { VendorNavProvider } from '@/components/dashboard/VendorNavContext'
 import { getVendorSession, isSellingReady } from '@/lib/vendor/guards'
 
@@ -24,6 +25,10 @@ export default async function DashboardLayout({
 
           {/* IMPORTANT: padding-top offsets fixed navbar */}
           <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-20 pb-6 sm:px-6 sm:pt-24 sm:pb-8">
+            {/* A vendor may work in the authoring area (menu) before going
+                live, so the outstanding-setup reminder belongs here, above
+                every dashboard page — not only on /setup. */}
+            {session?.goLiveStatus && <NotLiveBanner status={session.goLiveStatus} />}
             {children}
           </main>
 

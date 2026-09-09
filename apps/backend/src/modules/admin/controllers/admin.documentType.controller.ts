@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express"
-import { DocumentTypeStatus } from "@repo/db"
+import { DocumentTypeStatus, type DocumentScope } from "@repo/db"
 import type { AdminRequest } from "@repo/types/backend"
 import { sendSuccess } from "@/helpers/api-response/response"
 import { ApiError } from "@/middleware/error"
@@ -21,7 +21,7 @@ export const handleListDocumentTypesForCountry: RequestHandler = async (req, res
     const { adminScope } = req as unknown as AdminRequest
     const { countryId, page, pageSize, search, isRequired, scope: docScope, status } = req.query as {
       countryId?: string; page?: string; pageSize?: string; search?: string
-      isRequired?: string; scope?: "VENDOR" | "OUTLET" | "CITY"; status?: "ACTIVE" | "INACTIVE" | "DEPRECATED" | "ARCHIVED"
+      isRequired?: string; scope?: DocumentScope; status?: "ACTIVE" | "INACTIVE" | "DEPRECATED" | "ARCHIVED"
     }
 
     if (!countryId?.trim()) throw new ApiError(400, "countryId is required", "MISSING_FIELDS")
@@ -56,7 +56,7 @@ export const handleCreateDocumentType: RequestHandler = async (req, res, next) =
       complianceSeverity, gracePeriodDays, enforcedFrom,
     } = req.body as {
       name?: string; description?: string
-      scope?: "VENDOR" | "OUTLET" | "CITY"; countryId?: string; cityId?: string
+      scope?: DocumentScope; countryId?: string; cityId?: string
       isRequired?: boolean; requiresExpiry?: boolean; expiryWarningDays?: number
       instructions?: string; sampleUrl?: string
       complianceSeverity?: "LOW" | "MEDIUM" | "CRITICAL"; gracePeriodDays?: number; enforcedFrom?: string
@@ -86,7 +86,7 @@ export const handleUpdateDocumentType: RequestHandler = async (req, res, next) =
       complianceSeverity, gracePeriodDays, enforcedFrom,
     } = req.body as {
       name?: string; description?: string
-      scope?: "VENDOR" | "OUTLET" | "CITY"; cityId?: string
+      scope?: DocumentScope; cityId?: string
       isRequired?: boolean; requiresExpiry?: boolean; expiryWarningDays?: number; instructions?: string; sampleUrl?: string
       complianceSeverity?: "LOW" | "MEDIUM" | "CRITICAL"; gracePeriodDays?: number; enforcedFrom?: string
     }

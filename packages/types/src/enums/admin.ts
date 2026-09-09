@@ -54,6 +54,13 @@ export const AdminPermissions = {
   // creates a PENDING account; nothing else in the system ever moves it
   // to VERIFIED, so without this a vendor can never actually get paid.
   VENDORS_PAYOUT_ACCOUNTS_MANAGE: "vendors:payout_accounts:manage",
+  //* Payout-account review workflow — same claim/escalate/reassign shape as
+  //* VENDORS_APPEALS_*. A payout decision moves real money, so it gets the
+  //* same ordering guarantees an application review has.
+  VENDORS_PAYOUT_ACCOUNTS_CLAIM   : "vendors:payout_accounts:claim",
+  VENDORS_PAYOUT_ACCOUNTS_ESCALATE: "vendors:payout_accounts:escalate",
+  VENDORS_PAYOUT_ACCOUNTS_REASSIGN: "vendors:payout_accounts:reassign",
+  VENDORS_PAYOUT_ACCOUNTS_RECEIVE_ESCALATION: "vendors:payout_accounts:receive_escalation",
 
   // Change a vendor's commission rate — always writes a
   // VendorCommissionRateHistory row alongside the live value (Roadmap

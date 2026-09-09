@@ -33,7 +33,7 @@ const payoutAccount = () => account(["PAYOUT_BANK"])
 const bankVerificationAccount = () => account(["BANK_ACCOUNT_RESOLUTION"])
 
 const FULLY_READY: ReadinessInputs = {
-  config: { status: "ACTIVE", currencyCode: "KES", collectionsEnabled: true, payoutsEnabled: true },
+  config: { status: "ACTIVE", currencyCode: "KES", collectionsEnabled: true, payoutsEnabled: true, bankVerificationMode: "PROVIDER" },
   currency: { status: "ACTIVE" },
   inboundMethods: [
     { type: "CARD", account: collectionAccount() },
@@ -257,5 +257,51 @@ describe("environment guard respects NODE_ENV", () => {
       inboundMethods: [{ type: "CARD", account: account(["COLLECTION_CARD"], { environment: "LIVE" }) }],
     }))
     expect(r.collection.reasons).toContain("PROVIDER_ENVIRONMENT_MISMATCH")
+  })
+})
+
+/*
+ * MANUAL bank-verification mode — markets where no payment provider can
+ * resolve a bank account (Kenya/KES: confirmed against dLocal, Flutterwave,
+ * Paystack and Fincra). Document + admin review is the verification path,
+ * so readiness must NOT demand a provider account.
+ */
+describe("computeFinancialReadiness — MANUAL bank verification mode", () => {
+  const manual = (over: Partial<ReadinessInputs> = {}) =>
+    inputs({
+      config: { ...FULLY_READY.config!, bankVerificationMode: "MANUAL" },
+      bankVerificationAccount: null,
+      ...over,
+    })
+
+  it("is bank-verification ready with NO provider account bound", () => {
+    const r = computeFinancialReadiness("ke", manual())
+    expect(r.bankVerification.ready).toBe(true)
+    expect(r.bankVerification.reasons).toEqual([])
+  })
+
+  it("does not block payout for a BANK outbound method", () => {
+    const r = computeFinancialReadiness("ke", manual())
+    expect(r.payout.reasons).not.toContain("NO_BANK_VERIFICATION_CAPABILITY")
+    expect(r.payout.ready).toBe(true)
+    expect(r.financiallyReady).toBe(true)
+  })
+
+  it("still enforces the shared config/currency prerequisites", () => {
+    const r = computeFinancialReadiness("ke", manual({ currency: { status: "INACTIVE" } }))
+    expect(r.bankVerification.ready).toBe(false)
+    expect(r.bankVerification.reasons).toContain("CURRENCY_INACTIVE")
+  })
+
+  it("ignores a bound provider account entirely (mode decides, not the binding)", () => {
+    const r = computeFinancialReadiness("ke", manual({ bankVerificationAccount: account([], { status: "DISABLED" }) }))
+    expect(r.bankVerification.ready).toBe(true)
+  })
+
+  it("PROVIDER mode with no account bound still fails (the mode is the only difference)", () => {
+    const r = computeFinancialReadiness("ke", inputs({ bankVerificationAccount: null }))
+    expect(r.bankVerification.ready).toBe(false)
+    expect(r.bankVerification.reasons).toContain("PROVIDER_ACCOUNT_NOT_CONFIGURED")
+    expect(r.payout.reasons).toContain("NO_BANK_VERIFICATION_CAPABILITY")
   })
 })

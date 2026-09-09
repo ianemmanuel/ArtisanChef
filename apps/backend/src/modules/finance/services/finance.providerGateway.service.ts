@@ -85,7 +85,7 @@ export interface ResolvedProviderGateway {
   ctx: ProviderCallContext
   providerCode: string
   environment: ProviderEnvironment
-  account: { id: string; countryId: string; secretAlias: string }
+  account: { id: string; countryId: string; countryCode: string; secretAlias: string }
 }
 
 interface RoutedSetup {
@@ -97,6 +97,9 @@ interface RoutedSetup {
   account: {
     id: string
     countryId: string
+    /** ISO 3166-1 alpha-2 of the account's country — passed to adapters
+     *  whose provider request is country-keyed (dLocal). */
+    countryCode: string
     secretAlias: string
     enabledCapabilities: string[]
   }
@@ -144,7 +147,10 @@ async function routeViaPaymentMethod(
     where: { id: countryPaymentMethodId },
     include: {
       countryProviderAccount: {
-        include: { paymentProvider: { select: { code: true, status: true } } },
+        include: {
+          paymentProvider: { select: { code: true, status: true } },
+          country: { select: { code: true } },
+        },
       },
     },
   })
@@ -170,6 +176,7 @@ async function routeViaPaymentMethod(
     account: {
       id: account.id,
       countryId: account.countryId,
+      countryCode: account.country.code,
       secretAlias: account.secretAlias,
       enabledCapabilities: account.enabledCapabilities,
     },
@@ -181,7 +188,10 @@ async function routeViaBankVerificationBinding(countryId: string): Promise<Route
     where: { countryId },
     include: {
       bankVerificationProviderAccount: {
-        include: { paymentProvider: { select: { code: true, status: true } } },
+        include: {
+          paymentProvider: { select: { code: true, status: true } },
+          country: { select: { code: true } },
+        },
       },
     },
   })
@@ -205,6 +215,7 @@ async function routeViaBankVerificationBinding(countryId: string): Promise<Route
     account: {
       id: account.id,
       countryId: account.countryId,
+      countryCode: account.country.code,
       secretAlias: account.secretAlias,
       enabledCapabilities: account.enabledCapabilities,
     },

@@ -12,6 +12,7 @@ import type {
   PaymentProviderCapability,
   PaymentEnvironment,
   CountryFinancialConfigStatus,
+  BankVerificationMode,
   CountryProviderAccountStatus,
   FinancialReadinessReason,
   ProviderWebhookEventStatus,
@@ -183,6 +184,18 @@ export interface CountryFinancialConfig {
    * verification configured for this country yet.
    */
   bankVerificationProviderAccountId: string | null
+  /**
+   * HOW this country verifies vendor bank payout accounts — distinct from
+   * the binding above, which says WHO does it.
+   *   PROVIDER — automatic; a usable bank-verification provider account is
+   *     required and financial readiness fails without one.
+   *   MANUAL   — no provider can resolve a bank account in this market, so
+   *     the vendor uploads a proof document (a PAYOUT_ACCOUNT-scoped
+   *     document type) and an admin verifies it by hand. A legitimate
+   *     operating mode: readiness passes without a bound account.
+   * No fallback between the two — see BankVerificationMode.
+   */
+  bankVerificationMode: BankVerificationMode
   collectionsEnabled: boolean
   payoutsEnabled: boolean
   status: CountryFinancialConfigStatus
@@ -200,6 +213,11 @@ export interface CountryFinancialConfig {
 /** Set (or clear, with null) the country's bank-verification routing binding. */
 export interface SetBankVerificationProviderAccountRequest {
   providerAccountId: string | null
+}
+
+/** Switch the country between automatic and document-backed manual verification. */
+export interface SetBankVerificationModeRequest {
+  mode: BankVerificationMode
 }
 
 export interface SetOperationalSwitchesRequest {
@@ -371,8 +389,42 @@ export interface AdminPayoutAccountAuditEntry {
   metadata : unknown
 }
 
+/*
+ * Proof of bank-account ownership, uploaded by the vendor where their
+ * country verifies manually (no provider can resolve a bank account there).
+ * This document IS the evidence the reviewer decides on: it must show the
+ * account holder's name and number and be stamped by the bank. `viewUrl` is
+ * a short-lived signed URL, same as every other admin document preview.
+ * Always empty for countries that verify automatically.
+ */
+export interface AdminPayoutProofDocument {
+  id          : string
+  documentName: string | null
+  typeName    : string
+  instructions: string | null
+  mimeType    : string | null
+  fileSize    : number | null
+  status      : string
+  uploadedAt  : string
+  viewUrl     : string
+}
+
 export interface AdminPayoutAccountDetail {
   account            : AdminPayoutAccountListItem
+  /** Provider bank code, decrypted for the reviewer. Detail view only —
+   *  it names the bank (already shown by name), not the account. */
+  bankCode           : string | null
+  /** Admin who last approved or rejected this account, and when. */
+  reviewedBy         : string | null
+  reviewedAt         : string | null
+  /** Derived review workflow state — see payoutReviewState (backend). */
+  reviewState        : "UNCLAIMED" | "CLAIMED" | "ESCALATED" | "RESOLVED"
+  assignedReviewerId : string | null
+  assignedTo         : string | null
+  escalatedAt        : string | null
+  escalationReason   : string | null
+  claimedFromEscalation: boolean
+  proofDocuments     : AdminPayoutProofDocument[]
   canVerify          : boolean
   verifyBlockedReason: string | null
   audit              : AdminPayoutAccountAuditEntry[]

@@ -932,6 +932,41 @@ export interface AddPayoutAccountRequest {
   // Digital wallets
   paypalEmail?    : string
   stripeAccountId?: string
+  /** Proof of bank-account ownership. REQUIRED where the vendor's country
+   *  uses MANUAL bank verification (no provider can resolve an account
+   *  there), REJECTED where it uses PROVIDER — the two paths are separate,
+   *  there is no fallback between them. Uploaded to R2 before this call
+   *  (presign -> PUT -> submit the resulting storageKey), exactly like every
+   *  other document in the vendor app. */
+  proofDocument?: {
+    documentTypeId: string
+    storageKey    : string
+    documentName? : string
+    fileSize?     : number
+    mimeType?     : string
+  }
+}
+
+//* What a vendor must supply to get a BANK payout account verified in their
+//* country — drives which variant of the payout form is rendered.
+//*   PROVIDER — the provider resolves the account holder's name; no document.
+//*   MANUAL   — the vendor asserts the name and proves it with a document
+//*              (a stamped bank confirmation letter or recent statement),
+//*              which an admin reviews by hand.
+export interface PayoutProofDocumentType {
+  id          : string
+  name        : string
+  description : string | null
+  instructions: string | null
+  sampleUrl   : string | null
+}
+
+export interface PayoutVerificationRequirement {
+  mode: "PROVIDER" | "MANUAL"
+  /** The document type to upload. Always null in PROVIDER mode; in MANUAL
+   *  mode null means the country hasn't configured one yet — the account is
+   *  still accepted and simply goes to manual review without a document. */
+  proofDocumentType: PayoutProofDocumentType | null
 }
 
 //* Available OUTBOUND CountryPaymentMethod rows a vendor can choose from —

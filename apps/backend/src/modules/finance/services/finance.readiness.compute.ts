@@ -47,6 +47,8 @@ export interface ReadinessInputs {
     currencyCode: string | null
     collectionsEnabled: boolean
     payoutsEnabled: boolean
+    /** CountryFinancialConfig.bankVerificationMode — "PROVIDER" | "MANUAL". */
+    bankVerificationMode: string
   } | null
   currency: { status: string } | null
   /** ACTIVE INBOUND CountryPaymentMethods + their wired provider account. */
@@ -151,9 +153,22 @@ function evaluateMethodRouting(
   return reasons
 }
 
-/** The bank-verification dimension, reused by payout when a BANK method exists. */
+/**
+ * The bank-verification dimension, reused by payout when a BANK method exists.
+ *
+ * MANUAL mode is a legitimate operating mode, not a gap: markets where no
+ * payment provider can resolve a bank account (e.g. Kenya/KES — verified
+ * against dLocal, Flutterwave, Paystack and Fincra) verify by document +
+ * admin review instead. Requiring a provider account there would make the
+ * country permanently un-activatable, and the only way to satisfy it would
+ * be to bind a provider that always fails at runtime — worse than honest.
+ * So MANUAL is ready once the config/currency prerequisites hold; it never
+ * looks at the routing binding.
+ */
 function bankVerificationReasons(input: ReadinessInputs): FinancialReadinessReason[] {
   const reasons = [...baseReasons(input)]
+  if (input.config?.bankVerificationMode === "MANUAL") return dedupe(reasons)
+
   const account = input.bankVerificationAccount
   if (!account) {
     reasons.push("PROVIDER_ACCOUNT_NOT_CONFIGURED")

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@repo/ui/lib/utils'
-import { NavItem } from '@/utils/constants/nav-links'
+import { NavItem, isNavActive } from '@/utils/constants/nav-links'
 
 interface SidebarDropdownProps {
   item: NavItem
@@ -14,7 +14,7 @@ interface SidebarDropdownProps {
 export function SidebarDropdown({ item }: SidebarDropdownProps) {
   const pathname = usePathname()
   const Icon = item.icon
-  const isActive = item.items?.some((sub) => pathname === sub.href) ?? false
+  const isActive = item.items?.some((sub) => isNavActive(pathname, sub.href)) ?? false
   const [isOpen, setIsOpen] = useState(isActive)
 
   return (
@@ -43,7 +43,7 @@ export function SidebarDropdown({ item }: SidebarDropdownProps) {
       )}>
         <ul className="ml-4 mt-1 space-y-0.5 border-l border-border/50 pl-3">
           {item.items?.map((sub) => {
-            const isSubActive = pathname === sub.href
+            const isSubActive = isNavActive(pathname, sub.href)
             return (
               <li key={sub.href}>
                 <Link

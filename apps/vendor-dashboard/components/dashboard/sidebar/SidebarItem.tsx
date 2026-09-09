@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@repo/ui/lib/utils'
-import { NavItem } from '@/utils/constants/nav-links'
+import { NavItem, isNavActive } from '@/utils/constants/nav-links'
 import { SidebarDropdown } from './SidebarDropdown'
 
 interface SidebarItemProps {
@@ -18,7 +18,7 @@ export function SidebarItem({ item }: SidebarItemProps) {
     return <SidebarDropdown item={item} />
   }
 
-  const isActive = pathname === item.href
+  const isActive = isNavActive(pathname, item.href)
 
   return (
     <Link

@@ -48,6 +48,26 @@ export const PAYMENT_PROVIDERS: PaymentProviderSeedRow[] = [
     description: "Pan-African payment provider — card, mobile money and bank rails for both collection and payout, plus bank-directory and account-verification integration.",
   },
   {
+    code: "DLOCAL",
+    name: "dLocal",
+    // Bank-account resolution ONLY for now — dLocal's account-validation
+    // endpoint (docs.dlocal.com/reference/account-validation). Its
+    // collection/payout rails are separate APIs and separate future phases;
+    // the adapter (finance/providers/dlocal) deliberately does not implement
+    // them, so they are not declared here — capability support stays honest.
+    // BANK_ACCOUNT_RESOLUTION is an integration capability: auto-merged onto
+    // any dLocal CountryProviderAccount, never an admin checkbox.
+    capabilities: ["BANK_ACCOUNT_RESOLUTION"],
+    // No business method types yet (no collection/payout). Not currency-
+    // restricted in our catalog — dLocal's validation is country-keyed, and
+    // the adapter enforces the exact supported-country set itself
+    // (DLOCAL_ACCOUNT_VALIDATION); Nigeria is the first operational market.
+    methodTypes: [],
+    supportedCurrencies: [],
+    description:
+      "Emerging-markets payment provider. Wired for bank-account verification (account validation) — Nigeria live, other dLocal-documented countries a one-line adapter addition. Collection/payout rails deferred to their own phase.",
+  },
+  {
     code: "STRIPE",
     name: "Stripe",
     capabilities: ["COLLECTION_CARD", "REFUND", "PAYOUT_BANK", "WEBHOOKS"],

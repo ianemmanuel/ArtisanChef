@@ -83,6 +83,26 @@ export const PERMISSIONS = [
     description: "Manually verify or reject a vendor's payout (bank/mobile-money/wallet) account",
   },
   {
+    key        : "vendors:payout_accounts:claim",
+    module     : "vendors",
+    description: "Take ownership of a payout account awaiting manual verification",
+  },
+  {
+    key        : "vendors:payout_accounts:escalate",
+    module     : "vendors",
+    description: "Hand a claimed payout account back to the open escalation pool",
+  },
+  {
+    key        : "vendors:payout_accounts:reassign",
+    module     : "vendors",
+    description: "Supervisory override — move a payout account review to another admin",
+  },
+  {
+    key        : "vendors:payout_accounts:receive_escalation",
+    module     : "vendors",
+    description: "Claim payout accounts escalated into the open pool",
+  },
+  {
     key        : "vendors:accounts:commission_manage",
     module     : "vendors",
     description: "Change a vendor's commission rate (recorded in a versioned history)",

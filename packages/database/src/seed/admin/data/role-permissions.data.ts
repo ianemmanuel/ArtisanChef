@@ -89,6 +89,12 @@ export const ROLE_POOLS: Record<string, PermissionKey[]> = {
     "vendors:accounts:commission_manage",
     "vendors:appeals:read",
     "vendors:appeals:manage",
+    "vendors:payout_accounts:claim",
+    "vendors:payout_accounts:escalate",
+    "vendors:payout_accounts:reassign",
+    // Ceiling-only, like every other RECEIVE_ESCALATION — granted
+    // individually to senior reviewers, never automatic.
+    "vendors:payout_accounts:receive_escalation",
     "vendors:appeals:claim",
     "vendors:appeals:escalate",
     "vendors:appeals:reassign",

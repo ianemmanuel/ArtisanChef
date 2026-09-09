@@ -1,4 +1,4 @@
-import { prisma, CountryFinancialConfigStatus, CountryProviderAccountStatus } from "@repo/db"
+import { prisma, CountryFinancialConfigStatus, CountryProviderAccountStatus, BankVerificationMode } from "@repo/db"
 import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/errors/ApiError"
 import { logger } from "@/lib/pino/logger"
@@ -200,6 +200,65 @@ export async function setBankVerificationProviderAccount(
     changes: {
       before: { bankVerificationProviderAccountId: config.bankVerificationProviderAccountId },
       after: { bankVerificationProviderAccountId: accountId },
+    },
+    metadata: { countryId, structural: true, configStatus: config.status },
+  })
+  return updated
+}
+
+//* ─── Bank-verification mode ────────────────────────────────────────────
+
+/*
+ * PROVIDER vs MANUAL — see CountryFinancialConfig.bankVerificationMode.
+ * Structural (it changes how every vendor in the country gets verified), so
+ * it follows the same scope rule as the routing binding above.
+ *
+ * Switching to MANUAL deliberately does NOT clear an existing provider
+ * binding: the binding may still serve BANK_LIST (the bank picker), which is
+ * independent of account resolution. The mode alone decides whether the
+ * resolution call is attempted — see addPayoutAccount.
+ */
+export async function setBankVerificationMode(
+  countryId: string,
+  mode: BankVerificationMode,
+  actorId: string,
+  scope: AdminScopeContext,
+) {
+  const config = await loadConfig(countryId)
+  if (!config) throw new ApiError(404, "Financial config not found — create it first", "CONFIG_NOT_FOUND")
+  if (config.status === CountryFinancialConfigStatus.DISABLED) {
+    throw new ApiError(400, "A disabled financial config cannot be changed", "CONFIG_DISABLED")
+  }
+  isStructuralScopeAllowed(config.status, scope, countryId)
+
+  if (config.bankVerificationMode === mode) return config
+
+  // Moving to PROVIDER without a usable binding would leave the country
+  // claiming automatic verification it cannot perform — block it here rather
+  // than let readiness fail confusingly afterwards.
+  if (mode === BankVerificationMode.PROVIDER && !config.bankVerificationProviderAccountId) {
+    throw new ApiError(
+      422,
+      "Bind a bank-verification provider account before switching this country to automatic verification",
+      "BANK_VERIFICATION_ACCOUNT_REQUIRED",
+    )
+  }
+
+  const updated = await prisma.countryFinancialConfig.update({
+    where: { countryId },
+    data: { bankVerificationMode: mode },
+    include: CONFIG_INCLUDE,
+  })
+
+  serviceLog.info({ countryId, mode, actorId }, "Financial config bank-verification mode changed")
+  auditService.log({
+    adminUserId: actorId,
+    action: "country_financial_config.bank_verification_mode_changed",
+    entityType: "CountryFinancialConfig",
+    entityId: countryId,
+    changes: {
+      before: { bankVerificationMode: config.bankVerificationMode },
+      after: { bankVerificationMode: mode },
     },
     metadata: { countryId, structural: true, configStatus: config.status },
   })

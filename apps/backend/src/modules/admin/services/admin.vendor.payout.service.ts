@@ -3,6 +3,7 @@ import type { AdminScopeContext } from "@repo/types/backend"
 import { ApiError } from "@/errors/ApiError"
 import { logger } from "@/lib/pino/logger"
 import { auditService } from "@/services/audit"
+import { assertPayoutReviewClaimedByActor } from "./admin.payoutReview.service"
 
 const serviceLog = logger.child({ module: "admin-vendor-payout-service" })
 
@@ -85,8 +86,20 @@ export async function verifyPayoutAccount(
   expectedVendorId?: string,
 ) {
   const account = await loadPayoutAccountInScope(accountId, actorScope, expectedVendorId)
+  // Exactly one admin owns a payout decision — no "unclaimed = anyone
+  // may act" fallback, same rule resolveAppeal and the compliance
+  // waive/notify/revoke actions enforce.
+  await assertPayoutReviewClaimedByActor(accountId, actorId, actorScope)
+
   const gate = canManuallyVerify(account)
   if (!gate.ok) throw new ApiError(400, gate.reason, "VERIFY_NOT_ALLOWED")
+
+  // A vendor whose accounts were all unverified has no payout destination.
+  // Verifying the first one makes it the destination — otherwise money
+  // would have nowhere to go until they happened to press "set default".
+  const hasDefault = await prisma.vendorPayoutAccount.count({
+    where: { vendorId: account.vendorId, isDefault: true, isActive: true, deletedAt: null },
+  })
 
   const updated = await prisma.vendorPayoutAccount.update({
     where: { id: accountId },
@@ -96,6 +109,11 @@ export async function verifyPayoutAccount(
       verificationFailureCode: null,
       verifiedAt             : new Date(),
       verifiedBy             : actorId,
+      // Who reviewed it and when — same convention as
+      // VendorApplication.reviewedById/reviewedAt.
+      reviewedById           : actorId,
+      reviewedAt             : new Date(),
+      ...(hasDefault === 0 ? { isDefault: true } : {}),
       failureReason          : null,
     },
   })
@@ -256,6 +274,8 @@ export async function rejectPayoutAccount(
   if (!reason?.trim()) throw new ApiError(400, "reason is required", "MISSING_FIELDS")
 
   const account = await loadPayoutAccountInScope(accountId, actorScope, expectedVendorId)
+  await assertPayoutReviewClaimedByActor(accountId, actorId, actorScope)
+
   if (account.verificationStatus === PayoutVerificationStatus.FAILED) {
     throw new ApiError(400, "Payout account is already marked as failed", "ALREADY_FAILED")
   }
@@ -266,6 +286,8 @@ export async function rejectPayoutAccount(
       verificationStatus     : PayoutVerificationStatus.FAILED,
       verificationMethod     : "MANUAL",
       verificationFailureCode: "MANUAL_REJECTION",
+      reviewedById           : actorId,
+      reviewedAt             : new Date(),
       failureReason          : reason.trim(),
       // A previous verifiedAt/verifiedBy (if this was VERIFIED and is now
       // being revoked) stays as historical fact, not cleared — the audit

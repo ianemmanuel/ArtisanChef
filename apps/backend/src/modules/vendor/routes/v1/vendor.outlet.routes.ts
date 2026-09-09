@@ -1,6 +1,7 @@
 import { Router } from "express"
 import {
   handleListOutlets,
+  handleListOutletCities,
   handleGetOutlet,
   handleCreateOutlet,
   handleUpdateOutlet,
@@ -24,6 +25,7 @@ const outletRouter: Router = Router()
 //* /api/vendors/v1/outlets
 
 outletRouter.get("/",    handleListOutlets)
+outletRouter.get("/cities", handleListOutletCities)
 outletRouter.post("/",   handleCreateOutlet)
 
 outletRouter.get("/:id",    handleGetOutlet)

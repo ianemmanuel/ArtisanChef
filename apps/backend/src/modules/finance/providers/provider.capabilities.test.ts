@@ -12,6 +12,8 @@ import {
   payoutCapabilityForMethodType,
   isOutboundMethodPayable,
   providerRouteClassFor,
+  isIntegrationCapability,
+  isBusinessCapability,
 } from "./provider.capabilities"
 import { deriveProviderSecretAlias } from "../secrets/provider-secrets.resolver"
 import { PAYMENT_PROVIDERS } from "../../../../../../packages/database/src/seed/finance/data/payment-providers.data"
@@ -171,9 +173,8 @@ describe("seeded payment-provider catalog", () => {
 })
 
 describe("providerRouteClassFor — capability-scoped routing", () => {
-  it("the two bank-account capabilities route through the country-global bank-verification binding", () => {
+  it("bank-account resolution routes through the country-global bank-verification binding", () => {
     expect(providerRouteClassFor("BANK_ACCOUNT_RESOLUTION")).toBe("BANK_VERIFICATION")
-    expect(providerRouteClassFor("BANK_LIST")).toBe("BANK_VERIFICATION")
   })
 
   it("every method-specific business capability routes through a payment method (never the bank-verification binding)", () => {
@@ -198,6 +199,32 @@ describe("providerRouteClassFor — capability-scoped routing", () => {
     const businessRouted = PROVIDER_CAPABILITIES.filter((c) => providerRouteClassFor(c) === "PAYMENT_METHOD")
     const bankVerifRouted = PROVIDER_CAPABILITIES.filter((c) => providerRouteClassFor(c) === "BANK_VERIFICATION")
     expect(businessRouted.some((c) => bankVerifRouted.includes(c))).toBe(false)
-    expect(bankVerifRouted).toEqual(expect.arrayContaining(["BANK_ACCOUNT_RESOLUTION", "BANK_LIST"]))
+    expect(bankVerifRouted).toEqual(["BANK_ACCOUNT_RESOLUTION"])
+  })
+})
+
+/*
+ * BANK_LIST routes with the payout, not with verification. The bank the
+ * vendor picks becomes the stored bankCode, which is later handed to the
+ * provider that actually moves the money — so the directory has to come from
+ * that provider. It also has to work in a MANUAL-verification country, which
+ * has no bank-verification account bound at all.
+ */
+describe("providerRouteClassFor — BANK_LIST follows the payout, not the verifier", () => {
+  it("routes BANK_LIST through a payment method, not the bank-verification binding", () => {
+    expect(providerRouteClassFor("BANK_LIST")).toBe("PAYMENT_METHOD")
+  })
+
+  it("keeps BANK_ACCOUNT_RESOLUTION on the independent bank-verification binding", () => {
+    expect(providerRouteClassFor("BANK_ACCOUNT_RESOLUTION")).toBe("BANK_VERIFICATION")
+  })
+
+  it("so the two bank capabilities can resolve to different providers", () => {
+    expect(providerRouteClassFor("BANK_LIST")).not.toBe(providerRouteClassFor("BANK_ACCOUNT_RESOLUTION"))
+  })
+
+  it("BANK_LIST stays an integration capability (auto-enabled, never an admin checkbox)", () => {
+    expect(isIntegrationCapability("BANK_LIST")).toBe(true)
+    expect(isBusinessCapability("BANK_LIST")).toBe(false)
   })
 })

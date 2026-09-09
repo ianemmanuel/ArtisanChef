@@ -2,7 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { clientFetch } from "@/lib/api/client"
-import type { AvailablePayoutMethod, VendorPayoutAccount, AddPayoutAccountRequest, VendorSupportedBanks } from "@repo/types/vendor-app"
+import type {
+  AvailablePayoutMethod,
+  VendorPayoutAccount,
+  AddPayoutAccountRequest,
+  VendorSupportedBanks,
+  PayoutVerificationRequirement,
+  PresignUploadRequest,
+  PresignUploadResponse,
+} from "@repo/types/vendor-app"
 
 /*
  * Roadmap Phase 4 (CLAUDE.md) — the vendor.payout.routes.ts backend was
@@ -12,9 +20,38 @@ import type { AvailablePayoutMethod, VendorPayoutAccount, AddPayoutAccountReques
  */
 
 export const payoutKeys = {
-  methods : ["payout", "methods"] as const,
-  banks   : ["payout", "banks"] as const,
-  accounts: ["payout", "accounts"] as const,
+  methods    : ["payout", "methods"] as const,
+  banks      : (methodId: string) => ["payout", "banks", methodId] as const,
+  accounts   : ["payout", "accounts"] as const,
+  requirement: ["payout", "verification-requirement"] as const,
+}
+
+/*
+ * How this vendor's country verifies bank accounts, and — in MANUAL mode —
+ * which proof document to upload. Decides which variant of the payout form
+ * renders: PROVIDER resolves the account holder's name automatically and
+ * asks for no document; MANUAL asks the vendor to assert the name and prove
+ * it. The two paths are separate, with no fallback between them.
+ *
+ * Country-level config that changes about never — cached for the session.
+ */
+export function usePayoutVerificationRequirement() {
+  return useQuery({
+    queryKey : payoutKeys.requirement,
+    queryFn  : () => clientFetch<PayoutVerificationRequirement>("/api/payout/verification-requirement"),
+    staleTime: 60 * 60 * 1000,
+  })
+}
+
+/** Presign a proof upload (MANUAL mode only — the backend refuses otherwise). */
+export function usePresignPayoutProof() {
+  return useMutation({
+    mutationFn: (input: PresignUploadRequest & { countryPaymentMethodId: string }) =>
+      clientFetch<PresignUploadResponse>("/api/payout/proof/presign", {
+        method: "POST",
+        body  : JSON.stringify(input),
+      }),
+  })
 }
 
 export function usePayoutMethods() {
@@ -32,12 +69,17 @@ export function usePayoutMethods() {
  * not an error — react-query only ever surfaces a transport/provider
  * failure as `isError`.
  */
-export function usePayoutBanks(enabled: boolean) {
+export function usePayoutBanks(countryPaymentMethodId: string | undefined) {
   return useQuery({
-    queryKey: payoutKeys.banks,
-    queryFn : () => clientFetch<VendorSupportedBanks>("/api/payout/banks"),
-    enabled,
-    staleTime: 60 * 60 * 1000, // banks change essentially never — an hour is plenty
+    queryKey: payoutKeys.banks(countryPaymentMethodId ?? ""),
+    queryFn : () => clientFetch<VendorSupportedBanks>(
+      `/api/payout/banks?methodId=${encodeURIComponent(countryPaymentMethodId!)}`,
+    ),
+    // The directory comes from the provider that will EXECUTE the payout, so
+    // it is per-method routing context, not a country-wide constant — hence
+    // the method in the key, and no request until one is chosen.
+    enabled  : !!countryPaymentMethodId,
+    staleTime: 60 * 60 * 1000, // banks change essentially never
   })
 }
 

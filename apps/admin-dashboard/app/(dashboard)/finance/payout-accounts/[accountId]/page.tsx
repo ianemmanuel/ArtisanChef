@@ -1,10 +1,12 @@
 import type { Metadata } from "next"
 import { redirect, notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Landmark, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Landmark, AlertTriangle, FileText } from "lucide-react"
 import { adminFetch, ApiCallError } from "@/lib/api"
 import { getAdminSession } from "@/lib/auth/session"
 import { PayoutAccountReviewActions } from "@/components/finance/PayoutAccountReviewActions"
+import { PayoutProofSheet } from "@/components/finance/PayoutProofSheet"
+import { PayoutReviewActions } from "@/components/finance/PayoutReviewActions"
 import {
   PAYOUT_STATUS_BADGE, PAYOUT_STATUS_LABEL, PAYOUT_FAILURE_LABEL,
 } from "@/components/finance/payout-account-status"
@@ -35,6 +37,11 @@ export default async function PayoutAccountDetailPage({ params }: PageProps) {
   const session = await getAdminSession()
   if (!session.permissions.includes(AdminPermissions.FINANCE_PAYOUTS_READ)) redirect("/overview")
   const canManage = session.permissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_MANAGE)
+  const canReview = {
+    claim   : session.permissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_CLAIM),
+    escalate: session.permissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_ESCALATE),
+    reassign: session.permissions.includes(AdminPermissions.VENDORS_PAYOUT_ACCOUNTS_REASSIGN),
+  }
 
   const { accountId } = await params
 
@@ -91,6 +98,33 @@ export default async function PayoutAccountDetailPage({ params }: PageProps) {
         )}
       </div>
 
+      {/* Review workflow — claim before deciding, then escalate to the
+          open in-country pool or reassign to a named admin. */}
+      {detail.reviewState !== "RESOLVED" && (
+        <div className="admin-card flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm">
+            <span className="text-muted-foreground">Review: </span>
+            <span className="font-medium">
+              {detail.reviewState === "CLAIMED"
+                ? `Claimed by ${detail.assignedTo ?? "an admin"}`
+                : detail.reviewState === "ESCALATED"
+                  ? "Escalated — waiting in the open pool"
+                  : "Unclaimed"}
+            </span>
+            {detail.escalationReason && detail.reviewState === "ESCALATED" && (
+              <p className="mt-0.5 text-xs text-muted-foreground">{detail.escalationReason}</p>
+            )}
+          </div>
+          <PayoutReviewActions
+            accountId={a.id}
+            vendorName={a.vendorName}
+            detail={detail}
+            actorId={session.id}
+            can={canReview}
+          />
+        </div>
+      )}
+
       {detail.verifyBlockedReason && a.verificationStatus !== "VERIFIED" && (
         <div className="admin-card flex items-start gap-2 border-l-2 border-l-warning/60 text-sm text-muted-foreground">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
@@ -107,6 +141,9 @@ export default async function PayoutAccountDetailPage({ params }: PageProps) {
           <Row label="Country">{a.countryName} ({a.countryCode})</Row>
           <Row label="Payment method">{a.methodName} · {a.methodType}</Row>
           <Row label="Bank">{a.bankName ?? "—"}</Row>
+          <Row label="Bank code">
+            {detail.bankCode ? <span className="font-mono">{detail.bankCode}</span> : "—"}
+          </Row>
           <Row label="Branch">{a.branchName ?? "—"}</Row>
           <Row label="Account holder">{a.accountHolderName ?? "—"}</Row>
           <Row label="Account identifier"><span className="font-mono">{a.maskedAccount}</span></Row>
@@ -129,6 +166,11 @@ export default async function PayoutAccountDetailPage({ params }: PageProps) {
           <Row label="Name match">
             {a.nameMatchScore != null ? `${Math.round(a.nameMatchScore * 100)}%` : "not checked"}
           </Row>
+          <Row label="Reviewed by">
+            {detail.reviewedBy
+              ? <>{detail.reviewedBy}{detail.reviewedAt ? ` · ${new Date(detail.reviewedAt).toLocaleString()}` : ""}</>
+              : "—"}
+          </Row>
           <Row label="Verified at">{a.verifiedAt ? new Date(a.verifiedAt).toLocaleString() : "—"}</Row>
           <Row label="Created">{new Date(a.createdAt).toLocaleString()}</Row>
           <Row label="Updated">{new Date(a.updatedAt).toLocaleString()}</Row>
@@ -144,6 +186,49 @@ export default async function PayoutAccountDetailPage({ params }: PageProps) {
           )}
         </div>
       </div>
+
+      {/*
+        Proof of ownership — the MANUAL verification path. In markets with no
+        bank-resolution provider this document is the evidence the decision
+        rests on, so it sits directly above the audit trail rather than being
+        a click away. Check the holder's name against the vendor's legal name,
+        the account number against the masked identifier above, and that the
+        document is stamped by the bank. Absent for countries that verify
+        automatically.
+      */}
+      {detail.proofDocuments.length > 0 && (
+        <div className="admin-card">
+          <h2 className="mb-1 text-sm font-semibold text-foreground">Proof of account ownership</h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Uploaded by the vendor because this country has no automatic bank verification. Confirm the
+            holder&apos;s name matches the vendor&apos;s legal name and that the document is stamped by the bank.
+          </p>
+          <ul className="space-y-2">
+            {detail.proofDocuments.map((d) => (
+              <li
+                key={d.id}
+                className="flex flex-wrap items-center gap-3 rounded-md border border-border px-3 py-2"
+              >
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{d.documentName ?? d.typeName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {d.typeName} · uploaded {new Date(d.uploadedAt).toLocaleString()}
+                  </p>
+                </div>
+                <PayoutProofSheet doc={d}>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted"
+                  >
+                    View
+                  </button>
+                </PayoutProofSheet>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="admin-card">
         <h2 className="mb-3 text-sm font-semibold text-foreground">Review &amp; audit history</h2>
